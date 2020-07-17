@@ -174,7 +174,9 @@
               <jvmFlag>-Xmx128m</jvmFlag>
             </jvmFlags>
             <mainClass>net.pincette.json.streams.Application</mainClass>
-            <extraClasspath>/</extraClasspath>
+            <args>
+              <arg>run</arg>
+            </args>
             <workingDirectory>/</workingDirectory>
           </container>
         </configuration>
