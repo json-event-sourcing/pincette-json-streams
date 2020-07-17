@@ -399,7 +399,7 @@ You can run the JVM with the option ```-mx128m```.
 The command line has the commands ```build``` and ```run```. You can also use ```help``` to get a short overview, as well as ```build help``` and ```run help```.
 
 |Command|Option|Mandatory|Description|
-|---|---|---|
+|---|---|---|---|
 |build|-f \| --file|Yes|A file with an array of topologies (applications). It will inline everything resulting in one big JSON file. When no MongoDB collection has been specified it will dump the result on the terminal.|
 ||-c \| --collection|No|A MongoDB collection to which the generated file will be written using the application name as the ID. This means that each topology in the given array will go to its own document. Existing documents are overwritten.|
 |run|-f \| --file|No|A file with an array of topologies (applications). It builds and then runs all the topologies.|
