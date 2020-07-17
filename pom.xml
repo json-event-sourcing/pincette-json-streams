@@ -162,7 +162,7 @@
         <version>2.4.0</version>
         <configuration>
           <to>
-            <image>registry.hub.docker.com/json-event-sourcing/${project.name}</image>
+            <image>registry.hub.docker.com/jsoneventsourcing/${project.name}</image>
             <tags>
               <tag>${project.version}</tag>
               <tag>${env.GITHUB_SHA}</tag>
