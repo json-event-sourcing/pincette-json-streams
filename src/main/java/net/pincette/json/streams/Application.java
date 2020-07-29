@@ -990,8 +990,7 @@ public class Application {
   private static class Run implements Runnable {
     private final Context context;
 
-    @ArgGroup(multiplicity = "1")
-    FileOrCollection fileOrCollection;
+    @ArgGroup() FileOrCollection fileOrCollection;
 
     private Run(final Context context) {
       this.context = context;
@@ -1010,22 +1009,33 @@ public class Application {
           .map(Application::fromMongoDB);
     }
 
+    private Optional<FileOrCollection.CollectionOptions> getCollectionOptions() {
+      return ofNullable(fileOrCollection).map(f -> f.collection);
+    }
+
+    private Optional<File> getFile() {
+      return ofNullable(fileOrCollection).map(f -> f.file).map(o -> o.file);
+    }
+
     private Bson getFilter() {
-      return fileOrCollection.collection.query != null
-          ? from(fileOrCollection.collection.query)
-              .map(JsonValue::asJsonObject)
-              .map(BsonUtil::fromJson)
-              .orElse(null)
-          : null;
+      return getCollectionOptions()
+          .map(o -> o.query)
+          .flatMap(JsonUtil::from)
+          .map(JsonValue::asJsonObject)
+          .map(BsonUtil::fromJson)
+          .orElse(null);
     }
 
     private Stream<JsonObject> getTopologies() {
-      return fileOrCollection.file != null
-          ? getTopologies(fileOrCollection.file.file)
-          : getTopologies(
-              context.database.getCollection(
-                  getCollection(fileOrCollection.collection.collection, context)),
-              getFilter());
+      return getFile()
+          .map(Run::getTopologies)
+          .orElseGet(
+              () ->
+                  getTopologies(
+                      context.database.getCollection(
+                          getCollection(
+                              getCollectionOptions().map(o -> o.collection).orElse(null), context)),
+                      getFilter()));
     }
 
     public void run() {
@@ -1036,9 +1046,9 @@ public class Application {
                       specification ->
                           createTopology(
                               specification,
-                              fileOrCollection.file != null
-                                  ? fileOrCollection.file.file.getAbsoluteFile().getParentFile()
-                                  : null,
+                              getFile()
+                                  .map(file -> file.getAbsoluteFile().getParentFile())
+                                  .orElse(null),
                               context)))
           .map(Streams::start)
           .filter(result -> !result)
