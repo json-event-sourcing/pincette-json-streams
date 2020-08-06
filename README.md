@@ -6,6 +6,8 @@
 - [JSON Event Sourcing Reactors](#json-event-sourcing-reactors)
 - [Stream Mergers](#stream-mergers)
 - [Stream Joiners](#stream-joiners)
+- [Available MongoDB Operators](#available-mongodb-operators)
+- [JSLT Custom Functions](#jslt-custom-functions)
 - [Data Serialisation](#data-serialisation)
 - [Troubleshooting](#troubleshooting)
 - [Building It](#building-it)
@@ -367,6 +369,14 @@ The following example joins the command and event streams from the above-mention
   }
 }
 ```
+
+## Available MongoDB Operators
+
+The available MongoDB operators are described in [pincette-mongo](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0.2/net/pincette/mongo/Expression.html) and [pincette-mongo-streams](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html).
+
+## JSLT Custom Functions
+
+The supported JSLT custom functions are described at [pincette-json](https://www.javadoc.io/static/net.pincette/pincette-json/1.3.6/net/pincette/json/Jslt.html).
 
 ## Data Serialisation
 

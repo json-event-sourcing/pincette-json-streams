@@ -29,7 +29,7 @@ import static net.pincette.jes.util.Validation.validator;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
-import static net.pincette.json.Jslt.parseIsoInstant;
+import static net.pincette.json.Jslt.customFunctions;
 import static net.pincette.json.Jslt.registerCustomFunctions;
 import static net.pincette.json.Jslt.trace;
 import static net.pincette.json.Jslt.tryTransformer;
@@ -59,9 +59,9 @@ import static net.pincette.mongo.JsonClient.find;
 import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.mongo.Match.predicate;
 import static net.pincette.util.Builder.create;
-import static net.pincette.util.Collections.list;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.set;
+import static net.pincette.util.Collections.union;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
@@ -98,6 +98,7 @@ import javax.json.JsonArrayBuilder;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
+import javax.json.JsonStructure;
 import javax.json.JsonValue;
 import net.pincette.function.SideEffect;
 import net.pincette.jes.Aggregate;
@@ -549,7 +550,7 @@ public class Application {
             () -> createReader(getInputStream(path, baseDirectory)),
             reader ->
                 resolve(
-                    reader.readArray().stream(),
+                    readParts(reader),
                     path.startsWith(RESOURCE)
                         ? baseDirectory
                         : new File(baseDirectory, path).getParentFile()))
@@ -567,7 +568,7 @@ public class Application {
     final Logger logger = Logger.getLogger(LOGGER);
 
     logger.setLevel(context.logLevel);
-    registerCustomFunctions(list(parseIsoInstant(), trace(logger)));
+    registerCustomFunctions(union(customFunctions(), set(trace(logger))));
 
     tryToDoWithRethrow(
         () -> create(context.config.getString(MONGODB_URI)),
@@ -605,6 +606,12 @@ public class Application {
 
   private static Stream<JsonObject> readObjects(final JsonReader reader) {
     return reader.readArray().stream().filter(JsonUtil::isObject).map(JsonValue::asJsonObject);
+  }
+
+  private static Stream<JsonValue> readParts(final JsonReader reader) {
+    final JsonStructure result = reader.read();
+
+    return isArray(result) ? result.asJsonArray().stream() : Stream.of(result);
   }
 
   private static Aggregate reducers(
