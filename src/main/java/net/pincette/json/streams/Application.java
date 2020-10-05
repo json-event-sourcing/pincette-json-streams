@@ -24,6 +24,7 @@ import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
 import static net.pincette.jes.util.Mongo.withResolver;
 import static net.pincette.jes.util.MongoExpressions.operators;
+import static net.pincette.jes.util.Streams.start;
 import static net.pincette.jes.util.Util.compose;
 import static net.pincette.jes.util.Validation.validator;
 import static net.pincette.json.Factory.f;
@@ -44,6 +45,7 @@ import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
+import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
@@ -62,6 +64,7 @@ import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
+import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
@@ -108,6 +111,7 @@ import net.pincette.jes.Reactor;
 import net.pincette.jes.util.JsonSerializer;
 import net.pincette.jes.util.Reducer;
 import net.pincette.jes.util.Streams;
+import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
 import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform.JsonEntry;
@@ -179,7 +183,9 @@ public class Application {
   private static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
   private static final String TO_STRING = "toString";
   private static final String TO_TOPIC = "toTopic";
+  private static final String TOPOLOGY_TOPIC = "topologyTopic";
   private static final String TYPE = "type";
+  private static final String UNIQUE_EXPRESSION = "uniqueExpression";
   private static final String VALIDATOR = "validator";
   private static final String VERSION = "version";
   private static final String WINDOW = "window";
@@ -257,9 +263,10 @@ public class Application {
                             .withType(aggregateType.second)
                             .withMongoDatabase(context.database)
                             .withBuilder(context.builder))
+                .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
                 .updateIf(
-                    () -> ofNullable(config.getString(ENVIRONMENT, null)),
-                    Aggregate::withEnvironment)
+                    () -> getValue(config, "/" + UNIQUE_EXPRESSION),
+                    Aggregate::withUniqueExpression)
                 .build(),
             config,
             context);
@@ -280,9 +287,11 @@ public class Application {
     return toStream(
         fromStream(config.getJsonObject(LEFT), context)
             .map((k, v) -> switchKey(v, leftKey))
+            .filter((k, v) -> k != null && v != null)
             .join(
                 fromStream(config.getJsonObject(RIGHT), context)
-                    .map((k, v) -> switchKey(v, rightKey)),
+                    .map((k, v) -> switchKey(v, rightKey))
+                    .filter((k, v) -> k != null && v != null),
                 (v1, v2) -> createObjectBuilder().add(LEFT, v1).add(RIGHT, v2).build(),
                 JoinWindows.of(Duration.ofMillis(config.getInt(WINDOW)))),
         config);
@@ -338,7 +347,7 @@ public class Application {
                             context))
                     .withEventToCommand(
                         eventToCommand(config.getString(EVENT_TO_COMMAND), context)))
-        .updateIf(() -> ofNullable(config.getString(ENVIRONMENT, null)), Reactor::withEnvironment)
+        .updateIf(() -> environment(config, context), Reactor::withEnvironment)
         .updateIf(
             () -> ofNullable(config.getJsonObject(FILTER)), (r, f) -> r.withFilter(predicate(f)))
         .build()
@@ -404,8 +413,14 @@ public class Application {
     topologyContext.database = context.database;
     topologyContext.environment = context.environment;
     topologyContext.logLevel = context.logLevel;
+    topologyContext.validators = new Validator();
 
     return topologyContext;
+  }
+
+  private static Optional<String> environment(
+      final JsonObject config, final TopologyContext context) {
+    return tryWith(() -> config.getString(ENVIRONMENT, null)).or(() -> context.environment).get();
   }
 
   private static String escapeDotted(final String path) {
@@ -604,6 +619,12 @@ public class Application {
                     e.path, from(resolve(e.value.asJsonArray().stream(), baseDirectory)))));
   }
 
+  private static JsonObject readObject(final String path, final File baseDirectory) {
+    return tryToGetWithRethrow(
+            () -> createReader(getInputStream(path, baseDirectory)), JsonReader::readObject)
+        .orElse(null);
+  }
+
   private static Stream<JsonObject> readObjects(final JsonReader reader) {
     return reader.readArray().stream().filter(JsonUtil::isObject).map(JsonValue::asJsonObject);
   }
@@ -664,7 +685,12 @@ public class Application {
         ? jslt
         : Optional.of(new File(baseDirectory, jslt))
             .filter(File::exists)
-            .map(file -> resolveJsltImports(file, imports, baseDirectory))
+            .map(
+                file ->
+                    "// "
+                        + importPath(file, baseDirectory)
+                        + "\n"
+                        + resolveJsltImports(file, imports, baseDirectory))
             .orElse(jslt);
   }
 
@@ -684,7 +710,11 @@ public class Application {
 
   private static String resolveJsltImports(
       final File jslt, final JsonObjectBuilder imports, final File baseDirectory) {
-    return tryToGetRethrow(() -> lines(jslt.toPath(), UTF_8))
+    return tryToGetRethrow(
+            () ->
+                concat(
+                    Stream.of("// " + importPath(jslt, baseDirectory)),
+                    lines(jslt.toPath(), UTF_8)))
         .orElseGet(Stream::empty)
         .map(
             line ->
@@ -701,7 +731,10 @@ public class Application {
 
   private static KeyValue<String, JsonObject> switchKey(
       final JsonObject json, final Function<JsonObject, JsonValue> key) {
-    return new KeyValue<>(toNative(key.apply(json)).toString(), json);
+    return ofNullable(toNative(key.apply(json)))
+        .map(Object::toString)
+        .map(k -> new KeyValue<>(k, json))
+        .orElseGet(() -> new KeyValue<>(null, null));
   }
 
   private static JsonObject toMongoDB(final JsonObject json) {
@@ -826,6 +859,12 @@ public class Application {
       getGlobal().severe("A part should have a \"type\" field.");
     }
 
+    result = specification.getString(NAME, null) != null;
+
+    if (!result) {
+      getGlobal().severe("A part should have a \"name\" field.");
+    }
+
     result &=
         ofNullable(specification.getString(TYPE, null))
             .filter(type -> validatePart(type, specification))
@@ -912,12 +951,20 @@ public class Application {
 
   private static Transformer validatorResolver(final TopologyContext context) {
     return new Transformer(
-        e -> isValidatorPath(e.path) && isObject(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(
-                    e.path,
-                    context.validators.resolve(e.value.asJsonObject(), context.baseDirectory))));
+            e -> isValidatorPath(e.path) && isString(e.value),
+            e ->
+                Optional.of(
+                    new JsonEntry(
+                        e.path, readObject(asString(e.value).getString(), context.baseDirectory))))
+        .thenApply(
+            new Transformer(
+                e -> isValidatorPath(e.path) && isObject(e.value),
+                e ->
+                    Optional.of(
+                        new JsonEntry(
+                            e.path,
+                            context.validators.resolve(
+                                e.value.asJsonObject(), context.baseDirectory)))));
   }
 
   @Command(
@@ -996,7 +1043,6 @@ public class Application {
       description = "Runs topologies from a file containing a JSON array or a MongoDB collection")
   private static class Run implements Runnable {
     private final Context context;
-
     @ArgGroup() FileOrCollection fileOrCollection;
 
     private Run(final Context context) {
@@ -1057,9 +1103,22 @@ public class Application {
                                   .map(file -> file.getAbsoluteFile().getParentFile())
                                   .orElse(null),
                               context)))
-          .map(Streams::start)
+          .map(topologies -> start(topologies, topologyLifeCycleEmitter()))
           .filter(result -> !result)
           .ifPresent(result -> exit(1));
+    }
+
+    private TopologyLifeCycleEmitter topologyLifeCycleEmitter() {
+      return tryToGetSilent(() -> context.config.getString(TOPOLOGY_TOPIC))
+          .map(
+              topic ->
+                  new TopologyLifeCycleEmitter(
+                      topic,
+                      createReliableProducer(
+                          fromConfig(context.config, KAFKA),
+                          new StringSerializer(),
+                          new JsonSerializer())))
+          .orElse(null);
     }
 
     private static class FileOrCollection {
@@ -1094,7 +1153,6 @@ public class Application {
   private static class TopologyContext {
     private final Map<String, JsonObject> configurations = new HashMap<>();
     private final Map<String, KStream<String, JsonObject>> streams = new HashMap<>();
-    private final Validator validators = new Validator();
     private String application;
     private File baseDirectory;
     private StreamsBuilder builder;
@@ -1102,5 +1160,6 @@ public class Application {
     private String environment;
     private Features features;
     private Level logLevel;
+    private Validator validators;
   }
 }

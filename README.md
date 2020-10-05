@@ -9,6 +9,7 @@
 - [Available MongoDB Operators](#available-mongodb-operators)
 - [JSLT Custom Functions](#jslt-custom-functions)
 - [Data Serialisation](#data-serialisation)
+- [Topology Life Cycle Events](#topology-life-cycle-events)
 - [Troubleshooting](#troubleshooting)
 - [Building It](#building-it)
 - [The Command Line](#the-command-line)
@@ -116,7 +117,9 @@ An aggregate part has the following fields:
 |---|---|---|
 |aggregateType|Yes|The name of the aggregate. Usually is it composed as ```<app>-<type>```.|
 |commands|Yes|An array of JSON objects.|
+|environment|No|The environment for the aggregate. This will be used for Kafka topic suffixes.|
 |type|Yes|The value is always ```aggregate```.|
+|uniqueExpression|No|A MongoDB expression that is executed on aggregate instances. This expresses the uniqueness of aggregate instances based on some criterion.|
 
 Commands have the following fields:
 
@@ -124,7 +127,7 @@ Commands have the following fields:
 |---|---|---|
 |name|Yes|The name of the command. It will be available in the reducer as the field ```/command/_command```.|
 |reducer|Yes|The relative filename of a JSLT script.|
-|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0/net/pincette/mongo/Validator.html).|
+|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants te refer to the current state of an aggregate instance it can use the field ```_state```.|
 
 An aggregate creates the streams with the names ```<app>-<type>-aggregate```, ```<app>-<type>-command```, ```<app>-<type>-event```, ```<app>-<type>-event-full``` and ```<app>-<type>-reply```. Their meaning is described in [JSON Event Sourcing](https://github.com/json-event-sourcing/pincette-jes#the-kafka-topics). You can connect to those streams in other parts of the application.
 
@@ -382,6 +385,30 @@ The supported JSLT custom functions are described at [pincette-json](https://www
 
 All messages are serialised with the [JSON Event Sourcing serialiser](https://www.javadoc.io/static/net.pincette/pincette-jes-util/1.3.2/net/pincette/jes/util/JsonSerde.html). It first encodes a ```JsonObject``` in [CBOR](https://tools.ietf.org/html/rfc7049). Then it is compressed in GZIP format (see also [RFC 1951](https://tools.ietf.org/html/rfc1951) and [RFC 1952](https://tools.ietf.org/html/rfc1952)). The deserialiser falls back to JSON in string format.
 
+## Topology Life Cycle Events
+
+If a topology Kafka topic is set in the configuration then life cycle events will be published to it when topologies start and stop. The messages contain the application, the action and the external Kafka topics that go in and out of the topology. This is an example:
+
+```
+{
+  "application": "json-streams-topologies",
+  "in": [
+    "jes-topologies-command-tst",
+    "jes-topologies-unique-tst",
+    "topology-tst"
+  ],
+  "out": [
+    "jes-topologies-command-tst",
+    "jes-topologies-event-full-tst",
+    "jes-topologies-reply-tst",
+    "jes-topologies-event-tst",
+    "jes-topologies-unique-tst",
+    "jes-topologies-aggregate-tst"
+  ],
+  "action": "stop"
+}
+```
+
 ## Troubleshooting
 
 Creating declarative data pipelines like this can quickly become quite complex. So you need to be able to debug them. There are a few tools to help with this.
@@ -402,7 +429,7 @@ You can build the tool with ```mvn clean package```. This will produce a self-co
 
 The total number of threads across all the instances should not exceed the number of partitions for the Kafka topics. Additional threads will be idle.
 
-You can run the JVM with the option ```-mx128m```.
+You can run the JVM with the option ```-mx256m```.
 
 ## The Command Line
 
@@ -432,6 +459,7 @@ The configuration is managed by the
 |mongodb.uri|The MongoDB connection URL.|
 |mongodb.database|The MongoDB database.|
 |mongodb.collection|The default MongoDB collection where builds are written and run from.|
+|topologyTopic|When this entry is present topology life cycle events will be published to it.|
 
 ## Docker Image
 
