@@ -24,7 +24,20 @@ With this tool you can run event streaming applications using JSON messages in a
 - Stream mergers;
 - Stream joiners.
 
-Everything can be described with a set of JSON and [JSLT](https://github.com/schibsted/jslt) files. The tool has a build command with which you create one big JSON file, where everything is inlined. The result can also be stored in a MongoDB collection. The run command can either use a file or a MongoDB collection to run from. In the latter case all documents are run as separate topologies. Optionally you can add a MongoDB query to run only a subset.
+Everything can be described with a set of JSON and [JSLT](https://github.com/schibsted/jslt) files. An input file is an array of applications, which are JSON objects. They are all run as separate Kafka Streams topologies. It is also allowed to use a relative filename instead of an object. The file should then contain the application JSON object. So the input looks like this:
+
+```
+[
+  {
+    "application": "myapp1",
+    ...    
+  },
+  "myapp2.json"  
+]
+```
+
+The tool has a build command with which you create one big JSON file, where everything is inlined. The result can also be stored in a MongoDB collection. The run command can either use a file or a MongoDB collection to run from. In the latter case all documents are considered to be applications. Optionally you can add a MongoDB query to run only a subset.
+
 
 ## An Application
 
@@ -59,7 +72,7 @@ Doing event streaming usually comes with pipelines that transform and/or aggrega
 |fromStream|Exclusive with ```fromTopic```|The name of the stream to which this stream will be connected.|
 |fromTopic|Exclusive with ```fromStream```|The name of the Kafka topic to which this stream will be connected as a consumer.|
 |name|Yes|The name of the stream. Other parts can connect to this stream with that name.|
-|pipeline|Yes|An array of [pipeline stages](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html). These are either JSON objects or relative filenames, in which case the stage is loaded from there.|
+|pipeline|No|An array of [pipeline stages](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html). These are either JSON objects or relative filenames, in which case the stage is loaded from there.|
 |toString|No|A boolean field that, when the ```toTopic``` field is present, will cause the JSON messages to be written as strings.| 
 |toTopic|No|The name of the Kafka topic to which this stream will be connected as a producer.|
 |type|Yes|The value is always ```stream```.|
@@ -116,7 +129,7 @@ An aggregate part has the following fields:
 |Field|Mandatory|Description|
 |---|---|---|
 |aggregateType|Yes|The name of the aggregate. Usually is it composed as ```<app>-<type>```.|
-|commands|Yes|An array of JSON objects.|
+|commands|No|An array of JSON objects. If no commands are given only the built-in commands ```put```, ```delete``` and ```patch``` will be available.|
 |environment|No|The environment for the aggregate. This will be used for Kafka topic suffixes.|
 |type|Yes|The value is always ```aggregate```.|
 |uniqueExpression|No|A MongoDB expression that is executed on aggregate instances. This expresses the uniqueness of aggregate instances based on some criterion.|

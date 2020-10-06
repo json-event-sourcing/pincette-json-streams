@@ -373,7 +373,9 @@ public class Application {
         Pipeline.create(
             context.application,
             fromStream(config, context),
-            from(resolve(config.getJsonArray(PIPELINE).stream(), context.baseDirectory)),
+            from(
+                resolve(
+                    getPipeline(config, context.baseDirectory).stream(), context.baseDirectory)),
             context.database,
             context.logLevel.equals(FINEST),
             context.features),
@@ -500,6 +502,17 @@ public class Application {
     return logger;
   }
 
+  private static JsonArray getPipeline(final JsonObject config, final File baseDirectory) {
+    return getValue(config, "/" + PIPELINE)
+        .filter(value -> isString(value) || isArray(value))
+        .map(
+            value ->
+                isString(value)
+                    ? readArray(asString(value).getString(), baseDirectory)
+                    : value.asJsonArray())
+        .orElseGet(JsonUtil::emptyArray);
+  }
+
   private static KStream<String, JsonObject> getStream(
       final String name, final TopologyContext context) {
     return context.streams.computeIfAbsent(
@@ -619,20 +632,39 @@ public class Application {
                     e.path, from(resolve(e.value.asJsonArray().stream(), baseDirectory)))));
   }
 
+  private static JsonArray readArray(final String path, final File baseDirectory) {
+    return tryToGetWithRethrow(
+            () -> createReader(getInputStream(path, baseDirectory)), JsonReader::readArray)
+        .orElse(null);
+  }
+
   private static JsonObject readObject(final String path, final File baseDirectory) {
     return tryToGetWithRethrow(
             () -> createReader(getInputStream(path, baseDirectory)), JsonReader::readObject)
         .orElse(null);
   }
 
-  private static Stream<JsonObject> readObjects(final JsonReader reader) {
-    return reader.readArray().stream().filter(JsonUtil::isObject).map(JsonValue::asJsonObject);
-  }
-
   private static Stream<JsonValue> readParts(final JsonReader reader) {
     final JsonStructure result = reader.read();
 
     return isArray(result) ? result.asJsonArray().stream() : Stream.of(result);
+  }
+
+  private static Stream<JsonObject> readTopologies(final File file) {
+    return tryToGetWithRethrow(
+            () -> createReader(new FileInputStream(file)),
+            reader ->
+                reader.readArray().stream()
+                    .filter(value -> isObject(value) || isString(value))
+                    .map(
+                        value ->
+                            isObject(value)
+                                ? value.asJsonObject()
+                                : readObject(
+                                    asString(value).getString(),
+                                    file.getAbsoluteFile().getParentFile()))
+                    .filter(Application::validateTopology))
+        .orElseGet(Stream::empty);
   }
 
   private static Aggregate reducers(
@@ -770,14 +802,10 @@ public class Application {
   }
 
   private static boolean validateAggregate(final JsonObject specification) {
-    boolean result =
-        specification.getString(AGGREGATE_TYPE, null) != null
-            && specification.getJsonArray(COMMANDS) != null;
+    boolean result = specification.getString(AGGREGATE_TYPE, null) != null;
 
     if (!result) {
-      getGlobal()
-          .severe(
-              "An aggregate should have the \"aggregateType\" field and the \"commands\" array.");
+      getGlobal().severe("An aggregate should have the \"aggregateType\" field.");
     }
 
     result &= validateCommands(specification);
@@ -918,7 +946,6 @@ public class Application {
   private static boolean validateStream(final JsonObject specification) {
     final boolean result =
         specification.getString(NAME, null) != null
-            && specification.getJsonArray(PIPELINE) != null
             && (specification.getString(FROM_STREAM, null) != null
                 || specification.getString(FROM_TOPIC, null) != null);
 
@@ -926,8 +953,8 @@ public class Application {
       getGlobal()
           .log(
               SEVERE,
-              "The stream {0} should have the fields \"name\", \"pipeline\" and either "
-                  + "\"fromStream\" or \"fromTopic\".",
+              "The stream {0} should have the field \"name\" and either \"fromStream\" or"
+                  + " \"fromTopic\".",
               new Object[] {specification.getString(NAME, null)});
     }
 
@@ -988,20 +1015,16 @@ public class Application {
       this.context = context;
     }
 
-    private Optional<JsonArray> buildTopologies() {
-      return tryToGetWithRethrow(
-          () -> createReader(new FileInputStream(file)),
-          reader ->
-              readObjects(reader)
-                  .filter(Application::validateTopology)
-                  .map(
-                      specification ->
-                          build(
-                              specification,
-                              createTopologyContext(
-                                  specification, file.getAbsoluteFile().getParentFile(), context)))
-                  .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
-                  .build());
+    private JsonArray buildTopologies() {
+      return readTopologies(file)
+          .map(
+              specification ->
+                  build(
+                      specification,
+                      createTopologyContext(
+                          specification, file.getAbsoluteFile().getParentFile(), context)))
+          .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
+          .build();
     }
 
     @SuppressWarnings("java:S106") // Not logging.
@@ -1011,21 +1034,18 @@ public class Application {
       if (col != null) {
         final MongoCollection<Document> c = context.database.getCollection(col);
 
-        buildTopologies()
-            .ifPresent(
-                array ->
-                    array.stream()
-                        .filter(JsonUtil::isObject)
-                        .map(JsonValue::asJsonObject)
-                        .map(Application::toMongoDB)
-                        .forEach(
-                            t ->
-                                update(c, t)
-                                    .thenApply(result -> must(result, r -> r))
-                                    .toCompletableFuture()
-                                    .join()));
+        buildTopologies().stream()
+            .filter(JsonUtil::isObject)
+            .map(JsonValue::asJsonObject)
+            .map(Application::toMongoDB)
+            .forEach(
+                t ->
+                    update(c, t)
+                        .thenApply(result -> must(result, r -> r))
+                        .toCompletableFuture()
+                        .join());
       } else {
-        buildTopologies().ifPresent(array -> System.out.println(string(array)));
+        System.out.println(string(buildTopologies()));
       }
     }
   }
@@ -1047,13 +1067,6 @@ public class Application {
 
     private Run(final Context context) {
       this.context = context;
-    }
-
-    private static Stream<JsonObject> getTopologies(final File file) {
-      return tryToGetWithRethrow(
-              () -> createReader(new FileInputStream(file)),
-              reader -> readObjects(reader).filter(Application::validateTopology))
-          .orElseGet(Stream::empty);
     }
 
     private static Stream<JsonObject> getTopologies(
@@ -1081,7 +1094,7 @@ public class Application {
 
     private Stream<JsonObject> getTopologies() {
       return getFile()
-          .map(Run::getTopologies)
+          .map(Application::readTopologies)
           .orElseGet(
               () ->
                   getTopologies(
