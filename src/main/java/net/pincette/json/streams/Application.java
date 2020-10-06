@@ -373,9 +373,7 @@ public class Application {
         Pipeline.create(
             context.application,
             fromStream(config, context),
-            from(
-                resolve(
-                    getPipeline(config, context.baseDirectory).stream(), context.baseDirectory)),
+            from(resolve(getPipeline(config).stream(), context.baseDirectory)),
             context.database,
             context.logLevel.equals(FINEST),
             context.features),
@@ -502,14 +500,9 @@ public class Application {
     return logger;
   }
 
-  private static JsonArray getPipeline(final JsonObject config, final File baseDirectory) {
+  private static JsonArray getPipeline(final JsonObject config) {
     return getValue(config, "/" + PIPELINE)
-        .filter(value -> isString(value) || isArray(value))
-        .map(
-            value ->
-                isString(value)
-                    ? readArray(asString(value).getString(), baseDirectory)
-                    : value.asJsonArray())
+        .map(JsonValue::asJsonArray)
         .orElseGet(JsonUtil::emptyArray);
   }
 
@@ -624,12 +617,23 @@ public class Application {
   }
 
   private static Transformer partsResolver(final File baseDirectory) {
+    return pipelineResolver(baseDirectory)
+        .thenApply(
+            new Transformer(
+                e -> isPartsPath(e.path) && isArray(e.value),
+                e ->
+                    Optional.of(
+                        new JsonEntry(
+                            e.path,
+                            from(resolve(e.value.asJsonArray().stream(), baseDirectory))))));
+  }
+
+  private static Transformer pipelineResolver(final File baseDirectory) {
     return new Transformer(
-        e -> isPartsPath(e.path) && isArray(e.value),
+        e -> e.path.endsWith(PIPELINE) && isString(e.value),
         e ->
             Optional.of(
-                new JsonEntry(
-                    e.path, from(resolve(e.value.asJsonArray().stream(), baseDirectory)))));
+                new JsonEntry(e.path, readArray(asString(e.value).getString(), baseDirectory))));
   }
 
   private static JsonArray readArray(final String path, final File baseDirectory) {
