@@ -1,7 +1,6 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.reactivestreams.client.MongoClients.create;
-import static java.lang.String.join;
 import static java.lang.System.exit;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
@@ -52,7 +51,6 @@ import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.Transform.nopTransformer;
-import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.Expression.replaceVariables;
@@ -66,7 +64,6 @@ import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
-import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 import static net.pincette.util.Util.tryToGetRethrow;
@@ -89,7 +86,6 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -178,6 +174,7 @@ public class Application {
   private static final String REDUCER = "reducer";
   private static final String RESOURCE = "resource:";
   private static final String RIGHT = "right";
+  private static final String SLASH = "_slash_";
   private static final String SOURCE_TYPE = "sourceType";
   private static final String STREAM = "stream";
   private static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
@@ -189,21 +186,6 @@ public class Application {
   private static final String VALIDATOR = "validator";
   private static final String VERSION = "version";
   private static final String WINDOW = "window";
-  private static final Transformer ESCAPE_DOTTED =
-      new Transformer(
-          e -> isDotted(e.path), e -> Optional.of(new JsonEntry(escapeDotted(e.path), e.value)));
-  private static final Transformer ESCAPE_OPERATORS =
-      new Transformer(
-          e -> isOperator(e.path),
-          e -> Optional.of(new JsonEntry(escapeOperator(e.path), e.value)));
-  private static final Transformer UNESCAPE_DOTTED =
-      new Transformer(
-          e -> isEscapedDotted(e.path),
-          e -> Optional.of(new JsonEntry(unescapeDotted(e.path), e.value)));
-  private static final Transformer UNESCAPE_OPERATORS =
-      new Transformer(
-          e -> isEscapedOperator(e.path),
-          e -> Optional.of(new JsonEntry(unescapeOperator(e.path), e.value)));
 
   private Application() {}
 
@@ -423,12 +405,8 @@ public class Application {
     return tryWith(() -> config.getString(ENVIRONMENT, null)).or(() -> context.environment).get();
   }
 
-  private static String escapeDotted(final String path) {
-    return replaceField(path, s -> s.replace(".", DOT));
-  }
-
-  private static String escapeOperator(final String path) {
-    return replaceField(path, s -> DOLLAR + s.substring(1));
+  private static String escapeFieldName(final String name) {
+    return name.replace(".", DOT).replace("/", SLASH).replace("$", DOLLAR);
   }
 
   private static EventToCommand eventToCommand(final String jslt, final TopologyContext context) {
@@ -439,7 +417,7 @@ public class Application {
   }
 
   private static JsonObject fromMongoDB(final JsonObject json) {
-    return transform(json, UNESCAPE_DOTTED.thenApply(UNESCAPE_OPERATORS), "/");
+    return transformFieldNames(json, Application::unescapeFieldName);
   }
 
   private static KStream<String, JsonObject> fromStream(
@@ -520,30 +498,10 @@ public class Application {
             .replace('\\', '/'));
   }
 
-  private static boolean isDotted(final String path) {
-    return isField(path, s -> s.contains("."));
-  }
-
-  private static boolean isEscapedDotted(final String path) {
-    return isField(path, s -> s.contains(DOT));
-  }
-
-  private static boolean isEscapedOperator(final String path) {
-    return isField(path, s -> s.startsWith(DOLLAR));
-  }
-
-  private static boolean isField(final String path, final Predicate<String> predicate) {
-    return getLastSegment(path, "/").filter(predicate).isPresent();
-  }
-
   private static boolean isJsltPath(final String path) {
     return path.endsWith(JSLT)
         || path.endsWith(COMMANDS + "." + REDUCER)
         || path.endsWith(EVENT_TO_COMMAND);
-  }
-
-  private static boolean isOperator(final String path) {
-    return isField(path, s -> s.startsWith("$"));
   }
 
   private static boolean isPartsPath(final String path) {
@@ -696,14 +654,6 @@ public class Application {
                     e.path, createValue(asString(e.value).getString().replace(ENV, environment)))));
   }
 
-  private static String replaceField(final String path, final UnaryOperator<String> replace) {
-    final String[] segments = path.split("/");
-
-    segments[segments.length - 1] = replace.apply(segments[segments.length - 1]);
-
-    return join("/", segments);
-  }
-
   private static Stream<JsonValue> resolve(
       final Stream<JsonValue> sequence, final File baseDirectory) {
     return sequence
@@ -774,7 +724,35 @@ public class Application {
   }
 
   private static JsonObject toMongoDB(final JsonObject json) {
-    return transform(json, ESCAPE_DOTTED.thenApply(ESCAPE_OPERATORS), "/");
+    return transformFieldNames(json, Application::escapeFieldName);
+  }
+
+  private static JsonObject transformFieldNames(
+      final JsonObject json, final UnaryOperator<String> op) {
+    return json.entrySet().stream()
+        .map(e -> pair(op.apply(e.getKey()), transformFieldNames(e.getValue(), op)))
+        .reduce(createObjectBuilder(), (b, pair) -> b.add(pair.first, pair.second), (b1, b2) -> b1)
+        .build();
+  }
+
+  private static JsonArray transformFieldNames(
+      final JsonArray json, final UnaryOperator<String> op) {
+    return json.stream()
+        .map(v -> transformFieldNames(v, op))
+        .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
+        .build();
+  }
+
+  private static JsonValue transformFieldNames(
+      final JsonValue json, final UnaryOperator<String> op) {
+    switch (json.getValueType()) {
+      case OBJECT:
+        return transformFieldNames(json.asJsonObject(), op);
+      case ARRAY:
+        return transformFieldNames(json.asJsonArray(), op);
+      default:
+        return json;
+    }
   }
 
   @SuppressWarnings("java:S1905") // Fixes an ambiguity.
@@ -797,12 +775,8 @@ public class Application {
         .orElse(stream);
   }
 
-  private static String unescapeDotted(final String path) {
-    return replaceField(path, s -> s.replace(DOT, "."));
-  }
-
-  private static String unescapeOperator(final String path) {
-    return replaceField(path, s -> "$" + s.substring(DOLLAR.length()));
+  private static String unescapeFieldName(final String name) {
+    return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
   }
 
   private static boolean validateAggregate(final JsonObject specification) {
@@ -848,8 +822,8 @@ public class Application {
     final boolean result =
         specification.getString(NAME, null) != null
             && getNumber(specification, "/" + WINDOW).isPresent()
-            && getString(specification, left + ON).isPresent()
-            && getString(specification, right + ON).isPresent()
+            && getValue(specification, left + ON).isPresent()
+            && getValue(specification, right + ON).isPresent()
             && (getString(specification, left + FROM_STREAM).isPresent()
                 || getString(specification, left + FROM_TOPIC).isPresent())
             && (getString(specification, right + FROM_STREAM).isPresent()
