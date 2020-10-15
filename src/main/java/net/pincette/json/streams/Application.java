@@ -65,6 +65,7 @@ import static net.pincette.util.Collections.union;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.must;
+import static net.pincette.util.Util.replaceAll;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
@@ -144,7 +145,8 @@ public class Application {
   private static final String DESTINATIONS = "destinations";
   private static final String DOLLAR = "_dollar_";
   private static final String DOT = "_dot_";
-  private static final String ENV = "${ENV}";
+  private static final String ENV = "ENV";
+  private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
   private static final String ENVIRONMENT = "environment";
   private static final String EVENT = "$$event";
   private static final String EVENT_TO_COMMAND = "eventToCommand";
@@ -167,6 +169,7 @@ public class Application {
   private static final String MONGODB_URI = "mongodb.uri";
   private static final String NAME = "name";
   private static final String ON = "on";
+  private static final String PARAMETERS = "parameters";
   private static final String PARTS = "parts";
   private static final String PIPELINE = "pipeline";
   private static final String PROJECT = "$project";
@@ -212,6 +215,7 @@ public class Application {
         ofNullable(specification.getJsonObject(JSLT_IMPORTS))
             .map(JsonUtil::createObjectBuilder)
             .orElseGet(JsonUtil::createObjectBuilder);
+    final JsonObject parameters = parameters(specification, topologyContext);
 
     return transformBuilder(
             specification,
@@ -219,9 +223,7 @@ public class Application {
                 .thenApply(jsltResolver(imports, topologyContext.baseDirectory))
                 .thenApply(validatorResolver(topologyContext))
                 .thenApply(
-                    topologyContext.environment != null
-                        ? replaceEnvironment(topologyContext.environment)
-                        : nopTransformer()))
+                    !parameters.isEmpty() ? replaceParameters(parameters) : nopTransformer()))
         .add(JSLT_IMPORTS, imports)
         .add(ID, specification.getString(APPLICATION_FIELD))
         .build();
@@ -364,20 +366,20 @@ public class Application {
 
   @SuppressWarnings("java:S3398")
   private static Pair<Topology, Properties> createTopology(
-      final JsonObject specification, final File baseDirectory, final Context context) {
-    final TopologyContext topologyContext =
-        createTopologyContext(specification, baseDirectory, context);
+      final JsonObject specification,
+      final TopologyContext topologyContext,
+      final Context context) {
     final Properties streamsConfig = Streams.fromConfig(context.config, KAFKA);
-    final JsonObject built = build(specification, topologyContext);
 
     topologyContext.features =
         context.features.withJsltResolver(
             new MapResolver(
-                ofNullable(built.getJsonObject(JSLT_IMPORTS))
+                ofNullable(specification.getJsonObject(JSLT_IMPORTS))
                     .map(Application::convertJsltImports)
                     .orElseGet(Collections::emptyMap)));
 
-    final Topology topology = createParts(built.getJsonArray(PARTS), topologyContext).build();
+    final Topology topology =
+        createParts(specification.getJsonArray(PARTS), topologyContext).build();
 
     streamsConfig.setProperty(APPLICATION_ID, topologyContext.application);
     getLogger(specification, context).log(INFO, "Topology:\n\n {0}", topology.describe());
@@ -529,7 +531,7 @@ public class Application {
             () -> createReader(getInputStream(path, baseDirectory)),
             reader ->
                 resolve(
-                    readParts(reader),
+                    readSequenceParts(reader),
                     path.startsWith(RESOURCE)
                         ? baseDirectory
                         : new File(baseDirectory, path).getParentFile()))
@@ -567,6 +569,18 @@ public class Application {
         });
   }
 
+  private static JsonObject parameters(
+      final JsonObject specification, final TopologyContext topologyContext) {
+    return create(
+            () ->
+                createObjectBuilder(
+                    ofNullable(specification.getJsonObject(PARAMETERS))
+                        .orElseGet(JsonUtil::emptyObject)))
+        .updateIf(() -> ofNullable(topologyContext.environment), (b, e) -> b.add(ENV, e))
+        .build()
+        .build();
+  }
+
   private static Stream<JsonObject> parts(final JsonArray parts, final Set<String> types) {
     return parts.stream()
         .filter(JsonUtil::isObject)
@@ -575,7 +589,7 @@ public class Application {
   }
 
   private static Transformer partsResolver(final File baseDirectory) {
-    return pipelineResolver(baseDirectory)
+    return partsResolverFile(baseDirectory)
         .thenApply(
             new Transformer(
                 e -> isPartsPath(e.path) && isArray(e.value),
@@ -586,9 +600,9 @@ public class Application {
                             from(resolve(e.value.asJsonArray().stream(), baseDirectory))))));
   }
 
-  private static Transformer pipelineResolver(final File baseDirectory) {
+  private static Transformer partsResolverFile(final File baseDirectory) {
     return new Transformer(
-        e -> e.path.endsWith(PIPELINE) && isString(e.value),
+        e -> isPartsPath(e.path) && isString(e.value),
         e ->
             Optional.of(
                 new JsonEntry(e.path, readArray(asString(e.value).getString(), baseDirectory))));
@@ -606,7 +620,7 @@ public class Application {
         .orElse(null);
   }
 
-  private static Stream<JsonValue> readParts(final JsonReader reader) {
+  private static Stream<JsonValue> readSequenceParts(final JsonReader reader) {
     final JsonStructure result = reader.read();
 
     return isArray(result) ? result.asJsonArray().stream() : Stream.of(result);
@@ -624,8 +638,7 @@ public class Application {
                                 ? value.asJsonObject()
                                 : readObject(
                                     asString(value).getString(),
-                                    file.getAbsoluteFile().getParentFile()))
-                    .filter(Application::validateTopology))
+                                    file.getAbsoluteFile().getParentFile())))
         .orElseGet(Stream::empty);
   }
 
@@ -645,13 +658,35 @@ public class Application {
     return path.startsWith("/") ? path.substring(1) : path;
   }
 
-  private static Transformer replaceEnvironment(final String environment) {
+  private static Transformer replaceParameters(final JsonObject parameters) {
     return new Transformer(
-        e -> isString(e.value) && asString(e.value).getString().contains(ENV),
+        e -> isString(e.value) && ENV_PATTERN.matcher(asString(e.value).getString()).find(),
         e ->
             Optional.of(
                 new JsonEntry(
-                    e.path, createValue(asString(e.value).getString().replace(ENV, environment)))));
+                    e.path, replaceParameters(asString(e.value).getString(), parameters))));
+  }
+
+  private static JsonValue replaceParameters(final String s, final JsonObject parameters) {
+    return Optional.of(ENV_PATTERN.matcher(s))
+        .filter(Matcher::matches)
+        .map(
+            matcher ->
+                getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue("")))
+        .orElseGet(
+            () ->
+                createValue(
+                    replaceAll(
+                        s,
+                        ENV_PATTERN,
+                        matcher ->
+                            ofNullable(parameters.get(matcher.group(1)))
+                                .map(
+                                    value ->
+                                        isString(value)
+                                            ? asString(value).getString()
+                                            : string(value))
+                                .orElse(""))));
   }
 
   private static Stream<JsonValue> resolve(
@@ -942,14 +977,14 @@ public class Application {
   private static boolean validateTopology(final JsonObject specification) {
     boolean result =
         specification.getString(APPLICATION_FIELD, null) != null
-            && specification.getJsonArray(PARTS) != null;
+            && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
 
     if (!result) {
       getGlobal()
           .severe("A topology should have an \"application\" field and an array called \"parts\".");
+    } else {
+      result = getObjects(specification, PARTS).allMatch(Application::validatePart);
     }
-
-    result &= getObjects(specification, PARTS).allMatch(Application::validatePart);
 
     return result;
   }
@@ -1001,6 +1036,7 @@ public class Application {
                       specification,
                       createTopologyContext(
                           specification, file.getAbsoluteFile().getParentFile(), context)))
+          .filter(Application::validateTopology)
           .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
           .build();
     }
@@ -1085,15 +1121,19 @@ public class Application {
     public void run() {
       Optional.of(
               getTopologies()
-                  .filter(Application::validateTopology)
                   .map(
                       specification ->
-                          createTopology(
+                          pair(
                               specification,
-                              getFile()
-                                  .map(file -> file.getAbsoluteFile().getParentFile())
-                                  .orElse(null),
-                              context)))
+                              createTopologyContext(
+                                  specification,
+                                  getFile()
+                                      .map(file -> file.getAbsoluteFile().getParentFile())
+                                      .orElse(null),
+                                  context)))
+                  .map(pair -> pair(build(pair.first, pair.second), pair.second))
+                  .filter(pair -> validateTopology(pair.first))
+                  .map(pair -> createTopology(pair.first, pair.second, context)))
           .map(topologies -> start(topologies, topologyLifeCycleEmitter()))
           .filter(result -> !result)
           .ifPresent(result -> exit(1));
