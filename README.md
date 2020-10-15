@@ -6,6 +6,7 @@
 - [JSON Event Sourcing Reactors](#json-event-sourcing-reactors)
 - [Stream Mergers](#stream-mergers)
 - [Stream Joiners](#stream-joiners)
+- [Parameters](#parameters)
 - [Available MongoDB Operators](#available-mongodb-operators)
 - [JSLT Custom Functions](#jslt-custom-functions)
 - [Data Serialisation](#data-serialisation)
@@ -41,7 +42,7 @@ The tool has a build command with which you create one big JSON file, where ever
 
 ## An Application
 
-The structure of an application is very simple. It has an ```application``` field, which is a unique name, an optional ```version``` field and a ```parts``` field. The latter is an array of objects, which describe structures that contribute to the Kafka Streams topology. Instead of an object you can also use a relative filename. The part will be loaded from there then.
+The structure of an application is very simple. It has an ```application``` field, which is a unique name, an optional ```version``` field and a ```parts``` field. The latter is an array of objects, which describe structures that contribute to the Kafka Streams topology. Instead of an object you can also use a relative filename. The part will be loaded from there then. Alternatively the whole array can be replaced with a relative filename. The file should then contain the array of parts.
 
 ```
 {
@@ -385,6 +386,10 @@ The following example joins the command and event streams from the above-mention
   }
 }
 ```
+
+## Parameters
+
+The application may have the ```parameters``` field, which is an object. Elsewhere you can refer to the fields in the object with ```${<field name>}```. The references will be replaced with the values in the parameters object. When those values aren't strings then two things can happen. When the reference is alone in a string the replacement will be the actual value from the parameters object. Otherwise the value will be stringified prior to the replacement. 
 
 ## Available MongoDB Operators
 
