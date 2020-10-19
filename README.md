@@ -389,7 +389,7 @@ The following example joins the command and event streams from the above-mention
 
 ## Parameters
 
-The application may have the ```parameters``` field, which is an object. Elsewhere you can refer to the fields in the object with ```${<field name>}```. The references will be replaced with the values in the parameters object. When those values aren't strings then two things can happen. When the reference is alone in a string the replacement will be the actual value from the parameters object. Otherwise the value will be stringified prior to the replacement. 
+The application may have the ```parameters``` field, which is an object. Elsewhere you can refer to the fields in the object with ```${<field name>}```. The references will be replaced with the values in the parameters object. When those values aren't strings then two things can happen. When the reference is alone in a string the replacement will be the actual value from the parameters object. Otherwise the value will be stringified prior to the replacement. The substitution works for both keys and values. 
 
 ## Available MongoDB Operators
 
