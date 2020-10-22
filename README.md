@@ -25,7 +25,7 @@ With this tool you can run event streaming applications using JSON messages in a
 - Stream mergers;
 - Stream joiners.
 
-Everything can be described with a set of JSON and [JSLT](https://github.com/schibsted/jslt) files. An input file is an array of applications, which are JSON objects. They are all run as separate Kafka Streams topologies. It is also allowed to use a relative filename instead of an object. The file should then contain the application JSON object. So the input looks like this:
+Everything can be described with a set of JSON and [JSLT](https://github.com/schibsted/jslt) files. An input file is an array of applications, which are JSON objects. It may also be just one JSON object. The applications are all run as separate Kafka Streams topologies. It is also allowed to use a relative filename instead of an object. The file should then contain the application JSON object. So the input looks like this:
 
 ```
 [
