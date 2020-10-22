@@ -141,6 +141,7 @@ public class Application {
   private static final String APPLICATION_FIELD = "application";
   private static final String APPLICATION_ID = "application.id";
   private static final String COMMANDS = "commands";
+  private static final String CONFIG_PREFIX = "config:";
   private static final String DATABASE = "mongodb.database";
   private static final String DESTINATION_TYPE = "destinationType";
   private static final String DESTINATIONS = "destinations";
@@ -247,7 +248,7 @@ public class Application {
                         new Aggregate()
                             .withApp(aggregateType.first)
                             .withType(aggregateType.second)
-                            .withMongoDatabase(context.database)
+                            .withMongoDatabase(context.context.database)
                             .withBuilder(context.builder))
                 .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
                 .updateIf(
@@ -349,8 +350,8 @@ public class Application {
         validator != null
             ? compose(validator(context.validators.validator(validator)), reducer)
             : reducer,
-        context.environment,
-        context.database);
+        context.context.environment,
+        context.context.database);
   }
 
   private static KStream<String, JsonObject> createStream(
@@ -360,8 +361,8 @@ public class Application {
             context.application,
             fromStream(config, context),
             getPipeline(config),
-            context.database,
-            context.logLevel.equals(FINEST),
+            context.context.database,
+            context.context.logLevel.equals(FINEST),
             context.features),
         config);
   }
@@ -391,14 +392,11 @@ public class Application {
 
   private static TopologyContext createTopologyContext(
       final JsonObject specification, final File baseDirectory, final Context context) {
-    final TopologyContext topologyContext = new TopologyContext();
+    final TopologyContext topologyContext = new TopologyContext(context);
 
     topologyContext.application = specification.getString(APPLICATION_FIELD);
     topologyContext.baseDirectory = baseDirectory;
     topologyContext.builder = new StreamsBuilder();
-    topologyContext.database = context.database;
-    topologyContext.environment = context.environment;
-    topologyContext.logLevel = context.logLevel;
     topologyContext.validators = new Validator();
 
     return topologyContext;
@@ -406,7 +404,9 @@ public class Application {
 
   private static Optional<String> environment(
       final JsonObject config, final TopologyContext context) {
-    return tryWith(() -> config.getString(ENVIRONMENT, null)).or(() -> context.environment).get();
+    return tryWith(() -> config.getString(ENVIRONMENT, null))
+        .or(() -> context.context.environment)
+        .get();
   }
 
   private static String escapeFieldName(final String name) {
@@ -432,13 +432,18 @@ public class Application {
   }
 
   private static String getCollection(final String type, final TopologyContext context) {
-    return type + (context.environment != null ? ("-" + context.environment) : "");
+    return type + (context.context.environment != null ? ("-" + context.context.environment) : "");
   }
 
   private static String getCollection(final String collection, final Context context) {
     return collection != null
         ? collection
         : tryToGetSilent(() -> context.config.getString(MONGODB_COLLECTION)).orElse(null);
+  }
+
+  private static JsonValue getConfigValue(final JsonValue value, final Config config) {
+    return createValue(
+        config.getValue(asString(value).getString().substring(CONFIG_PREFIX.length())).unwrapped());
   }
 
   private static GetDestinations getDestinations(
@@ -448,7 +453,7 @@ public class Application {
 
     return event ->
         aggregationPublisher(
-            context.database.getCollection(getCollection(destinationType, context)),
+            context.context.database.getCollection(getCollection(destinationType, context)),
             replaceVariables(projected, map(pair(EVENT, event))).asJsonArray());
   }
 
@@ -508,6 +513,18 @@ public class Application {
             .getAbsolutePath()
             .substring(baseDirectory.getAbsoluteFile().getAbsolutePath().length())
             .replace('\\', '/'));
+  }
+
+  private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
+    return transform(
+        parameters,
+        new Transformer(
+            e -> isConfigRef(e.value),
+            e -> Optional.of(new JsonEntry(e.path, getConfigValue(e.value, config)))));
+  }
+
+  private static boolean isConfigRef(final JsonValue value) {
+    return isString(value) && asString(value).getString().startsWith(CONFIG_PREFIX);
   }
 
   private static boolean isJsltPath(final String path) {
@@ -586,13 +603,14 @@ public class Application {
   }
 
   private static JsonObject parameters(
-      final JsonObject specification, final TopologyContext topologyContext) {
+      final JsonObject specification, final TopologyContext context) {
     return create(
             () ->
                 createObjectBuilder(
                     ofNullable(specification.getJsonObject(PARAMETERS))
+                        .map(parameters -> injectConfiguration(parameters, context.context.config))
                         .orElseGet(JsonUtil::emptyObject)))
-        .updateIf(() -> ofNullable(topologyContext.environment), (b, e) -> b.add(ENV, e))
+        .updateIf(() -> ofNullable(context.context.environment), (b, e) -> b.add(ENV, e))
         .build()
         .build();
   }
@@ -629,7 +647,7 @@ public class Application {
     return tryToGetWithRethrow(
             () -> createReader(new FileInputStream(file)),
             reader ->
-                reader.readArray().stream()
+                readTopologies(reader)
                     .filter(value -> isObject(value) || isString(value))
                     .map(
                         value ->
@@ -639,6 +657,12 @@ public class Application {
                                     asString(value).getString(),
                                     file.getAbsoluteFile().getParentFile())))
         .orElseGet(Stream::empty);
+  }
+
+  private static Stream<JsonValue> readTopologies(final JsonReader reader) {
+    final JsonStructure s = reader.read();
+
+    return isArray(s) ? s.asJsonArray().stream() : Stream.of(s.asJsonObject());
   }
 
   private static Aggregate reducers(
@@ -1251,14 +1275,16 @@ public class Application {
 
   private static class TopologyContext {
     private final Map<String, JsonObject> configurations = new HashMap<>();
+    private final Context context;
     private final Map<String, KStream<String, JsonObject>> streams = new HashMap<>();
     private String application;
     private File baseDirectory;
     private StreamsBuilder builder;
-    private MongoDatabase database;
-    private String environment;
     private Features features;
-    private Level logLevel;
     private Validator validators;
+
+    private TopologyContext(final Context context) {
+      this.context = context;
+    }
   }
 }

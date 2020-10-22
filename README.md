@@ -19,7 +19,7 @@
 
 With this tool you can run event streaming applications using JSON messages in a declarative way. The unit of execution is a [Kafka Streams](https://docs.confluent.io/current/streams/architecture.html) topology, which consists of parts that are tied together in a Kafka Streams network. There are five kinds of parts:
 
-- [MongoDB aggregation pipelines](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html);
+- [MongoDB aggregation pipelines](https://www.javadoc.io/doc/net.pincette/pincette-mongo-streams/latest/net/pincette/mongo/streams/Pipeline.html);
 - [JSON Event Sourcing](https://github.com/json-event-sourcing/pincette-jes) aggregates;
 - JSON Event Sourcing reactors;
 - Stream mergers;
@@ -73,7 +73,7 @@ Doing event streaming usually comes with pipelines that transform and/or aggrega
 |fromStream|Exclusive with ```fromTopic```|The name of the stream to which this stream will be connected.|
 |fromTopic|Exclusive with ```fromStream```|The name of the Kafka topic to which this stream will be connected as a consumer.|
 |name|Yes|The name of the stream. Other parts can connect to this stream with that name.|
-|pipeline|No|An array of [pipeline stages](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html). These are either JSON objects or relative filenames, in which case the stage is loaded from there.|
+|pipeline|No|An array of [pipeline stages](https://www.javadoc.io/doc/net.pincette/pincette-mongo-streams/latest/net/pincette/mongo/streams/Pipeline.html). These are either JSON objects or relative filenames, in which case the stage is loaded from there.|
 |toString|No|A boolean field that, when the ```toTopic``` field is present, will cause the JSON messages to be written as strings.| 
 |toTopic|No|The name of the Kafka topic to which this stream will be connected as a producer.|
 |type|Yes|The value is always ```stream```.|
@@ -141,7 +141,7 @@ Commands have the following fields:
 |---|---|---|
 |name|Yes|The name of the command. It will be available in the reducer as the field ```/command/_command```.|
 |reducer|Yes|The relative filename of a JSLT script.|
-|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants te refer to the current state of an aggregate instance it can use the field ```_state```.|
+|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants te refer to the current state of an aggregate instance it can use the field ```_state```.|
 
 An aggregate creates the streams with the names ```<app>-<type>-aggregate```, ```<app>-<type>-command```, ```<app>-<type>-event```, ```<app>-<type>-event-full``` and ```<app>-<type>-reply```. Their meaning is described in [JSON Event Sourcing](https://github.com/json-event-sourcing/pincette-jes#the-kafka-topics). You can connect to those streams in other parts of the application.
 
@@ -266,7 +266,7 @@ The validators check the command names and if the commands are for the right agg
 
 ## JSON Event Sourcing Reactors
 
-Sometimes events from one aggregate type should be propagated to another aggregate type. A reactor is a mediating component with which you can translate events to commands. You provide it with a transformation function, a MongoDB query to find the IDs of the destination aggregate instances to which the command should be sent and optionally a filter function to filter the events. In this tools the transformation function is a JSLT script. The filter function is a [MongoDB query expression](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0/net/pincette/mongo/Match.html).
+Sometimes events from one aggregate type should be propagated to another aggregate type. A reactor is a mediating component with which you can translate events to commands. You provide it with a transformation function, a MongoDB query to find the IDs of the destination aggregate instances to which the command should be sent and optionally a filter function to filter the events. In this tools the transformation function is a JSLT script. The filter function is a [MongoDB query expression](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Match.html).
 
 A reactor part has the following fields:
 
@@ -389,19 +389,33 @@ The following example joins the command and event streams from the above-mention
 
 ## Parameters
 
-The application may have the ```parameters``` field, which is an object. Elsewhere you can refer to the fields in the object with ```${<field name>}```. The references will be replaced with the values in the parameters object. When those values aren't strings then two things can happen. When the reference is alone in a string the replacement will be the actual value from the parameters object. Otherwise the value will be stringified prior to the replacement. The substitution works for both keys and values. 
+The application may have the ```parameters``` field, which is an object. Elsewhere you can refer to the fields in the object with ```${<field name>}```. The references will be replaced with the values in the parameters object. When those values aren't strings then two things can happen. When the reference is alone in a string the replacement will be the actual value from the parameters object. Otherwise the value will be stringified prior to the replacement. The substitution works for both keys and values.
+
+A special kind of parameter value is a string that starts with the prefix ```config:```. The remainder will be used to extract the value from the configuration. So you could write something like this:
+
+```
+{
+  "application": "myapp",
+  "version": "1.0",
+  "parameters": {
+    "MONGO": "config:mongodb.uri"  
+  }  
+}
+```
+
+Everywhere you use ```${MONGO}``` in the parts of the application it will be substituted with the value of the configuration path ```mongodb.uri```.
 
 ## Available MongoDB Operators
 
-The available MongoDB operators are described in [pincette-mongo](https://www.javadoc.io/static/net.pincette/pincette-mongo/2.0.2/net/pincette/mongo/Expression.html) and [pincette-mongo-streams](https://www.javadoc.io/static/net.pincette/pincette-mongo-streams/1.0.1/net/pincette/mongo/streams/Pipeline.html).
+The available MongoDB operators are described in [pincette-mongo](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Expression.html) and [pincette-mongo-streams](https://www.javadoc.io/doc/net.pincette/pincette-mongo-streams/latest/net/pincette/mongo/streams/Pipeline.html).
 
 ## JSLT Custom Functions
 
-The supported JSLT custom functions are described at [pincette-json](https://www.javadoc.io/static/net.pincette/pincette-json/1.3.6/net/pincette/json/Jslt.html).
+The supported JSLT custom functions are described at [pincette-json](https://www.javadoc.io/doc/net.pincette/pincette-json/latest/net/pincette/json/Jslt.html).
 
 ## Data Serialisation
 
-All messages are serialised with the [JSON Event Sourcing serialiser](https://www.javadoc.io/static/net.pincette/pincette-jes-util/1.3.2/net/pincette/jes/util/JsonSerde.html). It first encodes a ```JsonObject``` in [CBOR](https://tools.ietf.org/html/rfc7049). Then it is compressed in GZIP format (see also [RFC 1951](https://tools.ietf.org/html/rfc1951) and [RFC 1952](https://tools.ietf.org/html/rfc1952)). The deserialiser falls back to JSON in string format.
+All messages are serialised with the [JSON Event Sourcing serialiser](https://www.javadoc.io/doc/net.pincette/pincette-jes-util/latest/net/pincette/jes/util/JsonSerde.html). It first encodes a ```JsonObject``` in [CBOR](https://tools.ietf.org/html/rfc7049). Then it is compressed in GZIP format (see also [RFC 1951](https://tools.ietf.org/html/rfc1951) and [RFC 1952](https://tools.ietf.org/html/rfc1952)). The deserialiser falls back to JSON in string format.
 
 ## Topology Life Cycle Events
 
