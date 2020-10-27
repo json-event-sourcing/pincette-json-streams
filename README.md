@@ -470,10 +470,14 @@ The command line has the commands ```build``` and ```run```. You can also use ``
 |Command|Option|Mandatory|Description|
 |---|---|---|---|
 |build|-f \| --file|Yes|A file with an array of topologies (applications). It will inline everything resulting in one big JSON file. When no MongoDB collection has been specified it will dump the result on the terminal.|
-||-c \| --collection|No|A MongoDB collection to which the generated file will be written using the application name as the ID. This means that each topology in the given array will go to its own document. Existing documents are overwritten.|
+||-c \| --collection|No|A MongoDB collection to which the generated file will be written using the application name as the ID. This means that each topology in the given array will go to its own document. Existing documents are overwritten. When no collection is given the tool will try to take the MongoDB collection from the configuration. If the service is already running off the MongoDB collection, this command will start or restart the topologies.|
+|delete|-a \| --application|Yes|The name of the application that should be removed from the MongoDB collection. As a result, if the service is running off a MongoDB collection, the corresponding topology will be stopped.|
+||-c \| --collection|No|A MongoDB collection from which the application will be removed. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
+|list|-c \| --collection|No|A MongoDB collection from which the application list is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
 |run|-f \| --file|No|A file with an array of topologies (applications). It builds and then runs all the topologies.|
 ||-c \| --collection|No|A MongoDB collection with topologies, which are all run. If neither a collection nor a file is given the tool will try to take the MongoDB collection from the configuration.|
 ||-q \| --query|No|A MongoDB query to select the topologies to run.|
+||-a \| --application|No|The name of the application that should be run off the MongoDB collection. This is a shorthand for the query ```{"application": "<name>"}```.
 
 ## Configuration
 
@@ -491,6 +495,7 @@ The configuration is managed by the
 |mongodb.uri|The MongoDB connection URL.|
 |mongodb.database|The MongoDB database.|
 |mongodb.collection|The default MongoDB collection where builds are written and run from.|
+|restartBackoff|The waiting time before a topology that was in an error state will be restarted. The default value is ```10s```.|
 |topologyTopic|When this entry is present topology life cycle events will be published to it.|
 
 ## Docker Image
