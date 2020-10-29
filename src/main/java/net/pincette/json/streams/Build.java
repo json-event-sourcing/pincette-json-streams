@@ -61,7 +61,7 @@ class Build implements Runnable {
                     specification,
                     createTopologyContext(
                         specification, file.getAbsoluteFile().getParentFile(), context)))
-        .filter(Common::validateTopology)
+        .filter(Validate::validateTopology)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();
   }

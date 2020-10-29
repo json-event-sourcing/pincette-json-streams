@@ -3,8 +3,6 @@ package net.pincette.json.streams;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
 import static java.util.Optional.ofNullable;
-import static java.util.logging.Level.SEVERE;
-import static java.util.logging.Logger.getGlobal;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Stream.concat;
@@ -15,10 +13,6 @@ import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createReader;
 import static net.pincette.json.JsonUtil.createValue;
 import static net.pincette.json.JsonUtil.from;
-import static net.pincette.json.JsonUtil.getNumber;
-import static net.pincette.json.JsonUtil.getObject;
-import static net.pincette.json.JsonUtil.getObjects;
-import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
@@ -26,6 +20,7 @@ import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
+import static net.pincette.util.Collections.set;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.replaceAll;
 import static net.pincette.util.Util.tryToGetRethrow;
@@ -37,6 +32,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -84,6 +80,7 @@ class Common {
   static final String SLASH = "_slash_";
   static final String SOURCE_TYPE = "sourceType";
   static final String STREAM = "stream";
+  static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
   static final String TYPE = "type";
   static final String VALIDATOR = "validator";
   static final String VERSION = "version";
@@ -243,7 +240,7 @@ class Common {
         .orElse(null);
   }
 
-  private static JsonObject readObject(final String path, final File baseDirectory) {
+  static JsonObject readObject(final String path, final File baseDirectory) {
     return tryToGetWithRethrow(
             () -> createReader(getInputStream(path, baseDirectory)), JsonReader::readObject)
         .orElse(null);
@@ -456,183 +453,6 @@ class Common {
       default:
         return json;
     }
-  }
-
-  private static boolean validateAggregate(final JsonObject specification) {
-    boolean result = specification.getString(AGGREGATE_TYPE, null) != null;
-
-    if (!result) {
-      getGlobal().severe("An aggregate should have the \"aggregateType\" field.");
-    }
-
-    result &= validateCommands(specification);
-
-    return result;
-  }
-
-  private static boolean validateCommand(final String aggregateType, final JsonObject command) {
-    final boolean result =
-        command.getString(NAME, null) != null
-            && command.getString(REDUCER, null) != null
-            && (!command.containsKey(VALIDATOR) || getObject(command, "/" + VALIDATOR).isPresent());
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "Aggregate {0} should have a \"name\" and a \"reducer\" field and "
-                  + "when the \"validator\" field is present it should be an object.",
-              new Object[] {aggregateType});
-    }
-
-    return result;
-  }
-
-  private static boolean validateCommands(final JsonObject specification) {
-    final String aggregateType = specification.getString(AGGREGATE_TYPE, null);
-
-    return getObjects(specification, COMMANDS)
-        .allMatch(command -> validateCommand(aggregateType, command));
-  }
-
-  private static boolean validateJoin(final JsonObject specification) {
-    final String left = "/" + LEFT + "/";
-    final String right = "/" + RIGHT + "/";
-    final boolean result =
-        specification.getString(NAME, null) != null
-            && getNumber(specification, "/" + WINDOW).isPresent()
-            && getValue(specification, left + ON).isPresent()
-            && getValue(specification, right + ON).isPresent()
-            && (getString(specification, left + FROM_STREAM).isPresent()
-                || getString(specification, left + FROM_TOPIC).isPresent())
-            && (getString(specification, right + FROM_STREAM).isPresent()
-                || getString(specification, right + FROM_TOPIC).isPresent());
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The join {0} should have the fields \"window\", \"left.on\", \"right.on\", either "
-                  + "\"left.fromStream\" or \"left.fromTopic\" and either \"right.fromStream\" or "
-                  + "\"right.fromTopic\".",
-              new Object[] {specification.getString(NAME, null)});
-    }
-
-    return result;
-  }
-
-  private static boolean validateMerge(final JsonObject specification) {
-    final boolean result =
-        specification.getString(NAME, null) != null
-            && (specification.getJsonArray(FROM_STREAMS) != null
-                || specification.getJsonArray(FROM_TOPICS) != null);
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The merge {0} should have the fields \"name\" and \"fromStreams\" or "
-                  + "\"fromTopics\".",
-              new Object[] {specification.getString(NAME, null)});
-    }
-
-    return result;
-  }
-
-  private static boolean validatePart(final JsonObject specification) {
-    boolean result = specification.getString(TYPE, null) != null;
-
-    if (!result) {
-      getGlobal().severe("A part should have a \"type\" field.");
-    }
-
-    result = specification.getString(NAME, null) != null;
-
-    if (!result) {
-      getGlobal().severe("A part should have a \"name\" field.");
-    }
-
-    result &=
-        ofNullable(specification.getString(TYPE, null))
-            .filter(type -> validatePart(type, specification))
-            .isPresent();
-
-    return result;
-  }
-
-  private static boolean validatePart(final String type, final JsonObject specification) {
-    switch (type) {
-      case AGGREGATE:
-        return validateAggregate(specification);
-      case JOIN:
-        return validateJoin(specification);
-      case MERGE:
-        return validateMerge(specification);
-      case REACTOR:
-        return validateReactor(specification);
-      case STREAM:
-        return validateStream(specification);
-      default:
-        return false;
-    }
-  }
-
-  private static boolean validateReactor(final JsonObject specification) {
-    final boolean result =
-        specification.getString(SOURCE_TYPE, null) != null
-            && specification.getString(DESTINATION_TYPE, null) != null
-            && specification.getString(EVENT_TO_COMMAND, null) != null
-            && specification.getJsonArray(DESTINATIONS) != null
-            && (!specification.containsKey(FILTER)
-                || getObject(specification, "/" + FILTER).isPresent());
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The reactor from {0} to {1} should have the fields \"sourceType\","
-                  + " \"destinationType\", \"eventToCommand\", and \"destinations\" and "
-                  + "optionally the object \"filter\".",
-              new Object[] {
-                specification.getString(SOURCE_TYPE, null),
-                specification.getString(DESTINATION_TYPE, null)
-              });
-    }
-
-    return result;
-  }
-
-  private static boolean validateStream(final JsonObject specification) {
-    final boolean result =
-        specification.getString(NAME, null) != null
-            && (specification.getString(FROM_STREAM, null) != null
-                || specification.getString(FROM_TOPIC, null) != null);
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The stream {0} should have the field \"name\" and either \"fromStream\" or"
-                  + " \"fromTopic\".",
-              new Object[] {specification.getString(NAME, null)});
-    }
-
-    return result;
-  }
-
-  static boolean validateTopology(final JsonObject specification) {
-    boolean result =
-        specification.getString(APPLICATION_FIELD, null) != null
-            && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
-
-    if (!result) {
-      getGlobal()
-          .severe("A topology should have an \"application\" field and an array called \"parts\".");
-    } else {
-      result = getObjects(specification, PARTS).allMatch(Common::validatePart);
-    }
-
-    return result;
   }
 
   private static Transformer validatorResolver(final TopologyContext context) {
