@@ -133,7 +133,7 @@ An aggregate part has the following fields:
 |commands|No|An array of JSON objects. If no commands are given only the built-in commands ```put```, ```delete``` and ```patch``` will be available.|
 |environment|No|The environment for the aggregate. This will be used for Kafka topic suffixes.|
 |type|Yes|The value is always ```aggregate```.|
-|uniqueExpression|No|A MongoDB expression that is executed on aggregate instances. This expresses the uniqueness of aggregate instances based on some criterion.|
+|uniqueExpression|No|A MongoDB expression that is executed on aggregate instances. This expresses the uniqueness of aggregate instances based on some criterion. If you use this feature then you must make sure all commands also have the fields that constitute the unique expression.|
 
 Commands have the following fields:
 
