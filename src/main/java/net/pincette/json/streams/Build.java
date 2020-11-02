@@ -21,6 +21,7 @@ import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.json.JsonUtil;
 import org.bson.Document;
+import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -29,17 +30,13 @@ import picocli.CommandLine.Option;
     description = "Generates one inlined JSON per topology and uploads them to MongoDB.")
 class Build implements Runnable {
   private final Context context;
+  @ArgGroup() private CollectionOrLocal collectionOrLocal;
 
   @Option(
       names = {"-f", "--file"},
       required = true,
       description = "A JSON file containing an array of topologies.")
   private File file;
-
-  @Option(
-      names = {"-c", "--collection"},
-      description = "The MongoDB collection the topologies are uploaded to.")
-  private String collection;
 
   Build(final Context context) {
     this.context = context;
@@ -68,9 +65,11 @@ class Build implements Runnable {
 
   @SuppressWarnings("java:S106") // Not logging.
   public void run() {
-    final String col = getTopologyCollection(collection, context);
+    final String col =
+        getTopologyCollection(
+            collectionOrLocal == null ? null : collectionOrLocal.collection, context);
 
-    if (col != null) {
+    if ((collectionOrLocal == null || !collectionOrLocal.local) && col != null) {
       final MongoCollection<Document> c = context.database.getCollection(col);
 
       buildTopologies().stream()
@@ -86,5 +85,19 @@ class Build implements Runnable {
     } else {
       System.out.println(string(buildTopologies()));
     }
+  }
+
+  private static class CollectionOrLocal {
+    @Option(
+        names = {"-c", "--collection"},
+        description = "The MongoDB collection the topologies are uploaded to.")
+    private String collection;
+
+    @Option(
+        names = {"-l", "--local"},
+        description =
+            "Sends the build result to stdout, even when the configuration contains a "
+                + "topology collection.")
+    private boolean local;
   }
 }

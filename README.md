@@ -471,6 +471,7 @@ The command line has the commands ```build``` and ```run```. You can also use ``
 |---|---|---|---|
 |build|-f \| --file|Yes|A file with an array of topologies (applications). It will inline everything resulting in one big JSON file. When no MongoDB collection has been specified it will dump the result on the terminal.|
 ||-c \| --collection|No|A MongoDB collection to which the generated file will be written using the application name as the ID. This means that each topology in the given array will go to its own document. Existing documents are overwritten. When no collection is given the tool will try to take the MongoDB collection from the configuration. If the service is already running off the MongoDB collection, this command will start or restart the topologies.|
+||-l \| --local|No|Write the result to the terminal even when the configuration specifies a MongoDB collection. This option can't be used together with the collection option.|
 |delete|-a \| --application|Yes|The name of the application that should be removed from the MongoDB collection. As a result, if the service is running off a MongoDB collection, the corresponding topology will be stopped.|
 ||-c \| --collection|No|A MongoDB collection from which the application will be removed. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
 |list|-c \| --collection|No|A MongoDB collection from which the application list is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|

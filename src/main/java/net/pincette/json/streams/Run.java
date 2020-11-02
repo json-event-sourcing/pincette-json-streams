@@ -6,9 +6,11 @@ import static java.lang.System.exit;
 import static java.time.Duration.ofSeconds;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
+import static java.util.logging.Logger.getGlobal;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
@@ -422,6 +424,17 @@ class Run implements Runnable {
     return find(collection, filter).toCompletableFuture().join().stream().map(Run::fromMongoDB);
   }
 
+  private static Void logChangeError(
+      final Throwable thrown, final ChangeStreamDocument<Document> change) {
+    getGlobal()
+        .log(
+            SEVERE,
+            thrown,
+            () -> "Changed application " + getApplication(change).orElse(null) + " has an error.");
+
+    return null;
+  }
+
   private static Aggregate reducers(
       final Aggregate aggregate, final JsonObject config, final TopologyContext context) {
     return getObjects(config, COMMANDS)
@@ -537,22 +550,25 @@ class Run implements Runnable {
 
   private void handleChange(
       final ChangeStreamDocument<Document> change, final TopologyLifeCycle lifeCycle) {
-    getApplication(change)
-        .ifPresent(
-            application -> {
-              switch (change.getOperationType()) {
-                case DELETE:
-                  stop(application);
-                  break;
-                case INSERT:
-                case REPLACE:
-                case UPDATE:
-                  start(change, lifeCycle);
-                  break;
-                default:
-                  break;
-              }
-            });
+    runAsync(
+            () ->
+                getApplication(change)
+                    .ifPresent(
+                        application -> {
+                          switch (change.getOperationType()) {
+                            case DELETE:
+                              stop(application);
+                              break;
+                            case INSERT:
+                            case REPLACE:
+                            case UPDATE:
+                              start(change, lifeCycle);
+                              break;
+                            default:
+                              break;
+                          }
+                        }))
+        .exceptionally(e -> logChangeError(e, change));
   }
 
   public void run() {
@@ -595,7 +611,7 @@ class Run implements Runnable {
   }
 
   private void restart(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
-    entry.logger.info("Restarting");
+    entry.logger.log(INFO, "Restarting {0}", getApplication(entry));
     running.put(getApplication(entry), start(entry, lifeCycle));
   }
 
@@ -637,6 +653,7 @@ class Run implements Runnable {
       final ChangeStreamDocument<Document> change, final TopologyLifeCycle lifeCycle) {
     ofNullable(change.getFullDocument())
         .map(doc -> fromBson(toBsonDocument(doc)))
+        .map(Run::fromMongoDB)
         .ifPresent(
             specification ->
                 restart(
@@ -649,7 +666,7 @@ class Run implements Runnable {
     ofNullable(running.remove(application))
         .ifPresent(
             entry -> {
-              entry.logger.info("Stopping");
+              entry.logger.log(INFO, "Stopping {0}", application);
               entry.stop.stop();
             });
   }
