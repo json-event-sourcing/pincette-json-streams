@@ -104,10 +104,16 @@ class Validate {
   }
 
   private static boolean validateAggregate(final JsonObject specification) {
-    boolean result = specification.getString(AGGREGATE_TYPE, null) != null;
+    boolean result =
+        ofNullable(specification.getString(AGGREGATE_TYPE, null))
+            .filter(type -> type.indexOf('-') != -1)
+            .isPresent();
 
     if (!result) {
-      getGlobal().severe("An aggregate should have the \"aggregateType\" field.");
+      getGlobal()
+          .severe(
+              "An aggregate should have the \"aggregateType\" field with the form "
+                  + "<app>-<type>.");
     }
 
     result &= validateCommands(specification);

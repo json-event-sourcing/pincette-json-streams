@@ -174,11 +174,12 @@ class Run implements Runnable {
     context.streams.put(type + "-reply", aggregate.replies());
   }
 
-  private static Pair<String, String> aggregateTypeParts(final JsonObject specification) {
-    return Optional.of(specification.getString(AGGREGATE_TYPE).split("-"))
-        .filter(parts -> parts.length == 2)
-        .map(parts -> pair(parts[0], parts[1]))
-        .orElse(null);
+  private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
+    final String type = specification.getString(AGGREGATE_TYPE);
+
+    return Optional.of(type.indexOf('-'))
+        .filter(index -> index != -1)
+        .map(index -> pair(type.substring(0, index), type.substring(index + 1)));
   }
 
   private static Map<String, String> convertJsltImports(final JsonObject jsltImports) {
@@ -189,26 +190,29 @@ class Run implements Runnable {
 
   private static StreamsBuilder createAggregate(
       final JsonObject config, final TopologyContext context) {
-    final Pair<String, String> aggregateType = aggregateTypeParts(config);
-    final Aggregate aggregate =
-        reducers(
-            create(
-                    () ->
-                        new Aggregate()
-                            .withApp(aggregateType.first)
-                            .withType(aggregateType.second)
-                            .withMongoDatabase(context.context.database)
-                            .withBuilder(context.builder))
-                .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
-                .updateIf(
-                    () -> getValue(config, "/" + UNIQUE_EXPRESSION),
-                    Aggregate::withUniqueExpression)
-                .build(),
-            config,
-            context);
+    aggregateTypeParts(config)
+        .ifPresent(
+            aggregateType -> {
+              final Aggregate aggregate =
+                  reducers(
+                      create(
+                              () ->
+                                  new Aggregate()
+                                      .withApp(aggregateType.first)
+                                      .withType(aggregateType.second)
+                                      .withMongoDatabase(context.context.database)
+                                      .withBuilder(context.builder))
+                          .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
+                          .updateIf(
+                              () -> getValue(config, "/" + UNIQUE_EXPRESSION),
+                              Aggregate::withUniqueExpression)
+                          .build(),
+                      config,
+                      context);
 
-    aggregate.build();
-    addStreams(aggregate, context);
+              aggregate.build();
+              addStreams(aggregate, context);
+            });
 
     return context.builder;
   }
