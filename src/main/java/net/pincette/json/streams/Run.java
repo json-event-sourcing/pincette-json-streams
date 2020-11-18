@@ -84,6 +84,7 @@ import static net.pincette.util.Collections.set;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.streams.kstream.Produced.valueSerde;
 
@@ -94,6 +95,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -101,6 +103,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -121,6 +124,7 @@ import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
 import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
+import net.pincette.mongo.Match;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
@@ -322,6 +326,23 @@ class Run implements Runnable {
 
   private static TopologyEntry createTopology(
       final JsonObject specification, final TopologyContext context) {
+    return getLogger(specification, context.context)
+        .flatMap(
+            logger ->
+                tryToGet(
+                    () -> createTopology(specification, logger, context),
+                    e -> {
+                      logger.log(
+                          SEVERE,
+                          e,
+                          () -> "Can't start " + specification.getString(APPLICATION_FIELD));
+                      return null;
+                    }))
+        .orElse(null);
+  }
+
+  private static TopologyEntry createTopology(
+      final JsonObject specification, final Logger logger, final TopologyContext context) {
     final Properties streamsConfig = Streams.fromConfig(context.context.config, KAFKA);
 
     context.features =
@@ -331,7 +352,6 @@ class Run implements Runnable {
                     .map(Run::convertJsltImports)
                     .orElseGet(Collections::emptyMap)));
 
-    final Logger logger = getLogger(specification, context.context);
     final Topology topology = createParts(specification.getJsonArray(PARTS), context).build();
 
     streamsConfig.setProperty(APPLICATION_ID, context.application);
@@ -388,8 +408,16 @@ class Run implements Runnable {
             replaceVariables(projected, map(pair(EVENT, event))).asJsonArray());
   }
 
-  private static Logger getLogger(final JsonObject specification, final Context context) {
-    final String application = specification.getString(APPLICATION_FIELD);
+  private static Optional<Logger> getLogger(final JsonObject specification, final Context context) {
+    return Optional.of(specification)
+        .flatMap(s -> ofNullable(s.getString(APPLICATION_FIELD, null)))
+        .map(
+            application ->
+                getLogger(application, specification.getString(VERSION, "unknown"), context));
+  }
+
+  private static Logger getLogger(
+      final String application, final String version, final Context context) {
     final Map<String, Object> kafkaConfig = fromConfig(context.config, KAFKA);
     final Logger logger = Logger.getLogger(application);
 
@@ -398,7 +426,7 @@ class Run implements Runnable {
 
     log(
         logger,
-        specification.getString(VERSION, "unknown"),
+        version,
         context.environment,
         createReliableProducer(kafkaConfig, new StringSerializer(), new JsonSerializer()),
         context.config.getString(LOG_TOPIC));
@@ -553,7 +581,9 @@ class Run implements Runnable {
   }
 
   private void handleChange(
-      final ChangeStreamDocument<Document> change, final TopologyLifeCycle lifeCycle) {
+      final ChangeStreamDocument<Document> change,
+      final TopologyLifeCycle lifeCycle,
+      final Predicate<JsonObject> filter) {
     runAsync(
             () ->
                 getApplication(change)
@@ -566,7 +596,7 @@ class Run implements Runnable {
                             case INSERT:
                             case REPLACE:
                             case UPDATE:
-                              start(change, lifeCycle);
+                              start(change, lifeCycle, filter);
                               break;
                             default:
                               break;
@@ -590,7 +620,8 @@ class Run implements Runnable {
                                 context)))
                 .map(pair -> pair(build(pair.first, pair.second), pair.second))
                 .filter(pair -> validateTopology(pair.first))
-                .map(pair -> createTopology(pair.first, pair.second)))
+                .map(pair -> createTopology(pair.first, pair.second))
+                .filter(Objects::nonNull))
         .map(this::start)
         .filter(result -> !result)
         .ifPresent(result -> exit(1));
@@ -620,6 +651,8 @@ class Run implements Runnable {
   }
 
   private boolean start(final Stream<TopologyEntry> topologies) {
+    final Predicate<JsonObject> filter =
+        ofNullable(getFilter()).map(Match::predicate).orElse(json -> true);
     final TopologyLifeCycle lifeCycle = topologyLifeCycleEmitter(context);
 
     topologies
@@ -629,7 +662,7 @@ class Run implements Runnable {
     if (!getFile().isPresent()) {
       getTopologyCollection()
           .watch()
-          .subscribe(new LambdaSubscriber<>(change -> handleChange(change, lifeCycle)));
+          .subscribe(new LambdaSubscriber<>(change -> handleChange(change, lifeCycle, filter)));
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));
@@ -654,16 +687,17 @@ class Run implements Runnable {
   }
 
   private void start(
-      final ChangeStreamDocument<Document> change, final TopologyLifeCycle lifeCycle) {
+      final ChangeStreamDocument<Document> change,
+      final TopologyLifeCycle lifeCycle,
+      final Predicate<JsonObject> filter) {
     ofNullable(change.getFullDocument())
         .map(doc -> fromBson(toBsonDocument(doc)))
         .map(Run::fromMongoDB)
-        .ifPresent(
+        .filter(filter)
+        .map(
             specification ->
-                restart(
-                    createTopology(
-                        specification, createTopologyContext(specification, null, context)),
-                    lifeCycle));
+                createTopology(specification, createTopologyContext(specification, null, context)))
+        .ifPresent(topology -> restart(topology, lifeCycle));
   }
 
   private void stop(final String application) {

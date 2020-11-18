@@ -49,6 +49,8 @@ import net.pincette.json.JsonUtil;
 import net.pincette.util.Pair;
 
 class Validate {
+  private Validate() {}
+
   private static Stream<Pair<String, String>> getStreamReferences(final JsonObject specification) {
     return concat(
             getObjects(specification, PARTS)
