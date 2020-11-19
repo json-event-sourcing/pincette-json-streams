@@ -89,7 +89,7 @@ class Common {
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
   private static final String JSLT = "$jslt";
-  private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([a-zA-Z0-9\\./]+)\".*$");
+  private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
   private static final String RESOURCE = "resource:";
