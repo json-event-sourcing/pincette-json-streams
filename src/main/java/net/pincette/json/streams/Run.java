@@ -166,6 +166,9 @@ class Run implements Runnable {
   Run(final Context context) {
     this.context = context;
     restartBackoff = getRestartBackoff(context);
+    this.context.producer =
+        createReliableProducer(
+            fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
   }
 
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
@@ -418,17 +421,15 @@ class Run implements Runnable {
 
   private static Logger getLogger(
       final String application, final String version, final Context context) {
-    final Map<String, Object> kafkaConfig = fromConfig(context.config, KAFKA);
     final Logger logger = Logger.getLogger(application);
 
     logger.setLevel(context.logLevel);
-    kafkaConfig.put(APPLICATION_ID, application);
 
     log(
         logger,
         version,
         context.environment,
-        createReliableProducer(kafkaConfig, new StringSerializer(), new JsonSerializer()),
+        context.producer,
         context.config.getString(LOG_TOPIC));
 
     return logger;
@@ -521,14 +522,7 @@ class Run implements Runnable {
 
   private static TopologyLifeCycleEmitter topologyLifeCycleEmitter(final Context context) {
     return tryToGetSilent(() -> context.config.getString(TOPOLOGY_TOPIC))
-        .map(
-            topic ->
-                new TopologyLifeCycleEmitter(
-                    topic,
-                    createReliableProducer(
-                        fromConfig(context.config, KAFKA),
-                        new StringSerializer(),
-                        new JsonSerializer())))
+        .map(topic -> new TopologyLifeCycleEmitter(topic, context.producer))
         .orElse(null);
   }
 
@@ -646,8 +640,11 @@ class Run implements Runnable {
   }
 
   private void restart(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
-    entry.logger.log(INFO, "Restarting {0}", getApplication(entry));
-    running.put(getApplication(entry), start(entry, lifeCycle));
+    final String application = getApplication(entry);
+
+    entry.logger.log(INFO, "Restarting {0}", application);
+    ofNullable(running.get(application)).map(r -> r.stop).ifPresent(Stop::stop);
+    running.put(application, start(entry, lifeCycle));
   }
 
   private boolean start(final Stream<TopologyEntry> topologies) {
