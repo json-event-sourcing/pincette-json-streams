@@ -173,9 +173,6 @@
             </tags>
           </to>
           <container>
-            <jvmFlags>
-              <jvmFlag>-XX:MaxRAMPercentage=75.0</jvmFlag>
-            </jvmFlags>
             <mainClass>net.pincette.json.streams.Application</mainClass>
             <args>
               <arg>run</arg>
