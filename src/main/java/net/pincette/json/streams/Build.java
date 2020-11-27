@@ -56,6 +56,7 @@ class Build implements Runnable {
             specification ->
                 build(
                     specification,
+                    false,
                     createTopologyContext(
                         specification, file.getAbsoluteFile().getParentFile(), context)))
         .filter(Validate::validateTopology)

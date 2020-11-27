@@ -12,6 +12,7 @@
 - [Data Serialisation](#data-serialisation)
 - [Topology Life Cycle Events](#topology-life-cycle-events)
 - [Troubleshooting](#troubleshooting)
+- [Plugins](#plugins)
 - [Building It](#building-it)
 - [The Command Line](#the-command-line)
 - [Configuration](#configuration)
@@ -441,6 +442,10 @@ If a topology Kafka topic is set in the configuration then life cycle events wil
 }
 ```
 
+## Plugins
+
+If you want to add custom MongoDB operators, aggregate pipeline stages or JSLT functions in Java, then you can put them in a plugin. This should be a Java 9 module, which implements the interface ```net.pincette.json.streams.plugin.Plugin```. Make sure that the modules your plugin depends on are in the same directory.
+
 ## Troubleshooting
 
 Creating declarative data pipelines like this can quickly become quite complex. So you need to be able to debug them. There are a few tools to help with this.
@@ -457,11 +462,17 @@ A common error is to create more than one stream from a Kafka topic. This is not
 
 ## Building It
 
-You can build the tool with ```mvn clean package```. This will produce a self-contained JAR-file in the ```target``` directory with the form ```pincette-json-streams-<version>-jar-with-dependencies.jar```. You can launch this JAR with ```java -jar``` and then the rest of the command line.
+You can build the tool with ```mvn clean package```. You can launch it like this for example:
+
+```
+java --module-path target/modules -m application run -f <filename>
+```
 
 The total number of threads across all the instances should not exceed the number of partitions for the Kafka topics. Additional threads will be idle.
 
 You can run the JVM with the option ```-mx256m```.
+
+If you want to use another configuration in the ```conf``` directory, say tst.conf, then you can add ```-Dconfig.resource=tst.conf``` after ```java```.
 
 ## The Command Line
 
@@ -496,6 +507,7 @@ The configuration is managed by the
 |mongodb.uri|The MongoDB connection URL.|
 |mongodb.database|The MongoDB database.|
 |mongodb.collection|The default MongoDB collection where builds are written and run from.|
+|plugins|The directory from where the plugins are loaded.|
 |restartBackoff|The waiting time before a topology that was in an error state will be restarted. The default value is ```10s```.|
 |topologyTopic|When this entry is present topology life cycle events will be published to it.|
 
@@ -509,3 +521,9 @@ COPY conf/tst.conf /conf/application.conf
 ```
 
 So wherever your configuration file comes from, it should always end up at ```/conf/application.conf```.
+
+If you add plugins then they should be added to the image. Say you set ```plugins``` to "/plugins" in the configuration. The Docker file should then have a line like this:
+
+```
+ADD plugins/* /plugins
+```

@@ -19,11 +19,15 @@ import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
 import static net.pincette.jes.util.Mongo.withResolver;
+import static net.pincette.jes.util.MongoExpressions.operators;
 import static net.pincette.jes.util.Util.compose;
 import static net.pincette.jes.util.Validation.validator;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
+import static net.pincette.json.Jslt.customFunctions;
+import static net.pincette.json.Jslt.registerCustomFunctions;
+import static net.pincette.json.Jslt.trace;
 import static net.pincette.json.Jslt.tryTransformer;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
@@ -80,7 +84,9 @@ import static net.pincette.mongo.JsonClient.find;
 import static net.pincette.mongo.Match.predicate;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.map;
+import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
+import static net.pincette.util.Collections.union;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.tryToDoRethrow;
@@ -91,6 +97,7 @@ import static org.apache.kafka.streams.kstream.Produced.valueSerde;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.io.File;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
@@ -124,6 +131,7 @@ import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
 import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
+import net.pincette.mongo.Features;
 import net.pincette.mongo.Match;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
@@ -151,6 +159,7 @@ class Run implements Runnable {
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
   private static final String LOG_TOPIC = "logTopic";
+  private static final String PLUGINS = "plugins";
   private static final String PROJECT = "$project";
   private static final String RESTART_BACKOFF = "restartBackoff";
   private static final String TO_STRING = "toString";
@@ -166,9 +175,6 @@ class Run implements Runnable {
   Run(final Context context) {
     this.context = context;
     restartBackoff = getRestartBackoff(context);
-    this.context.producer =
-        createReliableProducer(
-            fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
   }
 
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
@@ -323,7 +329,8 @@ class Run implements Runnable {
             getPipeline(config),
             context.context.database,
             context.context.logLevel.equals(FINEST),
-            context.features),
+            context.features,
+            context.context.stageExtensions),
         config);
   }
 
@@ -599,7 +606,33 @@ class Run implements Runnable {
         .exceptionally(e -> logChangeError(e, change));
   }
 
+  private void loadPlugins() {
+    tryToGetSilent(() -> context.config.getString(PLUGINS))
+        .map(Paths::get)
+        .map(Plugins::load)
+        .ifPresent(
+            plugins -> {
+              context.stageExtensions = plugins.stageExtensions;
+
+              registerCustomFunctions(
+                  union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions));
+
+              context.features =
+                  new Features()
+                      .withExpressionExtensions(
+                          merge(
+                              operators(context.database, context.environment),
+                              plugins.expressionExtensions))
+                      .withMatchExtensions(plugins.matchExtensions);
+            });
+  }
+
   public void run() {
+    context.producer =
+        createReliableProducer(
+            fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
+    loadPlugins();
+
     Optional.of(
             getTopologies()
                 .map(
@@ -612,7 +645,7 @@ class Run implements Runnable {
                                     .map(file -> file.getAbsoluteFile().getParentFile())
                                     .orElse(null),
                                 context)))
-                .map(pair -> pair(build(pair.first, pair.second), pair.second))
+                .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
                 .filter(pair -> validateTopology(pair.first))
                 .map(pair -> createTopology(pair.first, pair.second))
                 .filter(Objects::nonNull))

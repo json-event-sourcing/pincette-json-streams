@@ -8,6 +8,7 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonUtil.asString;
+import static net.pincette.json.JsonUtil.copy;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createReader;
@@ -96,12 +97,15 @@ class Common {
 
   private Common() {}
 
-  static JsonObject build(final JsonObject specification, final TopologyContext topologyContext) {
+  static JsonObject build(
+      final JsonObject specification,
+      final boolean runtime,
+      final TopologyContext topologyContext) {
     final JsonObjectBuilder imports =
         ofNullable(specification.getJsonObject(JSLT_IMPORTS))
             .map(JsonUtil::createObjectBuilder)
             .orElseGet(JsonUtil::createObjectBuilder);
-    final Transformer parameters = replaceParameters(specification, topologyContext);
+    final Transformer parameters = replaceParameters(specification, runtime, topologyContext);
 
     return transformBuilder(
             specification,
@@ -109,11 +113,19 @@ class Common {
                 .thenApply(sequenceResolver(topologyContext.baseDirectory, parameters))
                 .thenApply(jsltResolver(imports, topologyContext.baseDirectory))
                 .thenApply(validatorResolver(topologyContext))
-                .thenApply(parameters))
+                .thenApply(parameters)
+                .thenApply(keepConfigParameters()))
         .add(JSLT_IMPORTS, imports)
         .add(ID, specification.getString(APPLICATION_FIELD))
-        .remove(PARAMETERS)
         .build();
+  }
+
+  private static JsonObject configParameters(
+      final JsonObject parameters, final boolean runtime, final TopologyContext context) {
+    return runtime
+        ? injectConfiguration(parameters, context.context.config)
+        : copy(parameters, createObjectBuilder(), field -> !isConfigRef(parameters.get(field)))
+            .build();
   }
 
   static TopologyContext createTopologyContext(
@@ -203,6 +215,17 @@ class Common {
                         resolveJslt(asString(e.value).getString(), imports, baseDirectory)))));
   }
 
+  private static Transformer keepConfigParameters() {
+    return new Transformer(
+        e -> e.path.equals("/" + PARAMETERS),
+        e -> Optional.of(new JsonEntry(e.path, keepConfigParameters(e.value.asJsonObject()))));
+  }
+
+  private static JsonObject keepConfigParameters(final JsonObject parameters) {
+    return copy(parameters, createObjectBuilder(), field -> isConfigRef(parameters.get(field)))
+        .build();
+  }
+
   private static Stream<JsonValue> loadSequence(
       final String path, final File baseDirectory, final Transformer replaceParameters) {
     return tryToGetWithRethrow(
@@ -222,12 +245,12 @@ class Common {
   }
 
   private static JsonObject parameters(
-      final JsonObject specification, final TopologyContext context) {
+      final JsonObject specification, final boolean runtime, final TopologyContext context) {
     return Builder.create(
             () ->
                 createObjectBuilder(
                     ofNullable(specification.getJsonObject(PARAMETERS))
-                        .map(parameters -> injectConfiguration(parameters, context.context.config))
+                        .map(parameters -> configParameters(parameters, runtime, context))
                         .orElseGet(JsonUtil::emptyObject)))
         .updateIf(() -> ofNullable(context.context.environment), (b, e) -> b.add(ENV, e))
         .build()
@@ -282,8 +305,8 @@ class Common {
   }
 
   private static Transformer replaceParameters(
-      final JsonObject specification, final TopologyContext context) {
-    return Optional.of(parameters(specification, context))
+      final JsonObject specification, final boolean runtime, final TopologyContext context) {
+    return Optional.of(parameters(specification, runtime, context))
         .filter(pars -> !pars.isEmpty())
         .map(Common::replaceParameters)
         .orElseGet(Transform::nopTransformer);
