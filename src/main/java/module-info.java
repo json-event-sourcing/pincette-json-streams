@@ -19,6 +19,7 @@ module application {
   requires typesafe.config;
   requires java.json;
   requires net.pincette.json;
+  requires jdk.unsupported;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;
