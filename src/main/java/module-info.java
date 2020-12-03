@@ -20,6 +20,7 @@ module application {
   requires java.json;
   requires net.pincette.json;
   requires jdk.unsupported;
+  requires java.management;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;

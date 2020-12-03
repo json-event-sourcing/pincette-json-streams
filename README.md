@@ -514,6 +514,8 @@ The configuration is managed by the
 |kafka.replication.factor|Check your Kafka cluster settings for this.|
 |logLevel|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html).|
 |logTopic|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
+|metricsInterval|The interval between metric emissions. The default is one minute.|
+|metricsTopic|When this Kafka topic is present the contents of the MBean server will be sent to it in JSON.|
 |mongodb.uri|The MongoDB connection URL.|
 |mongodb.database|The MongoDB database.|
 |mongodb.collection|The default MongoDB collection where builds are written and run from.|

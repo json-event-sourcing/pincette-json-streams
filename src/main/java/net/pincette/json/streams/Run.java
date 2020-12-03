@@ -3,6 +3,7 @@ package net.pincette.json.streams;
 import static com.mongodb.client.model.Filters.eq;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.System.exit;
+import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
@@ -159,6 +160,8 @@ class Run implements Runnable {
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
   private static final String LOG_TOPIC = "logTopic";
+  private static final String METRICS_INTERVAL = "metricsInterval";
+  private static final String METRICS_TOPIC = "metricsTopic";
   private static final String PLUGINS = "plugins";
   private static final String PROJECT = "$project";
   private static final String RESTART_BACKOFF = "restartBackoff";
@@ -324,13 +327,15 @@ class Run implements Runnable {
       final JsonObject config, final TopologyContext context) {
     return toStream(
         Pipeline.create(
-            context.application,
             fromStream(config, context),
             getPipeline(config),
-            context.context.database,
-            context.context.logLevel.equals(FINEST),
-            context.features,
-            context.context.stageExtensions),
+            new net.pincette.mongo.streams.Context()
+                .withApp(context.application)
+                .withDatabase(context.context.database)
+                .withFeatures(context.features)
+                .withStageExtensions(context.context.stageExtensions)
+                .withProducer(context.context.producer)
+                .withTrace(context.context.logLevel.equals(FINEST))),
         config);
   }
 
@@ -627,11 +632,24 @@ class Run implements Runnable {
             });
   }
 
+  private void metrics() {
+    tryToGetSilent(() -> context.config.getString(METRICS_TOPIC))
+        .ifPresent(
+            topic ->
+                new Metrics(
+                        topic,
+                        context.producer,
+                        tryToGetSilent(() -> context.config.getDuration(METRICS_INTERVAL))
+                            .orElseGet(() -> ofMinutes(1)))
+                    .start());
+  }
+
   public void run() {
     context.producer =
         createReliableProducer(
             fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
     loadPlugins();
+    metrics();
 
     Optional.of(
             getTopologies()
