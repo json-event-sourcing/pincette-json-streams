@@ -11,7 +11,6 @@ import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
-import static java.util.logging.Logger.getGlobal;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
@@ -156,6 +155,7 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
+  private static final String APP_VERSION = "1.5.1";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
@@ -470,14 +470,26 @@ class Run implements Runnable {
   }
 
   private static Void logChangeError(
-      final Throwable thrown, final ChangeStreamDocument<Document> change) {
-    getGlobal()
-        .log(
-            SEVERE,
-            thrown,
-            () -> "Changed application " + getApplication(change).orElse(null) + " has an error.");
+      final Throwable thrown, final ChangeStreamDocument<Document> change, final Context context) {
+    context.logger.log(
+        SEVERE,
+        thrown,
+        () -> "Changed application " + getApplication(change).orElse(null) + " has an error.");
 
     return null;
+  }
+
+  private static void logging(final Context context) {
+    tryToGetSilent(() -> context.config.getString(LOG_TOPIC))
+        .ifPresent(
+            topic ->
+                log(
+                    context.logger,
+                    context.logLevel,
+                    APP_VERSION,
+                    context.environment,
+                    context.producer,
+                    topic));
   }
 
   private static Aggregate reducers(
@@ -589,7 +601,8 @@ class Run implements Runnable {
   private void handleChange(
       final ChangeStreamDocument<Document> change,
       final TopologyLifeCycle lifeCycle,
-      final Predicate<JsonObject> filter) {
+      final Predicate<JsonObject> filter,
+      final Context context) {
     runAsync(
             () ->
                 getApplication(change)
@@ -608,7 +621,7 @@ class Run implements Runnable {
                               break;
                           }
                         }))
-        .exceptionally(e -> logChangeError(e, change));
+        .exceptionally(e -> logChangeError(e, change, context));
   }
 
   private void loadPlugins() {
@@ -648,6 +661,7 @@ class Run implements Runnable {
     context.producer =
         createReliableProducer(
             fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
+    logging(context);
     loadPlugins();
     metrics();
 
@@ -667,7 +681,7 @@ class Run implements Runnable {
                 .filter(pair -> validateTopology(pair.first))
                 .map(pair -> createTopology(pair.first, pair.second))
                 .filter(Objects::nonNull))
-        .map(this::start)
+        .map(topologies -> start(topologies, context))
         .filter(result -> !result)
         .ifPresent(result -> exit(1));
   }
@@ -698,7 +712,7 @@ class Run implements Runnable {
     running.put(application, start(entry, lifeCycle));
   }
 
-  private boolean start(final Stream<TopologyEntry> topologies) {
+  private boolean start(final Stream<TopologyEntry> topologies, final Context context) {
     final Predicate<JsonObject> filter =
         ofNullable(getFilter()).map(Match::predicate).orElse(json -> true);
     final TopologyLifeCycle lifeCycle = topologyLifeCycleEmitter(context);
@@ -710,7 +724,8 @@ class Run implements Runnable {
     if (!getFile().isPresent()) {
       getTopologyCollection()
           .watch()
-          .subscribe(new LambdaSubscriber<>(change -> handleChange(change, lifeCycle, filter)));
+          .subscribe(
+              new LambdaSubscriber<>(change -> handleChange(change, lifeCycle, filter, context)));
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));

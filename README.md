@@ -487,11 +487,13 @@ If you want to use another configuration in the ```conf``` directory, say tst.co
 You can change the [log level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html) by adding ```-Djava.util.logging.config.file=logging.properties```. The ```logging.properties``` file would then look like this:
 
 ```
-handlers= java.util.logging.ConsoleHandler
-.level= SEVERE
-java.util.logging.ConsoleHandler.level = INFO
-java.util.logging.ConsoleHandler.formatter = java.util.logging.SimpleFormatter
+handlers=java.util.logging.ConsoleHandler
+.level=INFO
+java.util.logging.ConsoleHandler.level=INFO
+java.util.logging.ConsoleHandler.formatter=java.util.logging.SimpleFormatter
 ```
+
+ALternatively you can use the configuration parameter ```logLevel```.
 
 ## The Command Line
 
@@ -521,7 +523,7 @@ The configuration is managed by the
 |kafka|All Kafka settings come below this entry. So for example, the setting ```bootstrap.servers``` would go to the entry ```kafka.bootstrap.servers```.|
 |kafka.num.stream.threads|The number of worker threads per instance.|
 |kafka.replication.factor|Check your Kafka cluster settings for this.|
-|logLevel|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html).|
+|logLevel|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is ```INFO```.|
 |logTopic|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
 |metricsInterval|The interval between metric emissions. The default is one minute.|
 |metricsTopic|When this Kafka topic is present the contents of the MBean server will be sent to it in JSON.|
