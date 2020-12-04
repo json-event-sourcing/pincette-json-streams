@@ -759,7 +759,9 @@ class Run implements Runnable {
         .filter(filter)
         .map(
             specification ->
-                createTopology(specification, createTopologyContext(specification, null, context)))
+                pair(specification, createTopologyContext(specification, null, context)))
+        .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
+        .map(pair -> createTopology(pair.first, pair.second))
         .ifPresent(topology -> restart(topology, lifeCycle));
   }
 
