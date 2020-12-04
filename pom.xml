@@ -189,6 +189,10 @@
                 <from>${project.basedir}/conf_docker</from>
                 <into>/conf</into>
               </path>
+              <path>
+                <from>${project.basedir}/src/main/resources</from>
+                <into>/app/classes</into>
+              </path>
             </paths>
           </extraDirectories>
         </configuration>

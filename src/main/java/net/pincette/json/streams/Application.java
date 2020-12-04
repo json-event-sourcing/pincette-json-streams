@@ -1,6 +1,7 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.reactivestreams.client.MongoClients.create;
+import static java.lang.ClassLoader.getSystemResourceAsStream;
 import static java.lang.System.getProperty;
 import static java.util.logging.Level.parse;
 import static java.util.logging.LogManager.getLogManager;
@@ -36,18 +37,18 @@ public class Application {
 
       logging.setProperty(".level", level.getName());
 
-      tryToDoRethrow(() -> {
-        logging.store(out, null);
-        getLogManager().readConfiguration(new ByteArrayInputStream(out.toByteArray()));
-      });
+      tryToDoRethrow(
+          () -> {
+            logging.store(out, null);
+            getLogManager().readConfiguration(new ByteArrayInputStream(out.toByteArray()));
+          });
     }
   }
 
   private static Properties loadLogging() {
     final Properties properties = new Properties();
 
-    tryToDoRethrow(
-        () -> properties.load(Application.class.getResourceAsStream("/logging.properties")));
+    tryToDoRethrow(() -> properties.load(getSystemResourceAsStream("logging.properties")));
 
     return properties;
   }
