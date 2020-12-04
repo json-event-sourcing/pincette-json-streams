@@ -13,7 +13,7 @@
 - [Topology Life Cycle Events](#topology-life-cycle-events)
 - [Troubleshooting](#troubleshooting)
 - [Plugins](#plugins)
-- [Building It](#building-it)
+- [Building And Running It](#building-and-running-it)
 - [The Command Line](#the-command-line)
 - [Configuration](#configuration)
 - [Docker Image](#docker-image)
