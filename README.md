@@ -470,7 +470,7 @@ The custom MongoDB aggregation pipeline stage ```$probe``` emits the number of m
 
 A common error is to create more than one stream from a Kafka topic. This is not allowed within the same topology. So you first create a stream from the topic and then connect that stream to other streams.
 
-## Building It
+## Building And Running It
 
 You can build the tool with ```mvn clean package```. You can launch it like this for example:
 
@@ -483,6 +483,15 @@ The total number of threads across all the instances should not exceed the numbe
 You can run the JVM with the option ```-mx256m```.
 
 If you want to use another configuration in the ```conf``` directory, say tst.conf, then you can add ```-Dconfig.resource=tst.conf``` after ```java```.
+
+You can change the [log level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html) by adding ```-Djava.util.logging.config.file=logging.properties```. The ```logging.properties``` file would then look like this:
+
+```
+handlers= java.util.logging.ConsoleHandler
+.level= SEVERE
+java.util.logging.ConsoleHandler.level = INFO
+java.util.logging.ConsoleHandler.formatter = java.util.logging.SimpleFormatter
+```
 
 ## The Command Line
 
