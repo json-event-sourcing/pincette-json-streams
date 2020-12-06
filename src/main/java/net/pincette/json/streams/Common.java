@@ -8,6 +8,7 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonUtil.asString;
+import static net.pincette.json.JsonUtil.copy;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createReader;
@@ -18,7 +19,7 @@ import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
-import static net.pincette.json.Transform.nopTransformer;
+import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.util.Collections.set;
@@ -34,6 +35,7 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -105,8 +107,7 @@ class Common {
         ofNullable(specification.getJsonObject(JSLT_IMPORTS))
             .map(JsonUtil::createObjectBuilder)
             .orElseGet(JsonUtil::createObjectBuilder);
-    final Transformer parameters =
-        runtime ? replaceParameters(specification, topologyContext) : nopTransformer();
+    final Transformer parameters = replaceParameters(specification, runtime, topologyContext);
 
     return transformBuilder(
             specification,
@@ -151,6 +152,30 @@ class Common {
     return collection != null
         ? collection
         : tryToGetSilent(() -> context.config.getString(MONGODB_COLLECTION)).orElse(null);
+  }
+
+  private static boolean hasConfigurationParameters(final JsonValue value) {
+    final BooleanSupplier tryArray =
+        () ->
+            isArray(value)
+                ? hasConfigurationParameters(value.asJsonArray())
+                : stringValue(value).filter(v -> v.startsWith(CONFIG_PREFIX)).isPresent();
+
+    return isObject(value)
+        ? hasConfigurationParameters(value.asJsonObject())
+        : tryArray.getAsBoolean();
+  }
+
+  private static boolean hasConfigurationParameters(final JsonObject value) {
+    return hasConfigurationParameters(value.values().stream());
+  }
+
+  private static boolean hasConfigurationParameters(final JsonArray value) {
+    return hasConfigurationParameters(value.stream());
+  }
+
+  private static boolean hasConfigurationParameters(final Stream<JsonValue> values) {
+    return values.anyMatch(Common::hasConfigurationParameters);
   }
 
   private static boolean hasParameter(final JsonValue value) {
@@ -226,12 +251,16 @@ class Common {
   }
 
   private static JsonObject parameters(
-      final JsonObject specification, final TopologyContext context) {
+      final JsonObject specification, final boolean runtime, final TopologyContext context) {
     return Builder.create(
             () ->
                 createObjectBuilder(
                     ofNullable(specification.getJsonObject(PARAMETERS))
-                        .map(parameters -> injectConfiguration(parameters, context.context.config))
+                        .map(
+                            parameters ->
+                                runtime
+                                    ? injectConfiguration(parameters, context.context.config)
+                                    : removeConfiguration(parameters))
                         .orElseGet(JsonUtil::emptyObject)))
         .updateIf(() -> ofNullable(context.context.environment), (b, e) -> b.add(ENV, e))
         .build()
@@ -281,13 +310,21 @@ class Common {
     return isArray(s) ? s.asJsonArray().stream() : Stream.of(s.asJsonObject());
   }
 
+  private static JsonObject removeConfiguration(final JsonObject parameters) {
+    return copy(
+            parameters,
+            createObjectBuilder(),
+            field -> !hasConfigurationParameters(parameters.get(field)))
+        .build();
+  }
+
   private static String removeLeadingSlash(final String path) {
     return path.startsWith("/") ? path.substring(1) : path;
   }
 
   private static Transformer replaceParameters(
-      final JsonObject specification, final TopologyContext context) {
-    return Optional.of(parameters(specification, context))
+      final JsonObject specification, final boolean runtime, final TopologyContext context) {
+    return Optional.of(parameters(specification, runtime, context))
         .filter(pars -> !pars.isEmpty())
         .map(Common::replaceParameters)
         .orElseGet(Transform::nopTransformer);
@@ -301,8 +338,7 @@ class Common {
     return Optional.of(ENV_PATTERN.matcher(s))
         .filter(Matcher::matches)
         .map(
-            matcher ->
-                getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue("")))
+            matcher -> getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue(s)))
         .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
   }
 
@@ -333,7 +369,7 @@ class Common {
         matcher ->
             ofNullable(parameters.get(matcher.group(1)))
                 .map(value -> isString(value) ? asString(value).getString() : string(value))
-                .orElse(""));
+                .orElse(s));
   }
 
   private static JsonArray replaceParameters(final JsonArray array, final JsonObject parameters) {
