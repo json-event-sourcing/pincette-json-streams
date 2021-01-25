@@ -52,6 +52,7 @@ import net.pincette.json.Transform;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
 import net.pincette.util.Builder;
+import net.pincette.util.Pair;
 
 class Common {
   static final String AGGREGATE = "aggregate";
@@ -85,6 +86,7 @@ class Common {
   static final String STREAM = "stream";
   static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
   static final String TYPE = "type";
+  static final String VALIDATE = "$validate";
   static final String VALIDATOR = "validator";
   static final String VERSION = "version";
   static final String WINDOW = "window";
@@ -98,6 +100,12 @@ class Common {
   private static final String RESOURCE = "resource:";
 
   private Common() {}
+
+  private static File baseDirectory(final File file, final String path) {
+    final File parent = file.getAbsoluteFile().getParentFile();
+
+    return path != null ? new File(parent, path).getParentFile() : parent;
+  }
 
   static JsonObject build(
       final JsonObject specification,
@@ -122,11 +130,14 @@ class Common {
   }
 
   static TopologyContext createTopologyContext(
-      final JsonObject specification, final File baseDirectory, final Context context) {
+      final JsonObject specification,
+      final File topFile,
+      final String topologyPath,
+      final Context context) {
     final TopologyContext topologyContext = new TopologyContext(context);
 
     topologyContext.application = specification.getString(APPLICATION_FIELD);
-    topologyContext.baseDirectory = baseDirectory;
+    topologyContext.baseDirectory = topFile != null ? baseDirectory(topFile, topologyPath) : null;
 
     return topologyContext;
   }
@@ -217,7 +228,7 @@ class Common {
   }
 
   private static boolean isValidatorPath(final String path) {
-    return path.endsWith(COMMANDS + "." + VALIDATOR);
+    return path.endsWith(COMMANDS + "." + VALIDATOR) || path.endsWith(VALIDATE);
   }
 
   private static Transformer jsltResolver(
@@ -288,7 +299,7 @@ class Common {
         : Stream.of(result);
   }
 
-  static Stream<JsonObject> readTopologies(final File file) {
+  static Stream<Pair<JsonObject, String>> readTopologies(final File file) {
     return tryToGetWithRethrow(
             () -> createReader(new FileInputStream(file)),
             reader ->
@@ -297,10 +308,8 @@ class Common {
                     .map(
                         value ->
                             isObject(value)
-                                ? value.asJsonObject()
-                                : readObject(
-                                    asString(value).getString(),
-                                    file.getAbsoluteFile().getParentFile())))
+                                ? pair(value.asJsonObject(), (String) null)
+                                : readTopology(asString(value).getString(), file)))
         .orElseGet(Stream::empty);
   }
 
@@ -308,6 +317,10 @@ class Common {
     final JsonStructure s = reader.read();
 
     return isArray(s) ? s.asJsonArray().stream() : Stream.of(s.asJsonObject());
+  }
+
+  private static Pair<JsonObject, String> readTopology(final String path, final File file) {
+    return pair(readObject(path, file.getAbsoluteFile().getParentFile()), path);
   }
 
   private static JsonObject removeConfiguration(final JsonObject parameters) {

@@ -13,9 +13,11 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 class Context {
   Config config;
   MongoDatabase database;
+  MongoDatabase databaseArchive;
   String environment;
   Features features;
   Level logLevel;
+  String logTopic;
   Logger logger;
   KafkaProducer<String, JsonObject> producer;
   Map<String, Stage> stageExtensions;

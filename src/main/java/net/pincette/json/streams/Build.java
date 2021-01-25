@@ -55,10 +55,10 @@ class Build implements Runnable {
         .map(
             specification ->
                 build(
-                    specification,
+                    specification.first,
                     false,
                     createTopologyContext(
-                        specification, file.getAbsoluteFile().getParentFile(), context)))
+                        specification.first, file, specification.second, context)))
         .filter(Validate::validateTopology)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();

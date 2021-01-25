@@ -15,6 +15,9 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.elastic.Logging.log;
+import static net.pincette.jes.elastic.Logging.logKafka;
+import static net.pincette.jes.util.JsonFields.ERROR;
+import static net.pincette.jes.util.JsonFields.ERRORS;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
@@ -35,7 +38,9 @@ import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
+import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
+import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
@@ -68,6 +73,7 @@ import static net.pincette.json.streams.Common.SOURCE_TYPE;
 import static net.pincette.json.streams.Common.STREAM;
 import static net.pincette.json.streams.Common.STREAM_TYPES;
 import static net.pincette.json.streams.Common.TYPE;
+import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.WINDOW;
@@ -133,7 +139,9 @@ import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Features;
 import net.pincette.mongo.Match;
+import net.pincette.mongo.Validator;
 import net.pincette.mongo.streams.Pipeline;
+import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
 import org.apache.kafka.common.serialization.Serdes.StringSerde;
@@ -155,11 +163,10 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.5.1";
+  private static final String APP_VERSION = "1.6";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
-  private static final String LOG_TOPIC = "logTopic";
   private static final String METRICS_INTERVAL = "metricsInterval";
   private static final String METRICS_TOPIC = "metricsTopic";
   private static final String PLUGINS = "plugins";
@@ -217,6 +224,7 @@ class Run implements Runnable {
                                       .withApp(aggregateType.first)
                                       .withType(aggregateType.second)
                                       .withMongoDatabase(context.context.database)
+                                      .withMongoDatabaseArchive(context.context.databaseArchive)
                                       .withBuilder(context.builder))
                           .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
                           .updateIf(
@@ -227,6 +235,7 @@ class Run implements Runnable {
                       context);
 
               aggregate.build();
+              logAggregate(aggregate, config.getString(VERSION, ""), context.context);
               addStreams(aggregate, context);
             });
 
@@ -437,12 +446,9 @@ class Run implements Runnable {
 
     logger.setLevel(context.logLevel);
 
-    log(
-        logger,
-        version,
-        context.environment,
-        context.producer,
-        context.config.getString(LOG_TOPIC));
+    if (context.logTopic != null) {
+      log(logger, version, context.environment, context.producer, context.logTopic);
+    }
 
     return logger;
   }
@@ -464,9 +470,19 @@ class Run implements Runnable {
         name, k -> createPart(context.configurations.get(name), context));
   }
 
-  private static Stream<JsonObject> getTopologies(
+  private static Stream<Pair<JsonObject, String>> getTopologies(
       final MongoCollection<Document> collection, final Bson filter) {
-    return find(collection, filter).toCompletableFuture().join().stream().map(Run::fromMongoDB);
+    return find(collection, filter).toCompletableFuture().join().stream()
+        .map(Run::fromMongoDB)
+        .map(topology -> pair(topology, null));
+  }
+
+  private static void logAggregate(
+      final Aggregate aggregate, final String version, final Context context) {
+
+    if (context.logTopic != null) {
+      logKafka(aggregate, context.logLevel, version, context.logTopic);
+    }
   }
 
   private static Void logChangeError(
@@ -480,16 +496,15 @@ class Run implements Runnable {
   }
 
   private static void logging(final Context context) {
-    tryToGetSilent(() -> context.config.getString(LOG_TOPIC))
-        .ifPresent(
-            topic ->
-                log(
-                    context.logger,
-                    context.logLevel,
-                    APP_VERSION,
-                    context.environment,
-                    context.producer,
-                    topic));
+    if (context.logTopic != null) {
+      log(
+          context.logger,
+          context.logLevel,
+          APP_VERSION,
+          context.environment,
+          context.producer,
+          context.logTopic);
+    }
   }
 
   private static Aggregate reducers(
@@ -554,6 +569,10 @@ class Run implements Runnable {
     return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
   }
 
+  private void addValidateStage() {
+    context.stageExtensions = merge(context.stageExtensions, map(pair(VALIDATE, validateStage())));
+  }
+
   private void close() {
     running.values().forEach(v -> v.stop.stop());
   }
@@ -586,7 +605,7 @@ class Run implements Runnable {
         .orElse(null);
   }
 
-  private Stream<JsonObject> getTopologies() {
+  private Stream<Pair<JsonObject, String>> getTopologies() {
     return getFile()
         .map(Common::readTopologies)
         .orElseGet(() -> getTopologies(getTopologyCollection(), getFilter()));
@@ -663,6 +682,7 @@ class Run implements Runnable {
             fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
     logging(context);
     loadPlugins();
+    addValidateStage();
     metrics();
 
     Optional.of(
@@ -670,12 +690,11 @@ class Run implements Runnable {
                 .map(
                     specification ->
                         pair(
-                            specification,
+                            specification.first,
                             createTopologyContext(
-                                specification,
-                                getFile()
-                                    .map(file -> file.getAbsoluteFile().getParentFile())
-                                    .orElse(null),
+                                specification.first,
+                                getFile().orElse(null),
+                                specification.second,
                                 context)))
                 .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
                 .filter(pair -> validateTopology(pair.first))
@@ -759,7 +778,7 @@ class Run implements Runnable {
         .filter(filter)
         .map(
             specification ->
-                pair(specification, createTopologyContext(specification, null, context)))
+                pair(specification, createTopologyContext(specification, null, null, context)))
         .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
         .map(pair -> createTopology(pair.first, pair.second))
         .ifPresent(topology -> restart(topology, lifeCycle));
@@ -772,6 +791,30 @@ class Run implements Runnable {
               entry.logger.log(INFO, "Stopping {0}", application);
               entry.stop.stop();
             });
+  }
+
+  private Stage validateStage() {
+    return (stream, expression, c) -> {
+      if (!isObject(expression)) {
+        context.logger.log(
+            SEVERE,
+            "The value of $validate should be an object, but {0} was given.",
+            string(expression));
+
+        return stream;
+      }
+
+      final Function<JsonObject, JsonArray> validator =
+          new Validator(context.features).validator(expression.asJsonObject());
+
+      return stream.mapValues(
+          v ->
+              Optional.of(validator.apply(v))
+                  .filter(errors -> !errors.isEmpty())
+                  .map(
+                      errors -> createObjectBuilder(v).add(ERROR, true).add(ERRORS, errors).build())
+                  .orElse(v));
+    };
   }
 
   private static class FileOrCollection {

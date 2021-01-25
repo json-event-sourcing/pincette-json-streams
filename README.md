@@ -142,7 +142,7 @@ Commands have the following fields:
 |---|---|---|
 |name|Yes|The name of the command. It will be available in the reducer as the field ```/command/_command```.|
 |reducer|Yes|The relative filename of a JSLT script.|
-|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants te refer to the current state of an aggregate instance it can use the field ```_state```.|
+|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants to refer to the current state of an aggregate instance it can use the field ```_state```.|
 
 An aggregate creates the streams with the names ```<app>-<type>-aggregate```, ```<app>-<type>-command```, ```<app>-<type>-event```, ```<app>-<type>-event-full``` and ```<app>-<type>-reply```. Their meaning is described in [JSON Event Sourcing](https://github.com/json-event-sourcing/pincette-jes#the-kafka-topics). You can connect to those streams in other parts of the application.
 
@@ -409,6 +409,12 @@ Everywhere you use ```${MONGO}``` in the parts of the application it will be sub
 ## Available MongoDB Operators
 
 The available MongoDB operators are described in [pincette-mongo](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Expression.html) and [pincette-mongo-streams](https://www.javadoc.io/doc/net.pincette/pincette-mongo-streams/latest/net/pincette/mongo/streams/Pipeline.html).
+
+## Custom MongoDB Pipeline Stages
+
+|Name|Description|
+|---|---|
+|$validate|The value of this stage is a filename. The file should contain [aggregate validator](#json-event-sourcing-aggregates). If the validation succeeds the message will go through unchanged. Otherwise the validator will annotated it.|
 
 ## JSLT Custom Functions
 
