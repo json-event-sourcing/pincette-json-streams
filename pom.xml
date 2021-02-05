@@ -121,18 +121,10 @@
     </dependency>
   </dependencies>
 
-  <distributionManagement>
-    <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
-  </distributionManagement>
-
   <repositories>
     <repository>
-      <id>github</id>
-      <name>GitHub wdonne Apache Maven Packages</name>
-      <url>https://maven.pkg.github.com/wdonne/packages</url>
+      <id>pincette.net</id>
+      <url>https://re.pincette.net/repo/</url>
     </repository>
   </repositories>
 
