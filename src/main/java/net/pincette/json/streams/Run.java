@@ -16,8 +16,6 @@ import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.elastic.Logging.log;
 import static net.pincette.jes.elastic.Logging.logKafka;
-import static net.pincette.jes.util.JsonFields.ERROR;
-import static net.pincette.jes.util.JsonFields.ERRORS;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
@@ -38,9 +36,7 @@ import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
-import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
-import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
@@ -80,6 +76,8 @@ import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.transformFieldNames;
+import static net.pincette.json.streams.PipelineStages.logStage;
+import static net.pincette.json.streams.PipelineStages.validateStage;
 import static net.pincette.json.streams.Validate.validateTopology;
 import static net.pincette.mongo.BsonUtil.fromBson;
 import static net.pincette.mongo.BsonUtil.toBsonDocument;
@@ -139,9 +137,7 @@ import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Features;
 import net.pincette.mongo.Match;
-import net.pincette.mongo.Validator;
 import net.pincette.mongo.streams.Pipeline;
-import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
 import org.apache.kafka.common.serialization.Serdes.StringSerde;
@@ -163,10 +159,11 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.6";
+  private static final String APP_VERSION = "1.7";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
+  private static final String LOG = "$log";
   private static final String METRICS_INTERVAL = "metricsInterval";
   private static final String METRICS_TOPIC = "metricsTopic";
   private static final String PLUGINS = "plugins";
@@ -185,6 +182,13 @@ class Run implements Runnable {
   Run(final Context context) {
     this.context = context;
     restartBackoff = getRestartBackoff(context);
+  }
+
+  private static void addPipelineStages(final Context context) {
+    context.stageExtensions =
+        merge(
+            context.stageExtensions,
+            map(pair(LOG, logStage(context)), pair(VALIDATE, validateStage(context))));
   }
 
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
@@ -477,6 +481,27 @@ class Run implements Runnable {
         .map(topology -> pair(topology, null));
   }
 
+  private static void loadPlugins(final Context context) {
+    tryToGetSilent(() -> context.config.getString(PLUGINS))
+        .map(Paths::get)
+        .map(Plugins::load)
+        .ifPresent(
+            plugins -> {
+              context.stageExtensions = plugins.stageExtensions;
+
+              registerCustomFunctions(
+                  union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions));
+
+              context.features =
+                  new Features()
+                      .withExpressionExtensions(
+                          merge(
+                              operators(context.database, context.environment),
+                              plugins.expressionExtensions))
+                      .withMatchExtensions(plugins.matchExtensions);
+            });
+  }
+
   private static void logAggregate(
       final Aggregate aggregate, final String version, final Context context) {
 
@@ -505,6 +530,18 @@ class Run implements Runnable {
           context.producer,
           context.logTopic);
     }
+  }
+
+  private static void metrics(final Context context) {
+    tryToGetSilent(() -> context.config.getString(METRICS_TOPIC))
+        .ifPresent(
+            topic ->
+                new Metrics(
+                        topic,
+                        context.producer,
+                        tryToGetSilent(() -> context.config.getDuration(METRICS_INTERVAL))
+                            .orElseGet(() -> ofMinutes(1)))
+                    .start());
   }
 
   private static Aggregate reducers(
@@ -567,10 +604,6 @@ class Run implements Runnable {
 
   private static String unescapeFieldName(final String name) {
     return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
-  }
-
-  private void addValidateStage() {
-    context.stageExtensions = merge(context.stageExtensions, map(pair(VALIDATE, validateStage())));
   }
 
   private void close() {
@@ -643,47 +676,14 @@ class Run implements Runnable {
         .exceptionally(e -> logChangeError(e, change, context));
   }
 
-  private void loadPlugins() {
-    tryToGetSilent(() -> context.config.getString(PLUGINS))
-        .map(Paths::get)
-        .map(Plugins::load)
-        .ifPresent(
-            plugins -> {
-              context.stageExtensions = plugins.stageExtensions;
-
-              registerCustomFunctions(
-                  union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions));
-
-              context.features =
-                  new Features()
-                      .withExpressionExtensions(
-                          merge(
-                              operators(context.database, context.environment),
-                              plugins.expressionExtensions))
-                      .withMatchExtensions(plugins.matchExtensions);
-            });
-  }
-
-  private void metrics() {
-    tryToGetSilent(() -> context.config.getString(METRICS_TOPIC))
-        .ifPresent(
-            topic ->
-                new Metrics(
-                        topic,
-                        context.producer,
-                        tryToGetSilent(() -> context.config.getDuration(METRICS_INTERVAL))
-                            .orElseGet(() -> ofMinutes(1)))
-                    .start());
-  }
-
   public void run() {
     context.producer =
         createReliableProducer(
             fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
     logging(context);
-    loadPlugins();
-    addValidateStage();
-    metrics();
+    loadPlugins(context);
+    addPipelineStages(context);
+    metrics(context);
 
     Optional.of(
             getTopologies()
@@ -791,30 +791,6 @@ class Run implements Runnable {
               entry.logger.log(INFO, "Stopping {0}", application);
               entry.stop.stop();
             });
-  }
-
-  private Stage validateStage() {
-    return (stream, expression, c) -> {
-      if (!isObject(expression)) {
-        context.logger.log(
-            SEVERE,
-            "The value of $validate should be an object, but {0} was given.",
-            string(expression));
-
-        return stream;
-      }
-
-      final Function<JsonObject, JsonArray> validator =
-          new Validator(context.features).validator(expression.asJsonObject());
-
-      return stream.mapValues(
-          v ->
-              Optional.of(validator.apply(v))
-                  .filter(errors -> !errors.isEmpty())
-                  .map(
-                      errors -> createObjectBuilder(v).add(ERROR, true).add(ERRORS, errors).build())
-                  .orElse(v));
-    };
   }
 
   private static class FileOrCollection {

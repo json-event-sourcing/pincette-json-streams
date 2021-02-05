@@ -3,6 +3,7 @@ package net.pincette.json.streams;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
 import static java.util.Optional.ofNullable;
+import static java.util.UUID.randomUUID;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Stream.concat;
@@ -14,6 +15,9 @@ import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createReader;
 import static net.pincette.json.JsonUtil.createValue;
 import static net.pincette.json.JsonUtil.from;
+import static net.pincette.json.JsonUtil.getArray;
+import static net.pincette.json.JsonUtil.getObjects;
+import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
@@ -22,6 +26,7 @@ import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
+import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.replaceAll;
@@ -33,9 +38,15 @@ import com.typesafe.config.Config;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,12 +56,15 @@ import javax.json.JsonArrayBuilder;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
+import javax.json.JsonString;
 import javax.json.JsonStructure;
 import javax.json.JsonValue;
+import net.pincette.function.FunctionWithException;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
+import net.pincette.mongo.Validator;
 import net.pincette.util.Builder;
 import net.pincette.util.Pair;
 
@@ -102,31 +116,37 @@ class Common {
   private Common() {}
 
   private static File baseDirectory(final File file, final String path) {
-    final File parent = file.getAbsoluteFile().getParentFile();
-
-    return path != null ? new File(parent, path).getParentFile() : parent;
+    return tryToGetRethrow(() -> file.getCanonicalFile().getParentFile())
+        .map(parent -> path != null ? new File(parent, path).getParentFile() : parent)
+        .orElse(null);
   }
 
   static JsonObject build(
       final JsonObject specification,
       final boolean runtime,
       final TopologyContext topologyContext) {
-    final JsonObjectBuilder imports =
-        ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-            .map(JsonUtil::createObjectBuilder)
-            .orElseGet(JsonUtil::createObjectBuilder);
-    final Transformer parameters = replaceParameters(specification, runtime, topologyContext);
+    final Map<File, Pair<String, String>> imports = new HashMap<>();
+    final JsonObject parameters = parameters(specification, runtime, topologyContext);
 
     return transformBuilder(
-            specification,
-            parameters
-                .thenApply(sequenceResolver(topologyContext.baseDirectory, parameters))
-                .thenApply(jsltResolver(imports, topologyContext.baseDirectory))
-                .thenApply(validatorResolver(topologyContext))
-                .thenApply(parameters))
-        .add(JSLT_IMPORTS, imports)
+            topologyContext.baseDirectory != null
+                ? expandApplication(specification, topologyContext.baseDirectory, parameters)
+                : specification,
+            createTransformer(imports, parameters, topologyContext.validators))
+        .add(JSLT_IMPORTS, createImports(specification, imports.values()))
         .add(ID, specification.getString(APPLICATION_FIELD))
         .build();
+  }
+
+  private static JsonObjectBuilder createImports(
+      final JsonObject specification, final Collection<Pair<String, String>> imports) {
+    return imports.stream()
+        .reduce(
+            ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+                .map(JsonUtil::createObjectBuilder)
+                .orElseGet(JsonUtil::createObjectBuilder),
+            (b, p) -> b.add(p.first, p.second),
+            (b1, b2) -> b1);
   }
 
   static TopologyContext createTopologyContext(
@@ -140,6 +160,112 @@ class Common {
     topologyContext.baseDirectory = topFile != null ? baseDirectory(topFile, topologyPath) : null;
 
     return topologyContext;
+  }
+
+  private static Transformer createTransformer(
+      final Map<File, Pair<String, String>> imports,
+      final JsonObject parameters,
+      final Validator validators) {
+    return replaceParameters(parameters)
+        .thenApply(jsltResolver(imports))
+        .thenApply(validatorResolver(validators));
+  }
+
+  private static JsonObject expandAggregate(
+      final JsonObject aggregate, final File baseDirectory, final JsonObject parameters) {
+    return createObjectBuilder(aggregate)
+        .add(
+            COMMANDS,
+            from(
+                getObjects(aggregate, COMMANDS)
+                    .map(JsonValue::asJsonObject)
+                    .map(command -> expandCommand(command, baseDirectory, parameters))))
+        .build();
+  }
+
+  private static JsonObject expandApplication(
+      final JsonObject application, final File baseDirectory, final JsonObject parameters) {
+    return expandSequenceContainer(application, baseDirectory, parameters)
+        .apply(PARTS, expandPart());
+  }
+
+  private static JsonObject expandCommand(
+      final JsonObject command, final File baseDirectory, final JsonObject parameters) {
+    return create(() -> createObjectBuilder(command))
+        .updateIf(
+            () -> getString(command, "/" + REDUCER),
+            (b, v) -> b.add(REDUCER, resolveFile(baseDirectory, v, parameters)))
+        .updateIf(
+            () -> getString(command, "/" + VALIDATOR),
+            (b, v) -> b.add(VALIDATOR, resolveFile(baseDirectory, v, parameters)))
+        .build()
+        .build();
+  }
+
+  private static Expander expandPart() {
+    return part ->
+        baseDirectory ->
+            parameters -> {
+              switch (part.getString(TYPE)) {
+                case AGGREGATE:
+                  return expandAggregate(part, baseDirectory, parameters);
+                case STREAM:
+                  return expandStream(part, baseDirectory, parameters);
+                default:
+                  return part;
+              }
+            };
+  }
+
+  private static JsonArray expandSequence(
+      final JsonArray array,
+      final File baseDirectory,
+      final JsonObject parameters,
+      final Expander expander) {
+    return from(
+        getSequence(array, baseDirectory, parameters)
+            .filter(pair -> isObject(pair.first))
+            .map(
+                pair ->
+                    expander
+                        .apply(pair.first.asJsonObject())
+                        .apply(pair.second)
+                        .apply(parameters)));
+  }
+
+  private static BiFunction<String, Expander, JsonObject> expandSequenceContainer(
+      final JsonObject container, final File baseDirectory, final JsonObject parameters) {
+    return (field, expand) ->
+        createObjectBuilder(container)
+            .add(
+                field,
+                getSequence(container, field, baseDirectory, parameters)
+                    .map(pair -> expandSequence(pair.first, pair.second, parameters, expand))
+                    .orElseGet(JsonUtil::emptyArray))
+            .build();
+  }
+
+  private static Expander expandStage() {
+    return stage ->
+        baseDirectory ->
+            parameters ->
+                stageKey(stage)
+                    .filter(key -> key.equals(JSLT) || key.equals(VALIDATE))
+                    .filter(key -> getString(stage, "/" + key).isPresent())
+                    .map(
+                        key ->
+                            createObjectBuilder(stage)
+                                .add(
+                                    key,
+                                    resolveFile(baseDirectory, stage.getString(key), parameters))
+                                .build())
+                    .orElse(stage);
+  }
+
+  private static JsonObject expandStream(
+      final JsonObject stream, final File baseDirectory, final JsonObject parameters) {
+    return expandSequenceContainer(stream, baseDirectory, parameters)
+        .apply(PIPELINE, expandStage());
   }
 
   private static JsonValue getConfigValue(final JsonValue value, final Config config) {
@@ -157,6 +283,32 @@ class Common {
     return path.startsWith(RESOURCE)
         ? Application.class.getResourceAsStream(path.substring(RESOURCE.length()))
         : tryToGetRethrow(() -> new FileInputStream(new File(baseDirectory, path))).orElse(null);
+  }
+
+  private static Optional<Pair<JsonArray, File>> getSequence(
+      final JsonObject json,
+      final String field,
+      final File baseDirectory,
+      final JsonObject parameters) {
+    return getString(json, "/" + field)
+        .map(s -> replaceParametersString(s, parameters))
+        .flatMap(path -> resolveFile(baseDirectory, path))
+        .map(file -> pair(readArray(file), file.getParentFile()))
+        .or(() -> getArray(json, "/" + field).map(a -> pair(a, baseDirectory)));
+  }
+
+  private static Stream<Pair<JsonValue, File>> getSequence(
+      final JsonArray array, final File baseDirectory, final JsonObject parameters) {
+    return concat(
+        strings(array.stream())
+            .map(s -> replaceParametersString(s, parameters))
+            .map(s -> resolveFile(baseDirectory, s).orElse(null))
+            .filter(Objects::nonNull)
+            .filter(File::exists)
+            .flatMap(
+                file ->
+                    read(file, Common::readSequenceParts).map(p -> pair(p, file.getParentFile()))),
+        array.stream().filter(v -> !isString(v)).map(p -> pair(p, baseDirectory)));
   }
 
   static String getTopologyCollection(final String collection, final Context context) {
@@ -197,14 +349,6 @@ class Common {
     return ENV_PATTERN.matcher(s).find();
   }
 
-  private static String importPath(final File jslt, final File baseDirectory) {
-    return removeLeadingSlash(
-        jslt.getAbsoluteFile()
-            .getAbsolutePath()
-            .substring(baseDirectory.getAbsoluteFile().getAbsolutePath().length())
-            .replace('\\', '/'));
-  }
-
   private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
     return transform(
         parameters,
@@ -223,42 +367,17 @@ class Common {
         || path.endsWith(EVENT_TO_COMMAND);
   }
 
-  private static boolean isSequencePath(final String path) {
-    return path.endsWith(PARTS) || path.endsWith(PIPELINE);
-  }
-
   private static boolean isValidatorPath(final String path) {
     return path.endsWith(COMMANDS + "." + VALIDATOR) || path.endsWith(VALIDATE);
   }
 
-  private static Transformer jsltResolver(
-      final JsonObjectBuilder imports, final File baseDirectory) {
+  private static Transformer jsltResolver(final Map<File, Pair<String, String>> imports) {
     return new Transformer(
         e -> isJsltPath(e.path) && isString(e.value),
         e ->
             Optional.of(
                 new JsonEntry(
-                    e.path,
-                    createValue(
-                        resolveJslt(asString(e.value).getString(), imports, baseDirectory)))));
-  }
-
-  private static Stream<JsonValue> loadSequence(
-      final String path, final File baseDirectory, final Transformer replaceParameters) {
-    return tryToGetWithRethrow(
-            () -> createReader(getInputStream(path, baseDirectory)),
-            reader ->
-                resolve(
-                    readSequenceParts(reader, replaceParameters),
-                    newBaseDirectory(path, baseDirectory),
-                    replaceParameters))
-        .orElse(null);
-  }
-
-  private static File newBaseDirectory(final String path, final File baseDirectory) {
-    return path.startsWith(RESOURCE)
-        ? baseDirectory
-        : new File(baseDirectory, path).getParentFile();
+                    e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
   }
 
   private static JsonObject parameters(
@@ -278,10 +397,12 @@ class Common {
         .build();
   }
 
-  private static JsonArray readArray(final String path, final File baseDirectory) {
-    return tryToGetWithRethrow(
-            () -> createReader(getInputStream(path, baseDirectory)), JsonReader::readArray)
-        .orElse(null);
+  private static <T> T read(final File file, final FunctionWithException<JsonReader, T> reader) {
+    return tryToGetWithRethrow(() -> createReader(new FileInputStream(file)), reader).orElse(null);
+  }
+
+  private static JsonArray readArray(final File file) {
+    return read(file, JsonReader::readArray);
   }
 
   static JsonObject readObject(final String path, final File baseDirectory) {
@@ -290,13 +411,14 @@ class Common {
         .orElse(null);
   }
 
-  private static Stream<JsonValue> readSequenceParts(
-      final JsonReader reader, final Transformer replaceParameters) {
+  static JsonObject readObject(final File file) {
+    return read(file, JsonReader::readObject);
+  }
+
+  private static Stream<JsonValue> readSequenceParts(final JsonReader reader) {
     final JsonStructure result = reader.read();
 
-    return isArray(result)
-        ? transform(result.asJsonArray(), replaceParameters).stream()
-        : Stream.of(result);
+    return isArray(result) ? result.asJsonArray().stream() : Stream.of(result);
   }
 
   static Stream<Pair<JsonObject, String>> readTopologies(final File file) {
@@ -320,7 +442,7 @@ class Common {
   }
 
   private static Pair<JsonObject, String> readTopology(final String path, final File file) {
-    return pair(readObject(path, file.getAbsoluteFile().getParentFile()), path);
+    return pair(readObject(path, baseDirectory(file, null)), path);
   }
 
   private static JsonObject removeConfiguration(final JsonObject parameters) {
@@ -331,19 +453,14 @@ class Common {
         .build();
   }
 
-  private static String removeLeadingSlash(final String path) {
-    return path.startsWith("/") ? path.substring(1) : path;
-  }
-
-  private static Transformer replaceParameters(
-      final JsonObject specification, final boolean runtime, final TopologyContext context) {
-    return Optional.of(parameters(specification, runtime, context))
+  private static Transformer replaceParameters(final JsonObject parameters) {
+    return Optional.of(parameters)
         .filter(pars -> !pars.isEmpty())
-        .map(Common::replaceParameters)
+        .map(Common::replaceParametersTransformer)
         .orElseGet(Transform::nopTransformer);
   }
 
-  private static Transformer replaceParameters(final JsonObject parameters) {
+  private static Transformer replaceParametersTransformer(final JsonObject parameters) {
     return replaceParametersObject(parameters).thenApply(replaceParametersArray(parameters));
   }
 
@@ -353,6 +470,16 @@ class Common {
         .map(
             matcher -> getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue(s)))
         .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
+  }
+
+  private static JsonArray replaceParameters(final JsonArray array, final JsonObject parameters) {
+    return array.stream()
+        .reduce(
+            createArrayBuilder(),
+            (b, v) ->
+                b.add(hasParameter(v) ? replaceParameters(asString(v).getString(), parameters) : v),
+            (b1, b2) -> b1)
+        .build();
   }
 
   private static Transformer replaceParametersArray(final JsonObject parameters) {
@@ -385,102 +512,69 @@ class Common {
                 .orElse(s));
   }
 
-  private static JsonArray replaceParameters(final JsonArray array, final JsonObject parameters) {
-    return array.stream()
-        .reduce(
-            createArrayBuilder(),
-            (b, v) ->
-                b.add(hasParameter(v) ? replaceParameters(asString(v).getString(), parameters) : v),
-            (b1, b2) -> b1)
-        .build();
+  private static Optional<File> resolveFile(final File baseDirectory, final String path) {
+    return tryToGetRethrow(baseDirectory::getCanonicalFile)
+        .map(b -> new File(b, path))
+        .flatMap(f -> tryToGetRethrow(f::getCanonicalFile));
   }
 
-  private static Stream<JsonValue> resolve(
-      final Stream<JsonValue> sequence,
-      final File baseDirectory,
-      final Transformer replaceParameters) {
-    return sequence
-        .filter(element -> isObject(element) || isString(element))
-        .flatMap(
-            element ->
-                isObject(element)
-                    ? Stream.of(element)
-                    : loadSequence(
-                        asString(element).getString(), baseDirectory, replaceParameters));
+  private static String resolveFile(
+      final File baseDirectory, final String path, final JsonObject parameters) {
+    return Optional.of(path)
+        .filter(p -> !p.startsWith(RESOURCE))
+        .flatMap(p -> resolveFile(baseDirectory, replaceParametersString(p, parameters)))
+        .map(File::getAbsolutePath)
+        .orElse(path);
   }
 
   private static String resolveJslt(
-      final String jslt, final JsonObjectBuilder imports, final File baseDirectory) {
-    return jslt.startsWith(RESOURCE)
-        ? jslt
-        : Optional.of(new File(baseDirectory, jslt))
-            .filter(File::exists)
-            .map(
-                file ->
-                    "// "
-                        + importPath(file, baseDirectory)
-                        + "\n"
-                        + resolveJsltImports(file, imports, baseDirectory))
-            .orElse(jslt);
+      final String jslt, final Map<File, Pair<String, String>> imports) {
+    return Optional.of(jslt)
+        .filter(j -> !j.startsWith(RESOURCE))
+        .map(File::new)
+        .filter(File::exists)
+        .map(file -> "// " + file.getName() + "\n" + resolveJsltImports(file, imports))
+        .orElse(jslt);
   }
 
   private static String resolveJsltImport(
       final String line,
       final String imp,
       final File jslt,
-      final JsonObjectBuilder imports,
-      final File baseDirectory) {
-    final File imported = new File(jslt.getAbsoluteFile().getParent(), imp);
-    final String path = importPath(imported, baseDirectory);
+      final Map<File, Pair<String, String>> imports) {
+    final File imported = resolveFile(baseDirectory(jslt, null), imp).orElse(null);
 
-    imports.add(path, resolveJsltImports(imported, imports, baseDirectory));
-
-    return line.replace(imp, path);
+    return line.replace(
+        imp,
+        imports.compute(
+                imported,
+                (k, v) ->
+                    v == null
+                        ? pair(randomUUID().toString(), resolveJsltImports(imported, imports))
+                        : v)
+            .first);
   }
 
   private static String resolveJsltImports(
-      final File jslt, final JsonObjectBuilder imports, final File baseDirectory) {
-    return tryToGetRethrow(
-            () ->
-                concat(
-                    Stream.of("// " + importPath(jslt, baseDirectory)),
-                    lines(jslt.toPath(), UTF_8)))
+      final File jslt, final Map<File, Pair<String, String>> imports) {
+    return tryToGetRethrow(() -> lines(jslt.toPath(), UTF_8))
         .orElseGet(Stream::empty)
         .map(
             line ->
                 getImport(line)
-                    .map(imp -> resolveJsltImport(line, imp, jslt, imports, baseDirectory))
+                    .map(imp -> resolveJsltImport(line, imp, jslt, imports))
                     .orElse(line))
         .collect(joining("\n"));
   }
 
-  private static Transformer sequenceResolver(
-      final File baseDirectory, final Transformer replaceParameters) {
-    return sequenceResolverFile(baseDirectory, replaceParameters)
-        .thenApply(sequenceResolverArray(baseDirectory, replaceParameters));
+  private static Optional<String> stageKey(final JsonObject stage) {
+    return Optional.of(stage.keySet())
+        .filter(keys -> keys.size() == 1)
+        .map(keys -> keys.iterator().next());
   }
 
-  private static Transformer sequenceResolverArray(
-      final File baseDirectory, final Transformer replaceParameters) {
-    return new Transformer(
-        e -> isSequencePath(e.path) && isArray(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(
-                    e.path,
-                    from(
-                        resolve(
-                            e.value.asJsonArray().stream(), baseDirectory, replaceParameters)))));
-  }
-
-  private static Transformer sequenceResolverFile(
-      final File baseDirectory, final Transformer replaceParameters) {
-    return new Transformer(
-            e -> isSequencePath(e.path) && isString(e.value),
-            e ->
-                Optional.of(
-                    new JsonEntry(e.path, readArray(asString(e.value).getString(), baseDirectory))))
-        .thenApply(replaceParameters);
+  private static Stream<String> strings(final Stream<JsonValue> values) {
+    return values.filter(JsonUtil::isString).map(JsonUtil::asString).map(JsonString::getString);
   }
 
   static JsonObject transformFieldNames(final JsonObject json, final UnaryOperator<String> op) {
@@ -508,26 +602,18 @@ class Common {
     }
   }
 
-  private static Transformer validatorResolver(final TopologyContext context) {
-    return validatorResolverString(context).thenApply(validatorResolverObject(context));
-  }
-
-  private static Transformer validatorResolverObject(final TopologyContext context) {
-    return new Transformer(
-        e -> isValidatorPath(e.path) && isObject(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(
-                    e.path,
-                    context.validators.resolve(e.value.asJsonObject(), context.baseDirectory))));
-  }
-
-  private static Transformer validatorResolverString(final TopologyContext context) {
+  private static Transformer validatorResolver(final Validator validators) {
     return new Transformer(
         e -> isValidatorPath(e.path) && isString(e.value),
         e ->
-            Optional.of(
-                new JsonEntry(
-                    e.path, readObject(asString(e.value).getString(), context.baseDirectory))));
+            Optional.of(asString(e.value).getString())
+                .map(File::new)
+                .map(
+                    file ->
+                        new JsonEntry(
+                            e.path, validators.resolve(readObject(file), file.getParentFile()))));
   }
+
+  private interface Expander
+      extends Function<JsonObject, Function<File, Function<JsonObject, JsonObject>>> {}
 }

@@ -84,7 +84,7 @@ class Build implements Runnable {
                       .toCompletableFuture()
                       .join());
     } else {
-      System.out.println(string(buildTopologies()));
+      System.out.println(string(buildTopologies(), true));
     }
   }
 

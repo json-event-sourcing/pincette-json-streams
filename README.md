@@ -8,6 +8,7 @@
 - [Stream Joiners](#stream-joiners)
 - [Parameters](#parameters)
 - [Available MongoDB Operators](#available-mongodb-operators)
+- [Custom MongoDB Pipeline Stages](#custom-mongodb-pipeline-stages)
 - [JSLT Custom Functions](#jslt-custom-functions)
 - [Data Serialisation](#data-serialisation)
 - [Topology Life Cycle Events](#topology-life-cycle-events)
@@ -141,8 +142,8 @@ Commands have the following fields:
 |Field|Mandatory|Description|
 |---|---|---|
 |name|Yes|The name of the command. It will be available in the reducer as the field ```/command/_command```.|
-|reducer|Yes|The relative filename of a JSLT script.|
-|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Validator.html). It may be a subobject or the relative path of a JSON file. If en expression wants to refer to the current state of an aggregate instance it can use the field ```_state```.|
+|reducer|Yes|The filename of a JSLT script, which may be relative.|
+|validator|No|A command validator described as a [Mongo Validator](https://www.javadoc.io/doc/net.pincette/pincette-mongo/latest/net/pincette/mongo/Validator.html). The value of the field must be a filename, which may be relative. If en expression wants to refer to the current state of an aggregate instance it can use ahe field ```_state```.|
 
 An aggregate creates the streams with the names ```<app>-<type>-aggregate```, ```<app>-<type>-command```, ```<app>-<type>-event```, ```<app>-<type>-event-full``` and ```<app>-<type>-reply```. Their meaning is described in [JSON Event Sourcing](https://github.com/json-event-sourcing/pincette-jes#the-kafka-topics). You can connect to those streams in other parts of the application.
 
@@ -161,48 +162,17 @@ The following example is the aggregate ```plusminus-counter```. It has the comma
           {
             "name": "plus",
             "reducer": "reducers/plus.jslt",
-            "validator": {
-              "include": [
-                "validators/operator.json"
-              ],
-              "conditions": [
-                {
-                  "_command": "plus"
-                }
-              ]
-            }
+            "validator": "validate_plus.json"
           },
           {
             "name": "minus",
             "reducer": "reducers/minus.jslt",
-            "validator": {
-              "include": [
-                "validators/operator.json"
-              ],
-              "conditions": [
-                {
-                  "_command": "minus"
-                }
-              ]
-            }
+            "validator": "validate_minus.json"
           },
           {
             "name": "put",
             "reducer": "reducers/put.jslt",
-            "validator": {
-              "include": [
-                "validators/type.json"
-              ],
-              "conditions": [
-                {
-                  "_command": "put"
-                },
-                {
-                  "value": 0,
-                  "$code": "INIT"
-                }
-              ]
-            }
+            "validator": "validate_put.json"
           }
         ]
       }
@@ -210,6 +180,48 @@ The following example is the aggregate ```plusminus-counter```. It has the comma
   }
 ]
 
+validate_plus.json:
+
+{
+  "include": [
+    "validators/operator.json"
+  ],
+  "conditions": [
+    {
+      "_command": "plus"
+    }
+  ]
+}
+
+validate_minus.json:
+
+{
+  "include": [
+    "validators/operator.json"
+  ],
+  "conditions": [
+    {
+      "_command": "minus"
+    }
+  ]
+}
+
+validate_put.json:
+
+{
+  "include": [
+    "validators/type.json"
+  ],
+  "conditions": [
+    {
+      "_command": "put"
+    },
+    {
+      "value": 0,
+      "$code": "INIT"
+    }
+  ]
+}
 ```
 
 The first two reducers below move the context into the ```state``` field. They change the ```value``` field and just copy all the others. The last reducer is for the ```put``` command. It moves the context into the ```command``` field, because the whole command will become the new state. Only the ```_command``` field is removed.
@@ -414,6 +426,7 @@ The available MongoDB operators are described in [pincette-mongo](https://www.ja
 
 |Name|Description|
 |---|---|
+|$log|This stage lets you write data to the log. The mandatory field ```level``` should get an expression that yields a [log level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The mandatory field ```message``` should be an expression that creates any JSON. The value will be stringified. The optional field ```application``` will use the log with that name. If you use the name of the application where you use this stage, then the output will join the log of the application. If the input message has the ```_corr``` field, then it will be used as the trace ID of the log event.|
 |$validate|The value of this stage is a filename. The file should contain [aggregate validator](#json-event-sourcing-aggregates). If the validation succeeds the message will go through unchanged. Otherwise the validator will annotated it.|
 
 ## JSLT Custom Functions
