@@ -109,6 +109,7 @@ class Common {
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
+  private static final String MACROS = "macros";
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
   private static final String RESOURCE = "resource:";
@@ -168,7 +169,12 @@ class Common {
       final Validator validators) {
     return replaceParameters(parameters)
         .thenApply(jsltResolver(imports))
-        .thenApply(validatorResolver(validators));
+        .thenApply(validatorResolver(validators))
+        .thenApply(deleteMacros());
+  }
+
+  private static Transformer deleteMacros() {
+    return new Transformer(e -> e.path.endsWith(MACROS), e -> Optional.empty());
   }
 
   private static JsonObject expandAggregate(
@@ -543,15 +549,11 @@ class Common {
       final File jslt,
       final Map<File, Pair<String, String>> imports) {
     final File imported = resolveFile(baseDirectory(jslt, null), imp).orElse(null);
+    final String resolved = resolveJsltImports(imported, imports);
 
     return line.replace(
         imp,
-        imports.compute(
-                imported,
-                (k, v) ->
-                    v == null
-                        ? pair(randomUUID().toString(), resolveJsltImports(imported, imports))
-                        : v)
+        imports.compute(imported, (k, v) -> v == null ? pair(randomUUID().toString(), resolved) : v)
             .first);
   }
 
