@@ -15,7 +15,7 @@ class Context {
   MongoDatabase database;
   MongoDatabase databaseArchive;
   String environment;
-  Features features;
+  Features features = new Features();
   Level logLevel;
   String logTopic;
   Logger logger;

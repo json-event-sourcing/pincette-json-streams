@@ -46,7 +46,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -59,6 +58,7 @@ import javax.json.JsonReader;
 import javax.json.JsonString;
 import javax.json.JsonStructure;
 import javax.json.JsonValue;
+import net.pincette.function.Fn;
 import net.pincette.function.FunctionWithException;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform;
@@ -113,6 +113,7 @@ class Common {
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
   private static final String RESOURCE = "resource:";
+  private static final String SCRIPT = "script";
 
   private Common() {}
 
@@ -168,8 +169,8 @@ class Common {
       final JsonObject parameters,
       final Validator validators) {
     return replaceParameters(parameters)
+        .thenApply(validatorResolver(validators)) // JSLT filenames will be expanded.
         .thenApply(jsltResolver(imports))
-        .thenApply(validatorResolver(validators))
         .thenApply(deleteMacros());
   }
 
@@ -298,7 +299,7 @@ class Common {
       final JsonObject parameters) {
     return getString(json, "/" + field)
         .map(s -> replaceParametersString(s, parameters))
-        .flatMap(path -> resolveFile(baseDirectory, path))
+        .flatMap(path -> net.pincette.util.Util.resolveFile(baseDirectory, path))
         .map(file -> pair(readArray(file), file.getParentFile()))
         .or(() -> getArray(json, "/" + field).map(a -> pair(a, baseDirectory)));
   }
@@ -308,7 +309,7 @@ class Common {
     return concat(
         strings(array.stream())
             .map(s -> replaceParametersString(s, parameters))
-            .map(s -> resolveFile(baseDirectory, s).orElse(null))
+            .map(s -> net.pincette.util.Util.resolveFile(baseDirectory, s).orElse(null))
             .filter(Objects::nonNull)
             .filter(File::exists)
             .flatMap(
@@ -369,6 +370,7 @@ class Common {
 
   private static boolean isJsltPath(final String path) {
     return path.endsWith(JSLT)
+        || path.endsWith(JSLT + "." + SCRIPT)
         || path.endsWith(COMMANDS + "." + REDUCER)
         || path.endsWith(EVENT_TO_COMMAND);
   }
@@ -518,17 +520,14 @@ class Common {
                 .orElse(s));
   }
 
-  private static Optional<File> resolveFile(final File baseDirectory, final String path) {
-    return tryToGetRethrow(baseDirectory::getCanonicalFile)
-        .map(b -> new File(b, path))
-        .flatMap(f -> tryToGetRethrow(f::getCanonicalFile));
-  }
-
   private static String resolveFile(
       final File baseDirectory, final String path, final JsonObject parameters) {
     return Optional.of(path)
         .filter(p -> !p.startsWith(RESOURCE))
-        .flatMap(p -> resolveFile(baseDirectory, replaceParametersString(p, parameters)))
+        .flatMap(
+            p ->
+                net.pincette.util.Util.resolveFile(
+                    baseDirectory, replaceParametersString(p, parameters)))
         .map(File::getAbsolutePath)
         .orElse(path);
   }
@@ -548,7 +547,8 @@ class Common {
       final String imp,
       final File jslt,
       final Map<File, Pair<String, String>> imports) {
-    final File imported = resolveFile(baseDirectory(jslt, null), imp).orElse(null);
+    final File imported =
+        net.pincette.util.Util.resolveFile(baseDirectory(jslt, null), imp).orElse(null);
     final String resolved = resolveJsltImports(imported, imports);
 
     return line.replace(
@@ -616,6 +616,5 @@ class Common {
                             e.path, validators.resolve(readObject(file), file.getParentFile()))));
   }
 
-  private interface Expander
-      extends Function<JsonObject, Function<File, Function<JsonObject, JsonObject>>> {}
+  private interface Expander extends Fn<JsonObject, Fn<File, Fn<JsonObject, JsonObject>>> {}
 }

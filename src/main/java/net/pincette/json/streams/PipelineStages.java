@@ -112,7 +112,7 @@ class PipelineStages {
       }
 
       final Function<JsonObject, JsonArray> validator =
-          new Validator(context.features).validator(expression.asJsonObject());
+          new Validator(c.features).validator(expression.asJsonObject());
 
       return stream.mapValues(
           v ->

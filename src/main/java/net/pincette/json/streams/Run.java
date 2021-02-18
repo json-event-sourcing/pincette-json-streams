@@ -26,10 +26,10 @@ import static net.pincette.jes.util.Validation.validator;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
-import static net.pincette.json.Jslt.customFunctions;
-import static net.pincette.json.Jslt.registerCustomFunctions;
-import static net.pincette.json.Jslt.trace;
-import static net.pincette.json.Jslt.tryTransformer;
+import static net.pincette.json.Jslt.transformerObject;
+import static net.pincette.json.Jslt.tryReader;
+import static net.pincette.json.JsltCustom.customFunctions;
+import static net.pincette.json.JsltCustom.trace;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
@@ -132,10 +132,9 @@ import net.pincette.jes.util.Streams;
 import net.pincette.jes.util.Streams.Stop;
 import net.pincette.jes.util.Streams.TopologyLifeCycle;
 import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
-import net.pincette.json.Jslt.MapResolver;
+import net.pincette.json.Jslt;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
-import net.pincette.mongo.Features;
 import net.pincette.mongo.Match;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
@@ -182,6 +181,14 @@ class Run implements Runnable {
   Run(final Context context) {
     this.context = context;
     restartBackoff = getRestartBackoff(context);
+  }
+
+  private static void addJsltImports(
+      final JsonObject specification, final TopologyContext context) {
+    context.jsltImports.putAll(
+        ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+            .map(Run::convertJsltImports)
+            .orElseGet(Collections::emptyMap));
   }
 
   private static void addPipelineStages(final Context context) {
@@ -249,9 +256,9 @@ class Run implements Runnable {
   private static KStream<String, JsonObject> createJoin(
       final JsonObject config, final TopologyContext context) {
     final Function<JsonObject, JsonValue> leftKey =
-        function(config.getValue("/" + LEFT + "/" + ON), context.features);
+        function(config.getValue("/" + LEFT + "/" + ON), context.context.features);
     final Function<JsonObject, JsonValue> rightKey =
-        function(config.getValue("/" + RIGHT + "/" + ON), context.features);
+        function(config.getValue("/" + RIGHT + "/" + ON), context.context.features);
 
     return toStream(
         fromStream(config.getJsonObject(LEFT), context)
@@ -325,8 +332,7 @@ class Run implements Runnable {
 
   private static Reducer createReducer(
       final String jslt, final JsonObject validator, final TopologyContext context) {
-    final Reducer reducer =
-        reducer(tryTransformer(jslt, null, null, context.features.jsltResolver));
+    final Reducer reducer = reducer(transformer(jslt, context));
 
     return withResolver(
         validator != null
@@ -345,7 +351,7 @@ class Run implements Runnable {
             new net.pincette.mongo.streams.Context()
                 .withApp(context.application)
                 .withDatabase(context.context.database)
-                .withFeatures(context.features)
+                .withFeatures(context.context.features)
                 .withStageExtensions(context.context.stageExtensions)
                 .withProducer(context.context.producer)
                 .withTrace(context.context.logLevel.equals(FINEST))),
@@ -373,12 +379,7 @@ class Run implements Runnable {
       final JsonObject specification, final Logger logger, final TopologyContext context) {
     final Properties streamsConfig = Streams.fromConfig(context.context.config, KAFKA);
 
-    context.features =
-        context.context.features.withJsltResolver(
-            new MapResolver(
-                ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-                    .map(Run::convertJsltImports)
-                    .orElseGet(Collections::emptyMap)));
+    addJsltImports(specification, context);
 
     final Topology topology = createParts(specification.getJsonArray(PARTS), context).build();
 
@@ -396,8 +397,7 @@ class Run implements Runnable {
   }
 
   private static EventToCommand eventToCommand(final String jslt, final TopologyContext context) {
-    final UnaryOperator<JsonObject> transformer =
-        tryTransformer(jslt, null, null, context.features.jsltResolver);
+    final UnaryOperator<JsonObject> transformer = transformer(jslt, context);
 
     return event -> completedFuture(transformer.apply(event));
   }
@@ -470,8 +470,16 @@ class Run implements Runnable {
 
   private static KStream<String, JsonObject> getStream(
       final String name, final TopologyContext context) {
-    return context.streams.computeIfAbsent(
-        name, k -> createPart(context.configurations.get(name), context));
+    return ofNullable(context.streams.get(name))
+        .orElseGet(
+            () ->
+                ofNullable(createPart(context.configurations.get(name), context))
+                    .map(
+                        part ->
+                            SideEffect.<KStream<String, JsonObject>>run(
+                                    () -> context.streams.put(name, part))
+                                .andThenGet(() -> part))
+                    .orElse(null));
   }
 
   private static Stream<Pair<JsonObject, String>> getTopologies(
@@ -489,16 +497,19 @@ class Run implements Runnable {
             plugins -> {
               context.stageExtensions = plugins.stageExtensions;
 
-              registerCustomFunctions(
-                  union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions));
-
               context.features =
-                  new Features()
+                  context
+                      .features
                       .withExpressionExtensions(
                           merge(
                               operators(context.database, context.environment),
                               plugins.expressionExtensions))
-                      .withMatchExtensions(plugins.matchExtensions);
+                      .withMatchExtensions(plugins.matchExtensions)
+                      .withCustomJsltFunctions(
+                          union(
+                              customFunctions(),
+                              set(trace(context.logger)),
+                              plugins.jsltFunctions));
             });
   }
 
@@ -600,6 +611,14 @@ class Run implements Runnable {
     return tryToGetSilent(() -> context.config.getString(TOPOLOGY_TOPIC))
         .map(topic -> new TopologyLifeCycleEmitter(topic, context.producer))
         .orElse(null);
+  }
+
+  private static UnaryOperator<JsonObject> transformer(
+      final String jslt, final TopologyContext context) {
+    return transformerObject(
+        new Jslt.Context(tryReader(jslt))
+            .withResolver(context.context.features.jsltResolver)
+            .withFunctions(context.context.features.customJsltFunctions));
   }
 
   private static String unescapeFieldName(final String name) {
@@ -764,7 +783,10 @@ class Run implements Runnable {
             entry.topology,
             entry.properties,
             lifeCycle,
-            (stop, app) -> restartError(app, lifeCycle)),
+            (stop, app) -> restartError(app, lifeCycle),
+            e ->
+                entry.logger.log(
+                    SEVERE, e, () -> "Application " + getApplication(entry) + " failed")),
         entry.logger);
   }
 
