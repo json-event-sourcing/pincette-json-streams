@@ -255,18 +255,7 @@ class Common {
   private static Expander expandStage() {
     return stage ->
         baseDirectory ->
-            parameters ->
-                stageKey(stage)
-                    .filter(key -> key.equals(JSLT) || key.equals(VALIDATE))
-                    .filter(key -> getString(stage, "/" + key).isPresent())
-                    .map(
-                        key ->
-                            createObjectBuilder(stage)
-                                .add(
-                                    key,
-                                    resolveFile(baseDirectory, stage.getString(key), parameters))
-                                .build())
-                    .orElse(stage);
+            parameters -> transform(stage, stageFileResolver(baseDirectory, parameters));
   }
 
   private static JsonObject expandStream(
@@ -569,10 +558,19 @@ class Common {
         .collect(joining("\n"));
   }
 
-  private static Optional<String> stageKey(final JsonObject stage) {
-    return Optional.of(stage.keySet())
-        .filter(keys -> keys.size() == 1)
-        .map(keys -> keys.iterator().next());
+  private static Transformer stageFileResolver(
+      final File baseDirectory, final JsonObject parameters) {
+    return new Transformer(
+        e -> (isJsltPath(e.path) && isString(e.value)) || isValidatorPath(e.path),
+        e ->
+            Optional.of(e.value)
+                .filter(JsonUtil::isString)
+                .map(JsonUtil::asString)
+                .map(JsonString::getString)
+                .map(
+                    path ->
+                        new JsonEntry(
+                            e.path, createValue(resolveFile(baseDirectory, path, parameters)))));
   }
 
   private static Stream<String> strings(final Stream<JsonValue> values) {

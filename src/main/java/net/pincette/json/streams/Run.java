@@ -96,6 +96,7 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
+import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
 import static org.apache.kafka.streams.kstream.Produced.valueSerde;
 
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
@@ -139,6 +140,7 @@ import net.pincette.mongo.Match;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.serialization.Serdes.StringSerde;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.streams.KeyValue;
@@ -158,10 +160,14 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.5";
+  private static final String APP_VERSION = "1.7.6";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
   private static final String KAFKA = "kafka";
+  private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
+      union(
+          configNames(),
+          set("ssl.endpoint.identification.algorithm", "sasl.mechanism", "sasl.jaas.config"));
   private static final String LOG = "$log";
   private static final String METRICS_INTERVAL = "metricsInterval";
   private static final String METRICS_TOPIC = "metricsTopic";
@@ -353,6 +359,7 @@ class Run implements Runnable {
                 .withDatabase(context.context.database)
                 .withFeatures(context.context.features)
                 .withStageExtensions(context.context.stageExtensions)
+                .withKafkaAdmin(Admin.create(toAdmin(fromConfig(context.context.config, KAFKA))))
                 .withProducer(context.context.producer)
                 .withLogger(context.context.logger)
                 .withTrace(context.context.logLevel.equals(FINEST))),
@@ -586,6 +593,12 @@ class Run implements Runnable {
         .map(Object::toString)
         .map(k -> new KeyValue<>(k, json))
         .orElseGet(() -> new KeyValue<>(null, null));
+  }
+
+  private static Map<String, Object> toAdmin(final Map<String, Object> config) {
+    return config.entrySet().stream()
+        .filter(e -> KAFKA_ADMIN_CONFIG_NAMES.contains(e.getKey()))
+        .collect(toMap(Entry::getKey, Entry::getValue));
   }
 
   @SuppressWarnings("java:S1905") // Fixes an ambiguity.
