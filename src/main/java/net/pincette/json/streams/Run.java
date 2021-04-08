@@ -16,6 +16,7 @@ import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.elastic.Logging.log;
 import static net.pincette.jes.elastic.Logging.logKafka;
+import static net.pincette.jes.util.Href.setContextPath;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
@@ -37,6 +38,7 @@ import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isString;
+import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
@@ -75,6 +77,8 @@ import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createTopologyContext;
+import static net.pincette.json.streams.Common.fatal;
+import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.transformFieldNames;
 import static net.pincette.json.streams.PipelineStages.logStage;
 import static net.pincette.json.streams.PipelineStages.validateStage;
@@ -101,6 +105,7 @@ import static org.apache.kafka.streams.kstream.Produced.valueSerde;
 
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoCollection;
+import com.typesafe.config.Config;
 import java.io.File;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -160,9 +165,11 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.6";
+  private static final String APP_VERSION = "1.7.7";
+  private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
+  private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String KAFKA = "kafka";
   private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
       union(
@@ -394,7 +401,7 @@ class Run implements Runnable {
     streamsConfig.setProperty(APPLICATION_ID, context.application);
     logger.log(INFO, "Topology:\n\n {0}", topology.describe());
 
-    return new TopologyEntry(topology, streamsConfig, null, logger);
+    return new TopologyEntry(topology, streamsConfig, null, context.context);
   }
 
   private static Optional<String> environment(
@@ -629,14 +636,36 @@ class Run implements Runnable {
 
   private static UnaryOperator<JsonObject> transformer(
       final String jslt, final TopologyContext context) {
-    return transformerObject(
-        new Jslt.Context(tryReader(jslt))
-            .withResolver(context.context.features.jsltResolver)
-            .withFunctions(context.context.features.customJsltFunctions));
+    final UnaryOperator<JsonObject> op =
+        fatal(
+            () ->
+                transformerObject(
+                    new Jslt.Context(tryReader(jslt))
+                        .withResolver(context.context.features.jsltResolver)
+                        .withFunctions(context.context.features.customJsltFunctions)),
+            context.context.logger,
+            () -> jslt);
+
+    return json ->
+        fatal(
+            () -> op.apply(json),
+            context.context.logger,
+            () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
   }
 
   private static String unescapeFieldName(final String name) {
     return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
+  }
+
+  private static Properties withGroupIdSuffix(final Properties properties, final Config config) {
+    return tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX))
+        .map(
+            suffix ->
+                net.pincette.util.Util.set(
+                    properties,
+                    APPLICATION_ID,
+                    properties.getProperty(APPLICATION_ID) + "-" + suffix))
+        .orElse(properties);
   }
 
   private void close() {
@@ -717,6 +746,7 @@ class Run implements Runnable {
     loadPlugins(context);
     addPipelineStages(context);
     metrics(context);
+    setContextPath(context.config.getString(CONTEXT_PATH));
 
     Optional.of(
             getTopologies()
@@ -742,7 +772,7 @@ class Run implements Runnable {
     ofNullable(running.get(application))
         .ifPresent(
             entry -> {
-              entry.logger.log(SEVERE, "Application {0} failed", getApplication(entry));
+              entry.context.logger.log(SEVERE, "Application {0} failed", getApplication(entry));
               entry.stop.stop();
 
               new Timer()
@@ -759,7 +789,7 @@ class Run implements Runnable {
   private void restart(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
     final String application = getApplication(entry);
 
-    entry.logger.log(INFO, "Restarting {0}", application);
+    entry.context.logger.log(INFO, "Restarting {0}", application);
     ofNullable(running.get(application)).map(r -> r.stop).ifPresent(Stop::stop);
     running.put(application, start(entry, lifeCycle));
   }
@@ -795,13 +825,13 @@ class Run implements Runnable {
         entry.properties,
         net.pincette.jes.util.Streams.start(
             entry.topology,
-            entry.properties,
+            withGroupIdSuffix(entry.properties, entry.context.config),
             lifeCycle,
             (stop, app) -> restartError(app, lifeCycle),
             e ->
-                entry.logger.log(
+                entry.context.logger.log(
                     SEVERE, e, () -> "Application " + getApplication(entry) + " failed")),
-        entry.logger);
+        entry.context);
   }
 
   private void start(
@@ -824,7 +854,7 @@ class Run implements Runnable {
     ofNullable(running.remove(application))
         .ifPresent(
             entry -> {
-              entry.logger.log(INFO, "Stopping {0}", application);
+              entry.context.logger.log(INFO, "Stopping {0}", application);
               entry.stop.stop();
             });
   }
@@ -869,7 +899,7 @@ class Run implements Runnable {
   }
 
   private static class TopologyEntry {
-    private final Logger logger;
+    private final Context context;
     private final Properties properties;
     private final Stop stop;
     private final Topology topology;
@@ -878,11 +908,11 @@ class Run implements Runnable {
         final Topology topology,
         final Properties properties,
         final Stop stop,
-        final Logger logger) {
+        final Context context) {
       this.topology = topology;
       this.properties = properties;
       this.stop = stop;
-      this.logger = logger;
+      this.context = context;
     }
   }
 }

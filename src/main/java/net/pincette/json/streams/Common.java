@@ -1,12 +1,17 @@
 package net.pincette.json.streams;
 
+import static java.lang.Integer.MAX_VALUE;
+import static java.lang.Integer.max;
+import static java.lang.String.valueOf;
+import static java.lang.System.exit;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
+import static java.util.Arrays.fill;
+import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Stream.concat;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.copy;
@@ -29,7 +34,10 @@ import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Pair.pair;
+import static net.pincette.util.StreamUtil.rangeExclusive;
+import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.replaceAll;
+import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 import static net.pincette.util.Util.tryToGetWithRethrow;
@@ -46,7 +54,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -60,6 +71,7 @@ import javax.json.JsonStructure;
 import javax.json.JsonValue;
 import net.pincette.function.Fn;
 import net.pincette.function.FunctionWithException;
+import net.pincette.function.SupplierWithException;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform;
 import net.pincette.json.Transform.JsonEntry;
@@ -230,8 +242,13 @@ class Common {
       final JsonObject parameters,
       final Expander expander) {
     return from(
-        getSequence(array, baseDirectory, parameters)
-            .filter(pair -> isObject(pair.first))
+        array.stream()
+            .filter(v -> isObject(v) || isString(v))
+            .flatMap(
+                v ->
+                    isObject(v)
+                        ? Stream.of(pair(v.asJsonObject(), baseDirectory))
+                        : getSequenceFromFile(asString(v).getString(), baseDirectory, parameters))
             .map(
                 pair ->
                     expander
@@ -264,6 +281,20 @@ class Common {
         .apply(PIPELINE, expandStage());
   }
 
+  static <T> T fatal(
+      final SupplierWithException<T> supplier,
+      final Logger logger,
+      final Supplier<String> message) {
+    return tryToGet(
+            supplier,
+            e -> {
+              logger.log(Level.SEVERE, e, message);
+              exit(1);
+              return null;
+            })
+        .orElse(null);
+  }
+
   private static JsonValue getConfigValue(final JsonValue value, final Config config) {
     return createValue(
         config.getValue(asString(value).getString().substring(CONFIG_PREFIX.length())).unwrapped());
@@ -293,18 +324,15 @@ class Common {
         .or(() -> getArray(json, "/" + field).map(a -> pair(a, baseDirectory)));
   }
 
-  private static Stream<Pair<JsonValue, File>> getSequence(
-      final JsonArray array, final File baseDirectory, final JsonObject parameters) {
-    return concat(
-        strings(array.stream())
-            .map(s -> replaceParametersString(s, parameters))
-            .map(s -> net.pincette.util.Util.resolveFile(baseDirectory, s).orElse(null))
-            .filter(Objects::nonNull)
-            .filter(File::exists)
-            .flatMap(
-                file ->
-                    read(file, Common::readSequenceParts).map(p -> pair(p, file.getParentFile()))),
-        array.stream().filter(v -> !isString(v)).map(p -> pair(p, baseDirectory)));
+  private static Stream<Pair<JsonValue, File>> getSequenceFromFile(
+      final String filename, final File baseDirectory, final JsonObject parameters) {
+    return Stream.of(filename)
+        .map(s -> replaceParametersString(s, parameters))
+        .map(s -> net.pincette.util.Util.resolveFile(baseDirectory, s).orElse(null))
+        .filter(Objects::nonNull)
+        .filter(File::exists)
+        .flatMap(
+            file -> read(file, Common::readSequenceParts).map(p -> pair(p, file.getParentFile())));
   }
 
   static String getTopologyCollection(final String collection, final Context context) {
@@ -375,6 +403,12 @@ class Common {
             Optional.of(
                 new JsonEntry(
                     e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
+  }
+
+  static String numberLines(final String s) {
+    return zip(stream(s.split("\\n")).sequential(), rangeExclusive(1, MAX_VALUE))
+        .map(pair -> rightAlign(valueOf(pair.second), 4) + " " + pair.first)
+        .collect(joining("\n"));
   }
 
   private static JsonObject parameters(
@@ -556,6 +590,14 @@ class Common {
                     .map(imp -> resolveJsltImport(line, imp, jslt, imports))
                     .orElse(line))
         .collect(joining("\n"));
+  }
+
+  private static String rightAlign(final String s, final int size) {
+    final char[] padding = new char[max(size - s.length(), 0)];
+
+    fill(padding, ' ');
+
+    return new String(padding) + s;
   }
 
   private static Transformer stageFileResolver(
