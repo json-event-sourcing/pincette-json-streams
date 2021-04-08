@@ -552,6 +552,7 @@ class Common {
                 net.pincette.util.Util.resolveFile(
                     baseDirectory, replaceParametersString(p, parameters)))
         .map(File::getAbsolutePath)
+        .filter(p -> new File(p).exists())
         .orElse(path);
   }
 
@@ -613,10 +614,6 @@ class Common {
                     path ->
                         new JsonEntry(
                             e.path, createValue(resolveFile(baseDirectory, path, parameters)))));
-  }
-
-  private static Stream<String> strings(final Stream<JsonValue> values) {
-    return values.filter(JsonUtil::isString).map(JsonUtil::asString).map(JsonString::getString);
   }
 
   static JsonObject transformFieldNames(final JsonObject json, final UnaryOperator<String> op) {
