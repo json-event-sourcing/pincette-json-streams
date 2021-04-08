@@ -538,6 +538,7 @@ The configuration is managed by the
 
 |Entry|Description|
 |---|---|
+|contextPath|The context path used in generated URLs.|
 |environment|The name of the environment, e.g. "tst", "prd". When it is present it will be used for the aggregates, reactors and as a replacement for occurrences of ```${ENV}```.|
 |groupIdSuffix|When set ```-<suffix>``` will be added to the consumer group ID of the applications. Without it the IDs are just the application names. With this configuration field you can run multiple environments on the same Kafka cluster.|
 |kafka|All Kafka settings come below this entry. So for example, the setting ```bootstrap.servers``` would go to the entry ```kafka.bootstrap.servers```.|
