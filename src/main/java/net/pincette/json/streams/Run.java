@@ -165,7 +165,7 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.8";
+  private static final String APP_VERSION = "1.7.9";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
