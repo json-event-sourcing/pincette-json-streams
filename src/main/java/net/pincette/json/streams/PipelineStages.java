@@ -17,7 +17,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.json.JsonString;
 import javax.json.JsonValue;
@@ -74,12 +73,12 @@ class PipelineStages {
         return stream;
       }
 
-      final JsonObject expr = expression.asJsonObject();
-      final Function<JsonObject, JsonValue> application =
+      final var expr = expression.asJsonObject();
+      final var application =
           getValue(expr, "/" + APPLICATION).map(a -> function(a, context.features)).orElse(null);
-      final Function<JsonObject, JsonValue> level =
+      final var level =
           getValue(expr, "/" + LEVEL).map(l -> function(l, context.features)).orElse(null);
-      final Function<JsonObject, JsonValue> message =
+      final var message =
           getValue(expr, "/" + MESSAGE).map(m -> function(m, context.features)).orElse(null);
 
       return message != null
@@ -111,8 +110,7 @@ class PipelineStages {
         return stream;
       }
 
-      final Function<JsonObject, JsonArray> validator =
-          new Validator(c.features).validator(expression.asJsonObject());
+      final var validator = new Validator(c.features).validator(expression.asJsonObject());
 
       return stream.mapValues(
           v ->

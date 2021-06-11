@@ -34,6 +34,7 @@ import static net.pincette.json.JsltCustom.trace;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
+import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
@@ -73,6 +74,7 @@ import static net.pincette.json.streams.Common.STREAM_TYPES;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.json.streams.Common.VALIDATOR;
+import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
 import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.build;
@@ -139,9 +141,11 @@ import net.pincette.jes.util.Streams.Stop;
 import net.pincette.jes.util.Streams.TopologyLifeCycle;
 import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
 import net.pincette.json.Jslt;
+import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Match;
+import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
@@ -165,7 +169,7 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.10";
+  private static final String APP_VERSION = "1.7.11";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
@@ -196,14 +200,6 @@ class Run implements Runnable {
     restartBackoff = getRestartBackoff(context);
   }
 
-  private static void addJsltImports(
-      final JsonObject specification, final TopologyContext context) {
-    context.jsltImports.putAll(
-        ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-            .map(Run::convertJsltImports)
-            .orElseGet(Collections::emptyMap));
-  }
-
   private static void addPipelineStages(final Context context) {
     context.stageExtensions =
         merge(
@@ -212,7 +208,7 @@ class Run implements Runnable {
   }
 
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
-    final String type = aggregate.fullType();
+    final var type = aggregate.fullType();
 
     context.streams.put(type + "-aggregate", aggregate.aggregates());
     context.streams.put(type + "-command", aggregate.commands());
@@ -222,7 +218,7 @@ class Run implements Runnable {
   }
 
   private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
-    final String type = specification.getString(AGGREGATE_TYPE);
+    final var type = specification.getString(AGGREGATE_TYPE);
 
     return Optional.of(type.indexOf('-'))
         .filter(index -> index != -1)
@@ -240,7 +236,7 @@ class Run implements Runnable {
     aggregateTypeParts(config)
         .ifPresent(
             aggregateType -> {
-              final Aggregate aggregate =
+              final var aggregate =
                   reducers(
                       create(
                               () ->
@@ -269,9 +265,8 @@ class Run implements Runnable {
 
   private static KStream<String, JsonObject> createJoin(
       final JsonObject config, final TopologyContext context) {
-    final Function<JsonObject, JsonValue> leftKey =
-        function(config.getValue("/" + LEFT + "/" + ON), context.context.features);
-    final Function<JsonObject, JsonValue> rightKey =
+    final var leftKey = function(config.getValue("/" + LEFT + "/" + ON), context.context.features);
+    final var rightKey =
         function(config.getValue("/" + RIGHT + "/" + ON), context.context.features);
 
     return toStream(
@@ -346,7 +341,7 @@ class Run implements Runnable {
 
   private static Reducer createReducer(
       final String jslt, final JsonObject validator, final TopologyContext context) {
-    final Reducer reducer = reducer(transformer(jslt, context));
+    final var reducer = reducer(transformer(jslt, context));
 
     return withResolver(
         validator != null
@@ -393,16 +388,24 @@ class Run implements Runnable {
 
   private static TopologyEntry createTopology(
       final JsonObject specification, final Logger logger, final TopologyContext context) {
-    final Properties streamsConfig = Streams.fromConfig(context.context.config, KAFKA);
+    final var realContext =
+        context
+            .withJsltResolver(
+                new MapResolver(
+                    ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+                        .map(Run::convertJsltImports)
+                        .orElseGet(Collections::emptyMap)))
+            .withValidatorResolver(
+                (id, parent) ->
+                    getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
+                        .map(validator -> new Resolved(validator, id)));
+    final var streamsConfig = Streams.fromConfig(realContext.context.config, KAFKA);
+    final var topology = createParts(specification.getJsonArray(PARTS), realContext).build();
 
-    addJsltImports(specification, context);
-
-    final Topology topology = createParts(specification.getJsonArray(PARTS), context).build();
-
-    streamsConfig.setProperty(APPLICATION_ID, context.application);
+    streamsConfig.setProperty(APPLICATION_ID, realContext.application);
     logger.log(INFO, "Topology:\n\n {0}", topology.describe());
 
-    return new TopologyEntry(topology, streamsConfig, null, context.context);
+    return new TopologyEntry(topology, streamsConfig, null, realContext.context);
   }
 
   private static Optional<String> environment(
@@ -413,7 +416,7 @@ class Run implements Runnable {
   }
 
   private static EventToCommand eventToCommand(final String jslt, final TopologyContext context) {
-    final UnaryOperator<JsonObject> transformer = transformer(jslt, context);
+    final var transformer = transformer(jslt, context);
 
     return event -> completedFuture(transformer.apply(event));
   }
@@ -462,7 +465,7 @@ class Run implements Runnable {
 
   private static Logger getLogger(
       final String application, final String version, final Context context) {
-    final Logger logger = Logger.getLogger(application);
+    final var logger = Logger.getLogger(application);
 
     logger.setLevel(context.logLevel);
 
@@ -531,7 +534,6 @@ class Run implements Runnable {
 
   private static void logAggregate(
       final Aggregate aggregate, final String version, final Context context) {
-
     if (context.logTopic != null) {
       logKafka(aggregate, context.logLevel, version, context.logTopic);
     }
@@ -637,7 +639,7 @@ class Run implements Runnable {
 
   private static UnaryOperator<JsonObject> transformer(
       final String jslt, final TopologyContext context) {
-    final UnaryOperator<JsonObject> op =
+    final var op =
         fatal(
             () ->
                 transformerObject(
@@ -740,14 +742,18 @@ class Run implements Runnable {
   }
 
   public void run() {
+    context.logger.info("Connecting to Kafka ...");
     context.producer =
         createReliableProducer(
             fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
     logging(context);
+    context.logger.info("Loading plugins ...");
     loadPlugins(context);
     addPipelineStages(context);
+    context.logger.info("Settings up metrics ...");
     metrics(context);
     setContextPath(context.config.getString(CONTEXT_PATH));
+    context.logger.info("Loading applications ...");
 
     Optional.of(
             getTopologies()
@@ -788,7 +794,7 @@ class Run implements Runnable {
   }
 
   private void restart(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
-    final String application = getApplication(entry);
+    final var application = getApplication(entry);
 
     entry.context.logger.log(INFO, "Restarting {0}", application);
     ofNullable(running.get(application)).map(r -> r.stop).ifPresent(Stop::stop);
@@ -796,15 +802,14 @@ class Run implements Runnable {
   }
 
   private boolean start(final Stream<TopologyEntry> topologies, final Context context) {
-    final Predicate<JsonObject> filter =
-        ofNullable(getFilter()).map(Match::predicate).orElse(json -> true);
-    final TopologyLifeCycle lifeCycle = topologyLifeCycleEmitter(context);
+    final var filter = ofNullable(getFilter()).map(Match::predicate).orElse(json -> true);
+    final var lifeCycle = topologyLifeCycleEmitter(context);
 
     topologies
         .map(t -> pair(getApplication(t), start(t, lifeCycle)))
         .forEach(pair -> running.put(pair.first, pair.second));
 
-    if (!getFile().isPresent()) {
+    if (getFile().isEmpty()) {
       getTopologyCollection()
           .watch()
           .subscribe(
@@ -812,6 +817,7 @@ class Run implements Runnable {
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));
+    context.logger.info("Ready");
 
     synchronized (this) {
       tryToDoRethrow(this::wait);

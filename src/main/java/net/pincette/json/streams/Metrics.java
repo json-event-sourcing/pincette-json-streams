@@ -70,7 +70,7 @@ class Metrics {
   }
 
   private static JsonObject getAttributes() {
-    final MBeanServer server = getPlatformMBeanServer();
+    final var server = getPlatformMBeanServer();
 
     return server.queryNames(null, null).stream()
         .map(name -> pair(name, tryToGetRethrow(() -> server.getMBeanInfo(name)).orElse(null)))
@@ -135,7 +135,7 @@ class Metrics {
   private static List<Object> toList(final Object array) {
     final List<Object> result = new ArrayList<>();
 
-    for (int i = 0; i < Array.getLength(array); ++i) {
+    for (var i = 0; i < Array.getLength(array); ++i) {
       result.add(toValue(Array.get(array, i)));
     }
 

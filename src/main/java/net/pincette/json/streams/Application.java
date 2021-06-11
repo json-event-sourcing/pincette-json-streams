@@ -42,8 +42,8 @@ public class Application {
   private static void initLogging(final Level level) {
     if (getProperty("java.util.logging.config.class") == null
         && getProperty("java.util.logging.config.file") == null) {
-      final Properties logging = loadLogging();
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
+      final var logging = loadLogging();
+      final var out = new ByteArrayOutputStream();
 
       logging.setProperty(".level", level.getName());
 
@@ -56,7 +56,7 @@ public class Application {
   }
 
   private static Properties loadLogging() {
-    final Properties properties = new Properties();
+    final var properties = new Properties();
 
     tryToDoRethrow(() -> properties.load(getSystemResourceAsStream("logging.properties")));
 
@@ -64,7 +64,7 @@ public class Application {
   }
 
   public static void main(final String[] args) {
-    final Context context = new Context();
+    final var context = new Context();
 
     context.logger = getLogger(LOGGER);
     context.config = loadDefault();
@@ -75,8 +75,8 @@ public class Application {
     context.logger.setLevel(context.logLevel);
     initLogging(context.logLevel);
 
-    try (final MongoClient client = create(context.config.getString(MONGODB_URI));
-        final MongoClient archiveClient = getArchiveClient(context.config)) {
+    try (final var client = create(context.config.getString(MONGODB_URI));
+        final var archiveClient = getArchiveClient(context.config)) {
       context.database = client.getDatabase(context.config.getString(DATABASE));
 
       if (archiveClient != null) {

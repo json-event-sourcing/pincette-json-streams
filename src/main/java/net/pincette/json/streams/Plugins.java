@@ -35,8 +35,8 @@ class Plugins {
   Plugins() {}
 
   private static ModuleLayer createPluginLayer(final Path directory) {
-    final ModuleLayer boot = boot();
-    final ModuleFinder finder = ModuleFinder.of(directory);
+    final var boot = boot();
+    final var finder = ModuleFinder.of(directory);
 
     return boot.defineModulesWithOneLoader(
         boot.configuration().resolve(finder, ModuleFinder.of(), pluginNames(finder)),
@@ -44,7 +44,7 @@ class Plugins {
   }
 
   static Plugins load(final Path directory) {
-    final Plugins plugins = new Plugins();
+    final var plugins = new Plugins();
 
     plugins.mergePlugins(loadPlugins(directory));
 

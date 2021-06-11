@@ -87,7 +87,7 @@ class Validate {
   }
 
   private static boolean validateStreamReferences(final JsonObject specification) {
-    final Set<String> streams = getStreams(specification);
+    final var streams = getStreams(specification);
 
     return getStreamReferences(specification)
             .filter(pair -> !streams.contains(pair.second))
@@ -106,7 +106,7 @@ class Validate {
   }
 
   private static boolean validateAggregate(final JsonObject specification) {
-    boolean result =
+    var result =
         ofNullable(specification.getString(AGGREGATE_TYPE, null))
             .filter(type -> type.indexOf('-') != -1)
             .isPresent();
@@ -124,7 +124,7 @@ class Validate {
   }
 
   private static boolean validateCommand(final String aggregateType, final JsonObject command) {
-    final boolean result =
+    final var result =
         command.getString(NAME, null) != null
             && command.getString(REDUCER, null) != null
             && (!command.containsKey(VALIDATOR) || getObject(command, "/" + VALIDATOR).isPresent());
@@ -142,16 +142,16 @@ class Validate {
   }
 
   private static boolean validateCommands(final JsonObject specification) {
-    final String aggregateType = specification.getString(AGGREGATE_TYPE, null);
+    final var aggregateType = specification.getString(AGGREGATE_TYPE, null);
 
     return getObjects(specification, COMMANDS)
         .allMatch(command -> validateCommand(aggregateType, command));
   }
 
   private static boolean validateJoin(final JsonObject specification) {
-    final String left = "/" + LEFT + "/";
-    final String right = "/" + RIGHT + "/";
-    final boolean result =
+    final var left = "/" + LEFT + "/";
+    final var right = "/" + RIGHT + "/";
+    final var result =
         specification.getString(NAME, null) != null
             && getNumber(specification, "/" + WINDOW).isPresent()
             && getValue(specification, left + ON).isPresent()
@@ -175,7 +175,7 @@ class Validate {
   }
 
   private static boolean validateMerge(final JsonObject specification) {
-    final boolean result =
+    final var result =
         specification.getString(NAME, null) != null
             && (specification.getJsonArray(FROM_STREAMS) != null
                 || specification.getJsonArray(FROM_TOPICS) != null);
@@ -193,7 +193,7 @@ class Validate {
   }
 
   private static boolean validatePart(final JsonObject specification) {
-    boolean result = specification.getString(TYPE, null) != null;
+    var result = specification.getString(TYPE, null) != null;
 
     if (!result) {
       getGlobal().severe("A part should have a \"type\" field.");
@@ -229,7 +229,7 @@ class Validate {
   }
 
   private static boolean validateReactor(final JsonObject specification) {
-    final boolean result =
+    final var result =
         specification.getString(SOURCE_TYPE, null) != null
             && specification.getString(DESTINATION_TYPE, null) != null
             && specification.getString(EVENT_TO_COMMAND, null) != null
@@ -254,7 +254,7 @@ class Validate {
   }
 
   private static boolean validateStream(final JsonObject specification) {
-    final boolean result =
+    final var result =
         specification.getString(NAME, null) != null
             && (specification.getString(FROM_STREAM, null) != null
                 || specification.getString(FROM_TOPIC, null) != null);
@@ -272,7 +272,7 @@ class Validate {
   }
 
   static boolean validateTopology(final JsonObject specification) {
-    boolean result =
+    var result =
         specification.getString(APPLICATION_FIELD, null) != null
             && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
 

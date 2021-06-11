@@ -66,7 +66,7 @@ class Build implements Runnable {
 
   @SuppressWarnings("java:S106") // Not logging.
   public void run() {
-    final String col =
+    final var col =
         getTopologyCollection(
             collectionOrLocal == null ? null : collectionOrLocal.collection, context);
 

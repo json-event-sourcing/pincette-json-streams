@@ -29,9 +29,11 @@ import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
+import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.util.Builder.create;
+import static net.pincette.util.Collections.computeIfAbsent;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
@@ -54,6 +56,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.logging.Level;
@@ -66,7 +69,6 @@ import javax.json.JsonArrayBuilder;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
-import javax.json.JsonString;
 import javax.json.JsonStructure;
 import javax.json.JsonValue;
 import net.pincette.function.Fn;
@@ -76,7 +78,6 @@ import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
-import net.pincette.mongo.Validator;
 import net.pincette.util.Builder;
 import net.pincette.util.Pair;
 
@@ -114,23 +115,25 @@ class Common {
   static final String TYPE = "type";
   static final String VALIDATE = "$validate";
   static final String VALIDATOR = "validator";
+  static final String VALIDATOR_IMPORTS = "validatorImports";
   static final String VERSION = "version";
   static final String WINDOW = "window";
   private static final String CONFIG_PREFIX = "config:";
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
+  private static final String INCLUDE = "include";
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
-  private static final String MACROS = "macros";
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
+  private static final String REF = "ref";
   private static final String RESOURCE = "resource:";
   private static final String SCRIPT = "script";
 
   private Common() {}
 
   private static File baseDirectory(final File file, final String path) {
-    return tryToGetRethrow(() -> file.getCanonicalFile().getParentFile())
+    return parentDirectory(file)
         .map(parent -> path != null ? new File(parent, path).getParentFile() : parent)
         .orElse(null);
   }
@@ -139,27 +142,36 @@ class Common {
       final JsonObject specification,
       final boolean runtime,
       final TopologyContext topologyContext) {
-    final Map<File, Pair<String, String>> imports = new HashMap<>();
-    final JsonObject parameters = parameters(specification, runtime, topologyContext);
+    final Map<File, Pair<String, String>> jsltImports = new HashMap<>();
+    final Map<File, Pair<String, JsonObject>> validatorImports = new HashMap<>();
+    final var parameters = parameters(specification, runtime, topologyContext);
 
     return transformBuilder(
             topologyContext.baseDirectory != null
                 ? expandApplication(specification, topologyContext.baseDirectory, parameters)
                 : specification,
-            createTransformer(imports, parameters, topologyContext.validators))
-        .add(JSLT_IMPORTS, createImports(specification, imports.values()))
+            createTransformer(jsltImports, validatorImports, parameters))
+        .add(
+            JSLT_IMPORTS,
+            createImports(specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
+        .add(
+            VALIDATOR_IMPORTS,
+            createImports(specification, VALIDATOR_IMPORTS, validatorImports.values(), v -> v))
         .add(ID, specification.getString(APPLICATION_FIELD))
         .build();
   }
 
-  private static JsonObjectBuilder createImports(
-      final JsonObject specification, final Collection<Pair<String, String>> imports) {
+  private static <T> JsonObjectBuilder createImports(
+      final JsonObject specification,
+      final String name,
+      final Collection<Pair<String, T>> imports,
+      final Function<T, JsonValue> value) {
     return imports.stream()
         .reduce(
-            ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+            ofNullable(specification.getJsonObject(name))
                 .map(JsonUtil::createObjectBuilder)
                 .orElseGet(JsonUtil::createObjectBuilder),
-            (b, p) -> b.add(p.first, p.second),
+            (b, p) -> b.add(p.first, value.apply(p.second)),
             (b1, b2) -> b1);
   }
 
@@ -168,26 +180,18 @@ class Common {
       final File topFile,
       final String topologyPath,
       final Context context) {
-    final TopologyContext topologyContext = new TopologyContext(context);
-
-    topologyContext.application = specification.getString(APPLICATION_FIELD);
-    topologyContext.baseDirectory = topFile != null ? baseDirectory(topFile, topologyPath) : null;
-
-    return topologyContext;
+    return new TopologyContext(context)
+        .withApplication(specification.getString(APPLICATION_FIELD))
+        .withBaseDirectory(topFile != null ? baseDirectory(topFile, topologyPath) : null);
   }
 
   private static Transformer createTransformer(
-      final Map<File, Pair<String, String>> imports,
-      final JsonObject parameters,
-      final Validator validators) {
+      final Map<File, Pair<String, String>> jsltImports,
+      final Map<File, Pair<String, JsonObject>> validatorImports,
+      final JsonObject parameters) {
     return replaceParameters(parameters)
-        .thenApply(validatorResolver(validators)) // JSLT filenames will be expanded.
-        .thenApply(jsltResolver(imports))
-        .thenApply(deleteMacros());
-  }
-
-  private static Transformer deleteMacros() {
-    return new Transformer(e -> e.path.endsWith(MACROS), e -> Optional.empty());
+        .thenApply(validatorResolver(validatorImports, parameters))
+        .thenApply(jsltResolver(jsltImports));
   }
 
   private static JsonObject expandAggregate(
@@ -396,6 +400,10 @@ class Common {
     return path.endsWith(COMMANDS + "." + VALIDATOR) || path.endsWith(VALIDATE);
   }
 
+  private static boolean isValidatorRef(final String path) {
+    return path.equals(INCLUDE) || path.endsWith("." + REF);
+  }
+
   private static Transformer jsltResolver(final Map<File, Pair<String, String>> imports) {
     return new Transformer(
         e -> isJsltPath(e.path) && isString(e.value),
@@ -426,6 +434,10 @@ class Common {
         .updateIf(() -> ofNullable(context.context.environment), (b, e) -> b.add(ENV, e))
         .build()
         .build();
+  }
+
+  private static Optional<File> parentDirectory(final File file) {
+    return tryToGetRethrow(() -> file.getCanonicalFile().getParentFile());
   }
 
   private static <T> T read(final File file, final FunctionWithException<JsonReader, T> reader) {
@@ -467,7 +479,7 @@ class Common {
   }
 
   private static Stream<JsonValue> readTopologies(final JsonReader reader) {
-    final JsonStructure s = reader.read();
+    final var s = reader.read();
 
     return isArray(s) ? s.asJsonArray().stream() : Stream.of(s.asJsonObject());
   }
@@ -571,9 +583,9 @@ class Common {
       final String imp,
       final File jslt,
       final Map<File, Pair<String, String>> imports) {
-    final File imported =
+    final var imported =
         net.pincette.util.Util.resolveFile(baseDirectory(jslt, null), imp).orElse(null);
-    final String resolved = resolveJsltImports(imported, imports);
+    final var resolved = resolveJsltImports(imported, imports);
 
     return line.replace(
         imp,
@@ -593,8 +605,56 @@ class Common {
         .collect(joining("\n"));
   }
 
+  private static JsonObject resolveValidator(
+      final File file,
+      final Map<File, Pair<String, JsonObject>> imports,
+      final JsonObject parameters) {
+    return transform(
+        readObject(file),
+        new Transformer(
+            e -> isValidatorRef(e.path),
+            e ->
+                parentDirectory(file)
+                    .map(
+                        p ->
+                            new JsonEntry(
+                                e.path,
+                                e.path.equals(INCLUDE)
+                                    ? resolveValidatorInclude(
+                                        e.value.asJsonArray(), p, imports, parameters)
+                                    : createValue(
+                                        resolveValidator(
+                                            asString(e.value).getString(),
+                                            p,
+                                            imports,
+                                            parameters))))));
+  }
+
+  private static String resolveValidator(
+      final String path,
+      final File baseDirectory,
+      final Map<File, Pair<String, JsonObject>> imports,
+      final JsonObject parameters) {
+    return computeIfAbsent(
+            imports,
+            new File(resolveFile(baseDirectory, path, parameters)),
+            f -> pair(randomUUID().toString(), resolveValidator(f, imports, parameters)))
+        .first;
+  }
+
+  private static JsonValue resolveValidatorInclude(
+      final JsonArray include,
+      final File baseDirectory,
+      final Map<File, Pair<String, JsonObject>> imports,
+      final JsonObject parameters) {
+    return strings(include)
+        .map(path -> resolveValidator(path, baseDirectory, imports, parameters))
+        .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
+        .build();
+  }
+
   private static String rightAlign(final String s, final int size) {
-    final char[] padding = new char[max(size - s.length(), 0)];
+    final var padding = new char[max(size - s.length(), 0)];
 
     fill(padding, ' ');
 
@@ -606,10 +666,7 @@ class Common {
     return new Transformer(
         e -> (isJsltPath(e.path) && isString(e.value)) || isValidatorPath(e.path),
         e ->
-            Optional.of(e.value)
-                .filter(JsonUtil::isString)
-                .map(JsonUtil::asString)
-                .map(JsonString::getString)
+            stringValue(e.value)
                 .map(
                     path ->
                         new JsonEntry(
@@ -641,16 +698,14 @@ class Common {
     }
   }
 
-  private static Transformer validatorResolver(final Validator validators) {
+  private static Transformer validatorResolver(
+      final Map<File, Pair<String, JsonObject>> imports, final JsonObject parameters) {
     return new Transformer(
         e -> isValidatorPath(e.path) && isString(e.value),
         e ->
             Optional.of(asString(e.value).getString())
                 .map(File::new)
-                .map(
-                    file ->
-                        new JsonEntry(
-                            e.path, validators.resolve(readObject(file), file.getParentFile()))));
+                .map(file -> new JsonEntry(e.path, resolveValidator(file, imports, parameters))));
   }
 
   private interface Expander extends Fn<JsonObject, Fn<File, Fn<JsonObject, JsonObject>>> {}
