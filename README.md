@@ -549,6 +549,7 @@ The configuration is managed by the
 |metricsInterval|The interval between metric emissions. The default is one minute.|
 |metricsTopic|When this Kafka topic is present the contents of the MBean server will be sent to it in JSON.|
 |mongodb.uri|The MongoDB connection URL.|
+|mongodb.uriArchive|If you use online archiving for the event collections on MongoDB Atlas, then this is the URL with which you can access the cluster and the archive together.| 
 |mongodb.database|The MongoDB database.|
 |mongodb.collection|The default MongoDB collection where builds are written and run from.|
 |plugins|The directory from where the plugins are loaded.|

@@ -21,9 +21,14 @@ import java.util.Properties;
 import java.util.logging.Level;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.HelpCommand;
 
-@Command
+@Command(
+    mixinStandardHelpOptions = true,
+    version = Application.APP_VERSION,
+    description = "The JSON Streams command-line interface.")
 public class Application {
+  static final String APP_VERSION = "2.0";
   private static final String DATABASE = "mongodb.database";
   private static final String LOGGER = "pincette-json-streams";
   private static final String LOG_LEVEL = "logLevel";
@@ -77,6 +82,7 @@ public class Application {
 
     try (final var client = create(context.config.getString(MONGODB_URI));
         final var archiveClient = getArchiveClient(context.config)) {
+      context.client = client;
       context.database = client.getDatabase(context.config.getString(DATABASE));
 
       if (archiveClient != null) {
@@ -87,8 +93,12 @@ public class Application {
               new CommandLine(new Application())
                   .addSubcommand("build", new Build(context))
                   .addSubcommand("delete", new Delete(context))
+                  .addSubcommand("doc", new Doc(context))
+                  .addSubcommand("dot", new Dot(context))
+                  .addSubcommand(new HelpCommand())
                   .addSubcommand("list", new ListApps(context))
                   .addSubcommand("run", new Run(context))
+                  .addSubcommand("yaml", new Yaml())
                   .execute(args))
           .filter(code -> code != 0)
           .ifPresent(System::exit);

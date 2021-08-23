@@ -2,14 +2,15 @@ package net.pincette.json.streams;
 
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.string;
+import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.DOLLAR;
 import static net.pincette.json.streams.Common.DOT;
 import static net.pincette.json.streams.Common.SLASH;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.getTopologyCollection;
-import static net.pincette.json.streams.Common.readTopologies;
 import static net.pincette.json.streams.Common.transformFieldNames;
+import static net.pincette.json.streams.Read.readTopologies;
 import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.util.Util.must;
 
@@ -23,11 +24,15 @@ import net.pincette.json.JsonUtil;
 import org.bson.Document;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.HelpCommand;
 import picocli.CommandLine.Option;
 
 @Command(
     name = "build",
-    description = "Generates one inlined JSON per topology and uploads them to MongoDB.")
+    version = APP_VERSION,
+    mixinStandardHelpOptions = true,
+    subcommands = {HelpCommand.class},
+    description = "Generates one inlined JSON per application and uploads them to MongoDB.")
 class Build implements Runnable {
   private final Context context;
   @ArgGroup() private CollectionOrLocal collectionOrLocal;
@@ -35,7 +40,7 @@ class Build implements Runnable {
   @Option(
       names = {"-f", "--file"},
       required = true,
-      description = "A JSON file containing an array of topologies.")
+      description = "A JSON file containing an array of applications.")
   private File file;
 
   Build(final Context context) {
@@ -53,12 +58,11 @@ class Build implements Runnable {
   private JsonArray buildTopologies() {
     return readTopologies(file)
         .map(
-            specification ->
+            loaded ->
                 build(
-                    specification.first,
+                    loaded.specification,
                     false,
-                    createTopologyContext(
-                        specification.first, file, specification.second, context)))
+                    createTopologyContext(loaded, file, context)))
         .filter(Validate::validateTopology)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();

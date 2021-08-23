@@ -13,8 +13,6 @@ import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
-import static net.pincette.json.streams.Common.APPLICATION_FIELD;
-import static net.pincette.json.streams.Common.COMMANDS;
 import static net.pincette.json.streams.Common.DESTINATIONS;
 import static net.pincette.json.streams.Common.DESTINATION_TYPE;
 import static net.pincette.json.streams.Common.EVENT_TO_COMMAND;
@@ -38,6 +36,8 @@ import static net.pincette.json.streams.Common.STREAM_TYPES;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.WINDOW;
+import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.util.Pair.pair;
 
 import java.util.Objects;
@@ -123,9 +123,10 @@ class Validate {
     return result;
   }
 
-  private static boolean validateCommand(final String aggregateType, final JsonObject command) {
+  private static boolean validateCommand(
+      final String aggregateType, final String name, final JsonObject command) {
     final var result =
-        command.getString(NAME, null) != null
+        name != null
             && command.getString(REDUCER, null) != null
             && (!command.containsKey(VALIDATOR) || getObject(command, "/" + VALIDATOR).isPresent());
 
@@ -133,9 +134,9 @@ class Validate {
       getGlobal()
           .log(
               SEVERE,
-              "Aggregate {0} should have a \"name\" and a \"reducer\" field and "
+              "Command {0} of aggregate {1} should have a \"reducer\" field and "
                   + "when the \"validator\" field is present it should be an object.",
-              new Object[] {aggregateType});
+              new Object[] {name, aggregateType});
     }
 
     return result;
@@ -144,8 +145,8 @@ class Validate {
   private static boolean validateCommands(final JsonObject specification) {
     final var aggregateType = specification.getString(AGGREGATE_TYPE, null);
 
-    return getObjects(specification, COMMANDS)
-        .allMatch(command -> validateCommand(aggregateType, command));
+    return getCommands(specification)
+        .allMatch(pair -> validateCommand(aggregateType, pair.first, pair.second));
   }
 
   private static boolean validateJoin(final JsonObject specification) {
@@ -273,7 +274,7 @@ class Validate {
 
   static boolean validateTopology(final JsonObject specification) {
     var result =
-        specification.getString(APPLICATION_FIELD, null) != null
+        application(specification) != null
             && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
 
     if (!result) {

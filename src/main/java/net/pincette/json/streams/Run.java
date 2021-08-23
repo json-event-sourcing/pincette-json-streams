@@ -1,8 +1,8 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static java.lang.Runtime.getRuntime;
-import static java.lang.System.exit;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
 import static java.util.Optional.ofNullable;
@@ -12,6 +12,7 @@ import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.toSet;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.elastic.Logging.log;
@@ -35,21 +36,22 @@ import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getObject;
-import static net.pincette.json.JsonUtil.getObjects;
+import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
+import static net.pincette.json.streams.Application.APP_VERSION;
+import static net.pincette.json.streams.Common.ACTUAL;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
-import static net.pincette.json.streams.Common.COMMANDS;
+import static net.pincette.json.streams.Common.COMMAND;
 import static net.pincette.json.streams.Common.DESTINATIONS;
 import static net.pincette.json.streams.Common.DESTINATION_TYPE;
-import static net.pincette.json.streams.Common.DOLLAR;
-import static net.pincette.json.streams.Common.DOT;
 import static net.pincette.json.streams.Common.ENVIRONMENT;
+import static net.pincette.json.streams.Common.EVENT_FULL;
 import static net.pincette.json.streams.Common.EVENT_TO_COMMAND;
 import static net.pincette.json.streams.Common.FILTER;
 import static net.pincette.json.streams.Common.FROM_STREAM;
@@ -66,22 +68,25 @@ import static net.pincette.json.streams.Common.PARTS;
 import static net.pincette.json.streams.Common.PIPELINE;
 import static net.pincette.json.streams.Common.REACTOR;
 import static net.pincette.json.streams.Common.REDUCER;
+import static net.pincette.json.streams.Common.REPLY;
 import static net.pincette.json.streams.Common.RIGHT;
-import static net.pincette.json.streams.Common.SLASH;
 import static net.pincette.json.streams.Common.SOURCE_TYPE;
 import static net.pincette.json.streams.Common.STREAM;
 import static net.pincette.json.streams.Common.STREAM_TYPES;
+import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
 import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.WINDOW;
+import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
+import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.json.streams.Common.numberLines;
-import static net.pincette.json.streams.Common.transformFieldNames;
+import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.PipelineStages.logStage;
 import static net.pincette.json.streams.PipelineStages.validateStage;
 import static net.pincette.json.streams.Validate.validateTopology;
@@ -90,16 +95,17 @@ import static net.pincette.mongo.BsonUtil.toBsonDocument;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.Expression.replaceVariables;
 import static net.pincette.mongo.JsonClient.aggregationPublisher;
-import static net.pincette.mongo.JsonClient.find;
 import static net.pincette.mongo.Match.predicate;
 import static net.pincette.util.Builder.create;
+import static net.pincette.util.Collections.difference;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
-import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
+import static net.pincette.util.Util.doForever;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
@@ -118,9 +124,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
@@ -137,6 +143,7 @@ import net.pincette.jes.Reactor;
 import net.pincette.jes.util.JsonSerializer;
 import net.pincette.jes.util.Reducer;
 import net.pincette.jes.util.Streams;
+import net.pincette.jes.util.Streams.NopTopologyLifeCycle;
 import net.pincette.jes.util.Streams.Stop;
 import net.pincette.jes.util.Streams.TopologyLifeCycle;
 import net.pincette.jes.util.Streams.TopologyLifeCycleEmitter;
@@ -145,6 +152,7 @@ import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Match;
+import net.pincette.mongo.Session;
 import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
@@ -162,17 +170,22 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.HelpCommand;
 import picocli.CommandLine.Option;
 
 @Command(
     name = "run",
-    description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
+    version = APP_VERSION,
+    mixinStandardHelpOptions = true,
+    subcommands = {HelpCommand.class},
+    description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.11";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
-  private static final String EVENT = "$$event";
+  private static final String DESIRED = "desired";
+  private static final String EVENT = "event";
+  private static final String EVENT_VAR = "$$event";
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String KAFKA = "kafka";
   private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
@@ -186,14 +199,18 @@ class Run implements Runnable {
   private static final String PROJECT = "$project";
   private static final String RESTART_BACKOFF = "restartBackoff";
   private static final String TO_STRING = "toString";
-  private static final String TO_TOPIC = "toTopic";
   private static final String TOPOLOGY_TOPIC = "topologyTopic";
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
 
   private final Context context;
   private final Duration restartBackoff;
+  private final BlockingQueue<Runnable> runQueue = new LinkedBlockingQueue<>();
   private final Map<String, TopologyEntry> running = new ConcurrentHashMap<>();
-  @ArgGroup() FileOrCollection fileOrCollection;
+  @ArgGroup() private FileOrCollection fileOrCollection;
+  private Predicate<JsonObject> filter;
+  private KeepAlive keepAlive;
+  private Leader leader;
+  private TopologyLifeCycle lifeCycle;
 
   Run(final Context context) {
     this.context = context;
@@ -210,11 +227,11 @@ class Run implements Runnable {
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
     final var type = aggregate.fullType();
 
-    context.streams.put(type + "-aggregate", aggregate.aggregates());
-    context.streams.put(type + "-command", aggregate.commands());
-    context.streams.put(type + "-event", aggregate.events());
-    context.streams.put(type + "-event-full", aggregate.eventsFull());
-    context.streams.put(type + "-reply", aggregate.replies());
+    context.streams.put(type + "-" + AGGREGATE, aggregate.aggregates());
+    context.streams.put(type + "-" + COMMAND, aggregate.commands());
+    context.streams.put(type + "-" + EVENT, aggregate.events());
+    context.streams.put(type + "-" + EVENT_FULL, aggregate.eventsFull());
+    context.streams.put(type + "-" + REPLY, aggregate.replies());
   }
 
   private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
@@ -231,6 +248,18 @@ class Run implements Runnable {
         .collect(toMap(Entry::getKey, e -> asString(e.getValue()).getString()));
   }
 
+  private static Aggregate createAggregate(
+      final String app, final String type, final TopologyContext context) {
+    return new Aggregate()
+        .withApp(app)
+        .withType(type)
+        .withMongoDatabase(context.context.database)
+        .withMongoDatabaseArchive(context.context.databaseArchive)
+        .withMongoClientSession(Session.create(context.context.client).toCompletableFuture().join())
+        .withBuilder(context.builder)
+        .withLogger(context.context.logger);
+  }
+
   private static StreamsBuilder createAggregate(
       final JsonObject config, final TopologyContext context) {
     aggregateTypeParts(config)
@@ -240,13 +269,8 @@ class Run implements Runnable {
                   reducers(
                       create(
                               () ->
-                                  new Aggregate()
-                                      .withApp(aggregateType.first)
-                                      .withType(aggregateType.second)
-                                      .withMongoDatabase(context.context.database)
-                                      .withMongoDatabaseArchive(context.context.databaseArchive)
-                                      .withBuilder(context.builder)
-                                      .withLogger(context.context.logger))
+                                  createAggregate(
+                                      aggregateType.first, aggregateType.second, context))
                           .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
                           .updateIf(
                               () -> getValue(config, "/" + UNIQUE_EXPRESSION),
@@ -270,13 +294,9 @@ class Run implements Runnable {
         function(config.getValue("/" + RIGHT + "/" + ON), context.context.features);
 
     return toStream(
-        fromStream(config.getJsonObject(LEFT), context)
-            .map((k, v) -> switchKey(v, leftKey))
-            .filter((k, v) -> k != null && v != null)
+        joinStream(config, LEFT, leftKey, context)
             .join(
-                fromStream(config.getJsonObject(RIGHT), context)
-                    .map((k, v) -> switchKey(v, rightKey))
-                    .filter((k, v) -> k != null && v != null),
+                joinStream(config, RIGHT, rightKey, context),
                 (v1, v2) -> createObjectBuilder().add(LEFT, v1).add(RIGHT, v2).build(),
                 JoinWindows.of(Duration.ofMillis(config.getInt(WINDOW)))),
         config);
@@ -362,11 +382,21 @@ class Run implements Runnable {
                 .withDatabase(context.context.database)
                 .withFeatures(context.context.features)
                 .withStageExtensions(context.context.stageExtensions)
-                .withKafkaAdmin(Admin.create(toAdmin(fromConfig(context.context.config, KAFKA))))
+                .withKafkaAdmin(Admin.create(toAdmin(kafkaConfig(context.context))))
                 .withProducer(context.context.producer)
                 .withLogger(context.context.logger)
                 .withTrace(context.context.logLevel.equals(FINEST))),
         config);
+  }
+
+  private static Stream<TopologyEntry> createTopologies(
+      final Stream<Loaded> loaded, final File topFile, final Context context) {
+    return loaded
+        .map(l -> pair(l.specification, createTopologyContext(l, topFile, context)))
+        .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
+        .filter(pair -> validateTopology(pair.first))
+        .map(pair -> createTopology(pair.first, pair.second))
+        .filter(Objects::nonNull);
   }
 
   private static TopologyEntry createTopology(
@@ -377,10 +407,7 @@ class Run implements Runnable {
                 tryToGet(
                     () -> createTopology(specification, logger, context),
                     e -> {
-                      logger.log(
-                          SEVERE,
-                          e,
-                          () -> "Can't start " + specification.getString(APPLICATION_FIELD));
+                      logger.log(SEVERE, e, () -> "Can't start " + application(specification));
                       return null;
                     }))
         .orElse(null);
@@ -388,17 +415,7 @@ class Run implements Runnable {
 
   private static TopologyEntry createTopology(
       final JsonObject specification, final Logger logger, final TopologyContext context) {
-    final var realContext =
-        context
-            .withJsltResolver(
-                new MapResolver(
-                    ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-                        .map(Run::convertJsltImports)
-                        .orElseGet(Collections::emptyMap)))
-            .withValidatorResolver(
-                (id, parent) ->
-                    getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
-                        .map(validator -> new Resolved(validator, id)));
+    final var realContext = withResolvers(specification, context);
     final var streamsConfig = Streams.fromConfig(realContext.context.config, KAFKA);
     final var topology = createParts(specification.getJsonArray(PARTS), realContext).build();
 
@@ -419,10 +436,6 @@ class Run implements Runnable {
     final var transformer = transformer(jslt, context);
 
     return event -> completedFuture(transformer.apply(event));
-  }
-
-  private static JsonObject fromMongoDB(final JsonObject json) {
-    return transformFieldNames(json, Run::unescapeFieldName);
   }
 
   private static KStream<String, JsonObject> fromStream(
@@ -452,12 +465,12 @@ class Run implements Runnable {
     return event ->
         aggregationPublisher(
             context.database.getCollection(getCollection(destinationType, context)),
-            replaceVariables(projected, map(pair(EVENT, event))).asJsonArray());
+            replaceVariables(projected, map(pair(EVENT_VAR, event))).asJsonArray());
   }
 
   private static Optional<Logger> getLogger(final JsonObject specification, final Context context) {
     return Optional.of(specification)
-        .flatMap(s -> ofNullable(s.getString(APPLICATION_FIELD, null)))
+        .map(Common::application)
         .map(
             application ->
                 getLogger(application, specification.getString(VERSION, "unknown"), context));
@@ -501,35 +514,37 @@ class Run implements Runnable {
                     .orElse(null));
   }
 
-  private static Stream<Pair<JsonObject, String>> getTopologies(
-      final MongoCollection<Document> collection, final Bson filter) {
-    return find(collection, filter).toCompletableFuture().join().stream()
-        .map(Run::fromMongoDB)
-        .map(topology -> pair(topology, null));
+  private static KStream<String, JsonObject> joinStream(
+      final JsonObject config,
+      final String side,
+      final Function<JsonObject, JsonValue> key,
+      final TopologyContext context) {
+    return fromStream(config.getJsonObject(side), context)
+        .map((k, v) -> switchKey(v, key))
+        .filter((k, v) -> k != null && v != null);
+  }
+
+  private static Map<String, Object> kafkaConfig(final Context context) {
+    return fromConfig(context.config, KAFKA);
+  }
+
+  private static TopologyLifeCycle keepAlive(final KeepAlive keepAlive, final Context context) {
+    return new TopologyLifeCycle() {
+      public void started(final Topology topology, final String application) {
+        keepAlive.start(removeSuffix(application, context));
+      }
+
+      public void stopped(final Topology topology, final String application) {
+        keepAlive.stop(removeSuffix(application, context));
+      }
+    };
   }
 
   private static void loadPlugins(final Context context) {
     tryToGetSilent(() -> context.config.getString(PLUGINS))
         .map(Paths::get)
         .map(Plugins::load)
-        .ifPresent(
-            plugins -> {
-              context.stageExtensions = plugins.stageExtensions;
-
-              context.features =
-                  context
-                      .features
-                      .withExpressionExtensions(
-                          merge(
-                              operators(context.database, context.environment),
-                              plugins.expressionExtensions))
-                      .withMatchExtensions(plugins.matchExtensions)
-                      .withCustomJsltFunctions(
-                          union(
-                              customFunctions(),
-                              set(trace(context.logger)),
-                              plugins.jsltFunctions));
-            });
+        .ifPresent(plugins -> withPlugins(plugins, context));
   }
 
   private static void logAggregate(
@@ -573,23 +588,24 @@ class Run implements Runnable {
                     .start());
   }
 
-  private static Aggregate reducers(
-      final Aggregate aggregate, final JsonObject config, final TopologyContext context) {
-    return getObjects(config, COMMANDS)
-        .reduce(
-            aggregate,
-            (a, c) ->
-                a.withReducer(
-                    c.getString(NAME),
-                    createReducer(c.getString(REDUCER), c.getJsonObject(VALIDATOR), context)),
-            (a1, a2) -> a1);
-  }
-
   private static Stream<JsonObject> parts(final JsonArray parts, final Set<String> types) {
     return parts.stream()
         .filter(JsonUtil::isObject)
         .map(JsonValue::asJsonObject)
         .filter(part -> types.contains(part.getString(TYPE)));
+  }
+
+  private static Aggregate reducers(
+      final Aggregate aggregate, final JsonObject config, final TopologyContext context) {
+    return getCommands(config)
+        .reduce(
+            aggregate,
+            (a, p) ->
+                a.withReducer(
+                    p.first,
+                    createReducer(
+                        p.second.getString(REDUCER), p.second.getJsonObject(VALIDATOR), context)),
+            (a1, a2) -> a1);
   }
 
   private static KStream<String, JsonObject> stream(
@@ -614,7 +630,8 @@ class Run implements Runnable {
   @SuppressWarnings("java:S1905") // Fixes an ambiguity.
   private static KStream<String, JsonObject> toStream(
       final KStream<String, JsonObject> stream, final JsonObject config) {
-    return ofNullable(config.getString(TO_TOPIC, null))
+    return ofNullable(stream)
+        .map(s -> config.getString(TO_TOPIC, null))
         .map(
             topic ->
                 SideEffect.<KStream<String, JsonObject>>run(
@@ -631,10 +648,11 @@ class Run implements Runnable {
         .orElse(stream);
   }
 
-  private static TopologyLifeCycleEmitter topologyLifeCycleEmitter(final Context context) {
+  private static TopologyLifeCycle topologyLifeCycleEmitter(final Context context) {
     return tryToGetSilent(() -> context.config.getString(TOPOLOGY_TOPIC))
         .map(topic -> new TopologyLifeCycleEmitter(topic, context.producer))
-        .orElse(null);
+        .map(TopologyLifeCycle.class::cast)
+        .orElseGet(NopTopologyLifeCycle::new);
   }
 
   private static UnaryOperator<JsonObject> transformer(
@@ -656,10 +674,6 @@ class Run implements Runnable {
             () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
   }
 
-  private static String unescapeFieldName(final String name) {
-    return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
-  }
-
   private static Properties withGroupIdSuffix(final Properties properties, final Config config) {
     return tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX))
         .map(
@@ -671,8 +685,50 @@ class Run implements Runnable {
         .orElse(properties);
   }
 
+  private static Context withPlugins(final Plugins plugins, final Context context) {
+    context.stageExtensions = plugins.stageExtensions;
+
+    context.features =
+        context
+            .features
+            .withExpressionExtensions(
+                merge(
+                    operators(context.database, context.environment), plugins.expressionExtensions))
+            .withMatchExtensions(plugins.matchExtensions)
+            .withCustomJsltFunctions(
+                union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions));
+
+    return context;
+  }
+
+  private static TopologyContext withResolvers(
+      final JsonObject specification, final TopologyContext context) {
+    return context
+        .withJsltResolver(
+            new MapResolver(
+                ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+                    .map(Run::convertJsltImports)
+                    .orElseGet(Collections::emptyMap)))
+        .withValidatorResolver(
+            (id, parent) ->
+                getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
+                    .map(validator -> new Resolved(validator, id)));
+  }
+
   private void close() {
     running.values().forEach(v -> v.stop.stop());
+
+    if (keepAlive != null) {
+      keepAlive.stop();
+    }
+
+    if (leader != null) {
+      leader.stop();
+    }
+  }
+
+  private boolean fromCollection() {
+    return getFile().isEmpty();
   }
 
   private Optional<FileOrCollection.CollectionOptions> getCollectionOptions() {
@@ -703,10 +759,11 @@ class Run implements Runnable {
         .orElse(null);
   }
 
-  private Stream<Pair<JsonObject, String>> getTopologies() {
+  private Stream<Loaded> getTopologies() {
     return getFile()
-        .map(Common::readTopologies)
-        .orElseGet(() -> getTopologies(getTopologyCollection(), getFilter()));
+        .map(Read::readTopologies)
+        .orElseGet(
+            () -> Common.getTopologies(getTopologyCollection(), getFilter()).map(Loaded::new));
   }
 
   private MongoCollection<Document> getTopologyCollection() {
@@ -715,118 +772,116 @@ class Run implements Runnable {
             getCollectionOptions().map(o -> o.collection).orElse(null), context));
   }
 
-  private void handleChange(
-      final ChangeStreamDocument<Document> change,
-      final TopologyLifeCycle lifeCycle,
-      final Predicate<JsonObject> filter,
-      final Context context) {
+  private void handleChange(final ChangeStreamDocument<Document> change) {
     runAsync(
             () ->
                 getApplication(change)
-                    .ifPresent(
-                        application -> {
-                          switch (change.getOperationType()) {
-                            case DELETE:
-                              stop(application);
-                              break;
-                            case INSERT:
-                            case REPLACE:
-                            case UPDATE:
-                              start(change, lifeCycle, filter);
-                              break;
-                            default:
-                              break;
-                          }
-                        }))
+                    .ifPresentOrElse(
+                        application -> handleChangeApplication(change, application),
+                        () -> running(change).ifPresent(this::reconsile)))
         .exceptionally(e -> logChangeError(e, change, context));
+  }
+
+  private void handleChangeApplication(
+      final ChangeStreamDocument<Document> change, final String application) {
+    switch (change.getOperationType()) {
+      case DELETE:
+        stop(application);
+        break;
+      case INSERT:
+      case REPLACE:
+      case UPDATE:
+        restart(change, application);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private void reconsile(final RunningStatus runningStatus) {
+    difference(runningStatus.actual, runningStatus.desired).forEach(this::stop);
+    difference(runningStatus.desired, runningStatus.actual).forEach(this::start);
+  }
+
+  private void restartOnError(final String application) {
+    ofNullable(running.get(application))
+        .ifPresent(
+            entry -> {
+              entry.context.logger.log(SEVERE, "Application {0} failed", getApplication(entry));
+              stop(application);
+              runAsyncAfter(() -> start(application), restartBackoff);
+            });
+  }
+
+  private void restart(final ChangeStreamDocument<Document> change, final String application) {
+    if (filter != null) {
+      ofNullable(change.getFullDocument())
+          .map(doc -> fromBson(toBsonDocument(doc)))
+          .map(Common::fromMongoDB)
+          .filter(filter)
+          .ifPresent(doc -> restart(application));
+    } else {
+      if (running.containsKey(application)) {
+        restart(application);
+      }
+    }
+  }
+
+  private void restart(final String application) {
+    stop(application);
+    start(application);
   }
 
   public void run() {
     context.logger.info("Connecting to Kafka ...");
     context.producer =
-        createReliableProducer(
-            fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
+        createReliableProducer(kafkaConfig(context), new StringSerializer(), new JsonSerializer());
     logging(context);
     context.logger.info("Loading plugins ...");
     loadPlugins(context);
     addPipelineStages(context);
-    context.logger.info("Settings up metrics ...");
+    context.logger.info("Setting up metrics ...");
     metrics(context);
     setContextPath(context.config.getString(CONTEXT_PATH));
     context.logger.info("Loading applications ...");
+    filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
+    lifeCycle = topologyLifeCycleEmitter(context);
 
-    Optional.of(
-            getTopologies()
-                .map(
-                    specification ->
-                        pair(
-                            specification.first,
-                            createTopologyContext(
-                                specification.first,
-                                getFile().orElse(null),
-                                specification.second,
-                                context)))
-                .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
-                .filter(pair -> validateTopology(pair.first))
-                .map(pair -> createTopology(pair.first, pair.second))
-                .filter(Objects::nonNull))
-        .map(topologies -> start(topologies, context))
-        .filter(result -> !result)
-        .ifPresent(result -> exit(1));
+    if (fromCollection() && filter == null) {
+      startWork();
+    } else {
+      final Stream<TopologyEntry> topologies =
+          createTopologies(getTopologies(), getFile().orElse(null), context);
+
+      runQueue.add(() -> startTopologies(topologies));
+    }
+
+    start();
   }
 
-  private void restartError(final String application, final TopologyLifeCycle lifeCycle) {
-    ofNullable(running.get(application))
-        .ifPresent(
-            entry -> {
-              entry.context.logger.log(SEVERE, "Application {0} failed", getApplication(entry));
-              entry.stop.stop();
-
-              new Timer()
-                  .schedule(
-                      new TimerTask() {
-                        public void run() {
-                          restart(entry, lifeCycle);
-                        }
-                      },
-                      restartBackoff.toMillis());
-            });
+  private Optional<RunningStatus> running(final ChangeStreamDocument<Document> change) {
+    return ofNullable(change.getFullDocument())
+        .map(doc -> fromBson(toBsonDocument(doc)))
+        .filter(
+            doc -> getString(doc, "/" + ID).map(id -> id.equals(context.instance)).orElse(false))
+        .map(
+            doc ->
+                new RunningStatus(
+                    getStrings(doc, DESIRED).collect(toSet()),
+                    getStrings(doc, ACTUAL).collect(toSet())));
   }
 
-  private void restart(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
-    final var application = getApplication(entry);
-
-    entry.context.logger.log(INFO, "Restarting {0}", application);
-    ofNullable(running.get(application)).map(r -> r.stop).ifPresent(Stop::stop);
-    running.put(application, start(entry, lifeCycle));
-  }
-
-  private boolean start(final Stream<TopologyEntry> topologies, final Context context) {
-    final var filter = ofNullable(getFilter()).map(Match::predicate).orElse(json -> true);
-    final var lifeCycle = topologyLifeCycleEmitter(context);
-
-    topologies
-        .map(t -> pair(getApplication(t), start(t, lifeCycle)))
-        .forEach(pair -> running.put(pair.first, pair.second));
-
-    if (getFile().isEmpty()) {
-      getTopologyCollection()
-          .watch()
-          .subscribe(
-              new LambdaSubscriber<>(change -> handleChange(change, lifeCycle, filter, context)));
+  private void start() {
+    if (fromCollection()) {
+      getTopologyCollection().watch().subscribe(new LambdaSubscriber<>(this::handleChange));
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));
     context.logger.info("Ready");
-
-    synchronized (this) {
-      tryToDoRethrow(this::wait);
-    }
-
-    return true;
+    doForever(() -> runQueue.take().run());
   }
 
-  private TopologyEntry start(final TopologyEntry entry, final TopologyLifeCycle lifeCycle) {
+  private TopologyEntry start(final TopologyEntry entry) {
     return new TopologyEntry(
         entry.topology,
         entry.properties,
@@ -834,36 +889,75 @@ class Run implements Runnable {
             entry.topology,
             withGroupIdSuffix(entry.properties, entry.context.config),
             lifeCycle,
-            (stop, app) -> restartError(app, lifeCycle),
-            e ->
-                entry.context.logger.log(
-                    SEVERE, e, () -> "Application " + getApplication(entry) + " failed")),
+            (stop, app) -> restartOnError(app),
+            e -> {
+              entry.context.logger.log(SEVERE, e, e::getMessage);
+              restartOnError(getApplication(entry));
+            }),
         entry.context);
   }
 
-  private void start(
-      final ChangeStreamDocument<Document> change,
-      final TopologyLifeCycle lifeCycle,
-      final Predicate<JsonObject> filter) {
-    ofNullable(change.getFullDocument())
-        .map(doc -> fromBson(toBsonDocument(doc)))
-        .map(Run::fromMongoDB)
-        .filter(filter)
+  private void start(final String application) {
+    start(set(application));
+  }
+
+  private void start(final Set<String> applications) {
+    runQueue.add(
+        () ->
+            startTopologies(
+                createTopologies(
+                    Common.getTopologies(
+                            getTopologyCollection(), in(APPLICATION_FIELD, applications))
+                        .map(Loaded::new),
+                    null,
+                    context)));
+  }
+
+  private void startTopologies(final Stream<TopologyEntry> topologies) {
+    topologies
+        .map(t -> pair(getApplication(t), t))
         .map(
-            specification ->
-                pair(specification, createTopologyContext(specification, null, null, context)))
-        .map(pair -> pair(build(pair.first, true, pair.second), pair.second))
-        .map(pair -> createTopology(pair.first, pair.second))
-        .ifPresent(topology -> restart(topology, lifeCycle));
+            pair ->
+                pair(
+                    SideEffect.<String>run(
+                            () -> context.logger.log(INFO, "Starting {0}", pair.first))
+                        .andThenGet(() -> pair.first),
+                    pair.second))
+        .map(pair -> pair(pair.first, start(pair.second)))
+        .forEach(pair -> running.put(pair.first, pair.second));
+  }
+
+  private void startWork() {
+    final var collection = getTopologyCollection();
+    final var work = new Work(collection, toAdmin(kafkaConfig(context)), context);
+
+    keepAlive = new KeepAlive(getTopologyCollection(), context).start();
+    lifeCycle = lifeCycle.andThen(keepAlive(keepAlive, context));
+    leader =
+        new Leader(
+                isLeader -> {
+                  if (isLeader) {
+                    work.giveWork();
+                  }
+                },
+                collection,
+                context)
+            .start();
   }
 
   private void stop(final String application) {
-    ofNullable(running.remove(application))
-        .ifPresent(
-            entry -> {
-              entry.context.logger.log(INFO, "Stopping {0}", application);
-              entry.stop.stop();
-            });
+    runQueue.add(
+        () ->
+            ofNullable(running.remove(application))
+                .ifPresent(
+                    entry -> {
+                      entry.context.logger.log(INFO, "Stopping {0}", application);
+                      entry.stop.stop();
+                    }));
+  }
+
+  private void stop(final Set<String> applications) {
+    applications.forEach(this::stop);
   }
 
   private static class FileOrCollection {
@@ -877,14 +971,14 @@ class Run implements Runnable {
       @Option(
           names = {"-f", "--file"},
           required = true,
-          description = "A JSON file containing an array of topologies.")
+          description = "A JSON file containing an array of applications.")
       private File file;
     }
 
     private static class CollectionOptions {
       @Option(
           names = {"-c", "--collection"},
-          description = "A MongoDB collection containing the topologies.")
+          description = "A MongoDB collection containing the applications.")
       private String collection;
 
       @ArgGroup private TopologySelection selection;
@@ -893,15 +987,25 @@ class Run implements Runnable {
         @Option(
             names = {"-a", "--application"},
             description =
-                "An application from the MongoDB collection containing the topologies. This is "
+                "An application from the MongoDB collection containing the applications. This is "
                     + "a shorthand for the query {\"application\": \"name\"}.")
         private String application;
 
         @Option(
             names = {"-q", "--query"},
-            description = "The MongoDB query into the collection containing the topologies.")
+            description = "The MongoDB query into the collection containing the applications.")
         private String query;
       }
+    }
+  }
+
+  private static class RunningStatus {
+    private final Set<String> actual;
+    private final Set<String> desired;
+
+    private RunningStatus(final Set<String> desired, final Set<String> actual) {
+      this.desired = desired;
+      this.actual = actual;
     }
   }
 
