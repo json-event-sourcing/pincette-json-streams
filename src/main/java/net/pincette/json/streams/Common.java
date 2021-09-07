@@ -6,6 +6,7 @@ import static java.lang.String.valueOf;
 import static java.lang.System.exit;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
+import static java.time.Instant.now;
 import static java.util.Arrays.fill;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
@@ -13,9 +14,6 @@ import static java.util.UUID.randomUUID;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
 import static net.pincette.jes.util.JsonFields.ID;
-import static net.pincette.json.Factory.f;
-import static net.pincette.json.Factory.o;
-import static net.pincette.json.Factory.v;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.copy;
@@ -36,7 +34,6 @@ import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.json.streams.Read.readObject;
-import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.find;
 import static net.pincette.util.Builder.create;
@@ -91,6 +88,7 @@ import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
 import net.pincette.util.Builder;
 import net.pincette.util.Pair;
+import org.bson.BsonDateTime;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
@@ -102,6 +100,7 @@ class Common {
   static final String APPLICATION_FIELD = "application";
   static final String COMMAND = "command";
   static final String COMMANDS = "commands";
+  static final String CURRENT_DATE = "$currentDate";
   static final String DESTINATION_TYPE = "destinationType";
   static final String DESTINATIONS = "destinations";
   static final String DOLLAR = "_dollar_";
@@ -118,6 +117,7 @@ class Common {
   static final String INSTANCE = "instance";
   static final String JOIN = "join";
   static final String JSLT_IMPORTS = "jsltImports";
+  static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
   static final String MERGE = "merge";
   static final String NAME = "name";
@@ -134,7 +134,6 @@ class Common {
   static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
   static final String TO_TOPIC = "toTopic";
   static final String TYPE = "type";
-  static final String TYPE_OPERATOR = "$type";
   static final String VALIDATE = "$validate";
   static final String VALIDATOR = "validator";
   static final String VALIDATOR_IMPORTS = "validatorImports";
@@ -142,8 +141,6 @@ class Common {
   static final String WINDOW = "window";
   static final String RESOURCE = "resource:";
   private static final String CONFIG_PREFIX = "config:";
-  private static final String CURRENT_DATE = "$currentDate";
-  private static final String DATE = "date";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
@@ -166,9 +163,7 @@ class Common {
             criterion.get(),
             list(
                 Aggregates.set(
-                    new Field<>(
-                        CURRENT_DATE, fromJson(o(f(ALIVE_AT, o(f(TYPE_OPERATOR, v(DATE))))))),
-                    field.get())),
+                    new Field<>(ALIVE_AT, new BsonDateTime(now().toEpochMilli())), field.get())),
             new UpdateOptions().upsert(true))
         .thenApply(UpdateResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));

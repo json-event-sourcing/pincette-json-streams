@@ -2,6 +2,11 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.changestream.OperationType.DELETE;
+import static com.mongodb.client.model.changestream.OperationType.INSERT;
+import static com.mongodb.client.model.changestream.OperationType.REPLACE;
+import static com.mongodb.client.model.changestream.OperationType.UPDATE;
+import static java.lang.Boolean.TRUE;
 import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
@@ -36,7 +41,6 @@ import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getObject;
-import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isString;
@@ -102,14 +106,17 @@ import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
+import static net.pincette.util.Do.withValue;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
+import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
 import static org.apache.kafka.streams.kstream.Produced.valueSerde;
+import static org.bson.BsonType.STRING;
 
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoCollection;
@@ -166,6 +173,7 @@ import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.JoinWindows;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.ValueMapper;
+import org.bson.BsonDocument;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import picocli.CommandLine.ArgGroup;
@@ -425,6 +433,10 @@ class Run implements Runnable {
     return new TopologyEntry(topology, streamsConfig, null, realContext.context);
   }
 
+  private static Optional<JsonObject> document(final ChangeStreamDocument<Document> change) {
+    return ofNullable(change.getFullDocument()).map(doc -> fromBson(toBsonDocument(doc)));
+  }
+
   private static Optional<String> environment(
       final JsonObject config, final TopologyContext context) {
     return tryWith(() -> config.getString(ENVIRONMENT, null))
@@ -449,8 +461,8 @@ class Run implements Runnable {
     return entry.properties.getProperty(APPLICATION_ID);
   }
 
-  private static Optional<String> getApplication(final ChangeStreamDocument<Document> change) {
-    return ofNullable(change.getDocumentKey()).map(doc -> doc.getString(ID).getValue());
+  private static Optional<String> getApplication(final JsonObject changedDocument) {
+    return ofNullable(changedDocument.getString(APPLICATION_FIELD, null));
   }
 
   private static String getCollection(final String type, final Context context) {
@@ -466,6 +478,16 @@ class Run implements Runnable {
         aggregationPublisher(
             context.database.getCollection(getCollection(destinationType, context)),
             replaceVariables(projected, map(pair(EVENT_VAR, event))).asJsonArray());
+  }
+
+  private static Optional<String> getId(final ChangeStreamDocument<Document> change) {
+    return ofNullable(change.getDocumentKey()).flatMap(Run::getId);
+  }
+
+  private static Optional<String> getId(final BsonDocument document) {
+    return ofNullable(document.get(ID))
+        .filter(value -> value.getBsonType().equals(STRING))
+        .map(value -> value.asString().getValue());
   }
 
   private static Optional<Logger> getLogger(final JsonObject specification, final Context context) {
@@ -514,6 +536,28 @@ class Run implements Runnable {
                     .orElse(null));
   }
 
+  private static boolean isDeleteApplication(final ChangeStreamDocument<Document> change) {
+    return change.getOperationType().equals(DELETE)
+        && change.getFullDocument() == null
+        && getId(change).map(id -> !isUUID(id)).orElse(false);
+  }
+
+  private static boolean isRestartApplication(final ChangeStreamDocument<Document> change) {
+    return isUpdate(change)
+        && document(change).map(doc -> doc.containsKey(APPLICATION_FIELD)).orElse(false);
+  }
+
+  private static boolean isRunning(
+      final ChangeStreamDocument<Document> change, final String instance) {
+    return isUpdate(change) && getId(change).map(id -> id.equals(instance)).orElse(false);
+  }
+
+  private static boolean isUpdate(final ChangeStreamDocument<Document> change) {
+    return Optional.of(change.getOperationType())
+        .map(t -> t == INSERT || t == REPLACE || t == UPDATE)
+        .orElse(false);
+  }
+
   private static KStream<String, JsonObject> joinStream(
       final JsonObject config,
       final String side,
@@ -559,7 +603,10 @@ class Run implements Runnable {
     context.logger.log(
         SEVERE,
         thrown,
-        () -> "Changed application " + getApplication(change).orElse(null) + " has an error.");
+        () ->
+            "Changed application "
+                + document(change).flatMap(Run::getApplication).orElse(null)
+                + " has an error.");
 
     return null;
   }
@@ -606,6 +653,15 @@ class Run implements Runnable {
                     createReducer(
                         p.second.getString(REDUCER), p.second.getJsonObject(VALIDATOR), context)),
             (a1, a2) -> a1);
+  }
+
+  private static Optional<RunningStatus> running(final JsonObject document) {
+    return Optional.of(document)
+        .map(
+            doc ->
+                new RunningStatus(
+                    getStrings(doc, DESIRED).collect(toSet()),
+                    getStrings(doc, ACTUAL).collect(toSet())));
   }
 
   private static KStream<String, JsonObject> stream(
@@ -775,30 +831,20 @@ class Run implements Runnable {
   private void handleChange(final ChangeStreamDocument<Document> change) {
     runAsync(
             () ->
-                getApplication(change)
-                    .ifPresentOrElse(
-                        application -> handleChangeApplication(change, application),
-                        () -> running(change).ifPresent(this::reconsile)))
+                withValue(change)
+                    .or(Run::isDeleteApplication, c -> getId(c).ifPresent(this::stop))
+                    .or(
+                        Run::isRestartApplication,
+                        c ->
+                            document(c)
+                                .ifPresent(doc -> restart(doc, doc.getString(APPLICATION_FIELD))))
+                    .or(
+                        c -> isRunning(c, context.instance),
+                        c -> document(c).flatMap(Run::running).ifPresent(this::reconcile)))
         .exceptionally(e -> logChangeError(e, change, context));
   }
 
-  private void handleChangeApplication(
-      final ChangeStreamDocument<Document> change, final String application) {
-    switch (change.getOperationType()) {
-      case DELETE:
-        stop(application);
-        break;
-      case INSERT:
-      case REPLACE:
-      case UPDATE:
-        restart(change, application);
-        break;
-      default:
-        break;
-    }
-  }
-
-  private void reconsile(final RunningStatus runningStatus) {
+  private void reconcile(final RunningStatus runningStatus) {
     difference(runningStatus.actual, runningStatus.desired).forEach(this::stop);
     difference(runningStatus.desired, runningStatus.actual).forEach(this::start);
   }
@@ -813,10 +859,9 @@ class Run implements Runnable {
             });
   }
 
-  private void restart(final ChangeStreamDocument<Document> change, final String application) {
+  private void restart(final JsonObject document, final String application) {
     if (filter != null) {
-      ofNullable(change.getFullDocument())
-          .map(doc -> fromBson(toBsonDocument(doc)))
+      Optional.of(document)
           .map(Common::fromMongoDB)
           .filter(filter)
           .ifPresent(doc -> restart(application));
@@ -857,18 +902,6 @@ class Run implements Runnable {
     }
 
     start();
-  }
-
-  private Optional<RunningStatus> running(final ChangeStreamDocument<Document> change) {
-    return ofNullable(change.getFullDocument())
-        .map(doc -> fromBson(toBsonDocument(doc)))
-        .filter(
-            doc -> getString(doc, "/" + ID).map(id -> id.equals(context.instance)).orElse(false))
-        .map(
-            doc ->
-                new RunningStatus(
-                    getStrings(doc, DESIRED).collect(toSet()),
-                    getStrings(doc, ACTUAL).collect(toSet())));
   }
 
   private void start() {
@@ -936,7 +969,7 @@ class Run implements Runnable {
     leader =
         new Leader(
                 isLeader -> {
-                  if (isLeader) {
+                  if (TRUE.equals(isLeader)) {
                     work.giveWork();
                   }
                 },
@@ -954,10 +987,6 @@ class Run implements Runnable {
                       entry.context.logger.log(INFO, "Stopping {0}", application);
                       entry.stop.stop();
                     }));
-  }
-
-  private void stop(final Set<String> applications) {
-    applications.forEach(this::stop);
   }
 
   private static class FileOrCollection {

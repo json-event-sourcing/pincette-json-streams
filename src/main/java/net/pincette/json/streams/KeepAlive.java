@@ -72,11 +72,11 @@ class KeepAlive {
 
   void start(final String application) {
     running.add(application);
-    next();
   }
 
   KeepAlive stop() {
     stop = true;
+    deleteAlive().toCompletableFuture().join();
 
     return this;
   }
