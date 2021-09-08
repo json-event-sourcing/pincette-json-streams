@@ -12,6 +12,7 @@ import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toList;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.copy;
@@ -152,11 +153,15 @@ class Common {
                 : specification,
             createTransformer(jsltImports, validatorImports, parameters))
         .add(
+            VALIDATOR_IMPORTS,
+            createImports(
+                specification,
+                VALIDATOR_IMPORTS,
+                resolveJsltInValidatorImports(validatorImports.values(), jsltImports),
+                v -> v))
+        .add(
             JSLT_IMPORTS,
             createImports(specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
-        .add(
-            VALIDATOR_IMPORTS,
-            createImports(specification, VALIDATOR_IMPORTS, validatorImports.values(), v -> v))
         .add(ID, specification.getString(APPLICATION_FIELD))
         .build();
   }
@@ -605,29 +610,22 @@ class Common {
         .collect(joining("\n"));
   }
 
+  private static Collection<Pair<String, JsonObject>> resolveJsltInValidatorImports(
+      final Collection<Pair<String, JsonObject>> validatorImports,
+      final Map<File, Pair<String, String>> jsltImports) {
+    return validatorImports.stream()
+        .map(pair -> pair(pair.first, transform(pair.second, jsltResolver(jsltImports))))
+        .collect(toList());
+  }
+
   private static JsonObject resolveValidator(
       final File file,
       final Map<File, Pair<String, JsonObject>> imports,
       final JsonObject parameters) {
     return transform(
         readObject(file),
-        new Transformer(
-            e -> isValidatorRef(e.path),
-            e ->
-                parentDirectory(file)
-                    .map(
-                        p ->
-                            new JsonEntry(
-                                e.path,
-                                e.path.equals(INCLUDE)
-                                    ? resolveValidatorInclude(
-                                        e.value.asJsonArray(), p, imports, parameters)
-                                    : createValue(
-                                        resolveValidator(
-                                            asString(e.value).getString(),
-                                            p,
-                                            imports,
-                                            parameters))))));
+        validatorRefResolver(file, imports, parameters)
+            .thenApply(stageFileResolver(file.getParentFile(), parameters)));
   }
 
   private static String resolveValidator(
@@ -696,6 +694,26 @@ class Common {
       default:
         return json;
     }
+  }
+
+  private static Transformer validatorRefResolver(
+      final File file,
+      final Map<File, Pair<String, JsonObject>> imports,
+      final JsonObject parameters) {
+    return new Transformer(
+        e -> isValidatorRef(e.path),
+        e ->
+            parentDirectory(file)
+                .map(
+                    p ->
+                        new JsonEntry(
+                            e.path,
+                            e.path.equals(INCLUDE)
+                                ? resolveValidatorInclude(
+                                    e.value.asJsonArray(), p, imports, parameters)
+                                : createValue(
+                                    resolveValidator(
+                                        asString(e.value).getString(), p, imports, parameters)))));
   }
 
   private static Transformer validatorResolver(
