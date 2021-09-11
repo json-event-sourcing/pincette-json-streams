@@ -145,6 +145,7 @@ import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Match;
+import net.pincette.mongo.Validator;
 import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.rs.LambdaSubscriber;
@@ -169,7 +170,7 @@ import picocli.CommandLine.Option;
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String APP_VERSION = "1.7.12";
+  private static final String APP_VERSION = "1.7.13";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "$$event";
@@ -196,15 +197,15 @@ class Run implements Runnable {
   @ArgGroup() FileOrCollection fileOrCollection;
 
   Run(final Context context) {
-    this.context = context;
+    this.context = prepareContext(context);
     restartBackoff = getRestartBackoff(context);
   }
 
-  private static void addPipelineStages(final Context context) {
-    context.stageExtensions =
+  private static Context addPipelineStages(final Context context) {
+    return context.withStageExtensions(
         merge(
             context.stageExtensions,
-            map(pair(LOG, logStage(context)), pair(VALIDATE, validateStage(context))));
+            map(pair(LOG, logStage(context)), pair(VALIDATE, validateStage(context)))));
   }
 
   private static void addStreams(final Aggregate aggregate, final TopologyContext context) {
@@ -345,7 +346,7 @@ class Run implements Runnable {
 
     return withResolver(
         validator != null
-            ? compose(validator(context.validators.validator(validator)), reducer)
+            ? compose(validator(context.context.validator.validator(validator)), reducer)
             : reducer,
         context.context.environment,
         context.context.database);
@@ -388,17 +389,24 @@ class Run implements Runnable {
 
   private static TopologyEntry createTopology(
       final JsonObject specification, final Logger logger, final TopologyContext context) {
+    final var features =
+        context.context.features.withJsltResolver(
+            new MapResolver(
+                ofNullable(specification.getJsonObject(JSLT_IMPORTS))
+                    .map(Run::convertJsltImports)
+                    .orElseGet(Collections::emptyMap)));
     final var realContext =
-        context
-            .withJsltResolver(
-                new MapResolver(
-                    ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-                        .map(Run::convertJsltImports)
-                        .orElseGet(Collections::emptyMap)))
-            .withValidatorResolver(
-                (id, parent) ->
-                    getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
-                        .map(validator -> new Resolved(validator, id)));
+        context.withContext(
+            context
+                .context
+                .withFeatures(features)
+                .withValidator(
+                    new Validator(
+                        features,
+                        (id, parent) ->
+                            getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
+                                .map(validator -> new Resolved(validator, id))))
+                .doTask(Run::addPipelineStages));
     final var streamsConfig = Streams.fromConfig(realContext.context.config, KAFKA);
     final var topology = createParts(specification.getJsonArray(PARTS), realContext).build();
 
@@ -508,28 +516,28 @@ class Run implements Runnable {
         .map(topology -> pair(topology, null));
   }
 
-  private static void loadPlugins(final Context context) {
-    tryToGetSilent(() -> context.config.getString(PLUGINS))
+  private static Context loadPlugins(final Context context) {
+    return tryToGetSilent(() -> context.config.getString(PLUGINS))
         .map(Paths::get)
         .map(Plugins::load)
-        .ifPresent(
-            plugins -> {
-              context.stageExtensions = plugins.stageExtensions;
-
-              context.features =
-                  context
-                      .features
-                      .withExpressionExtensions(
-                          merge(
-                              operators(context.database, context.environment),
-                              plugins.expressionExtensions))
-                      .withMatchExtensions(plugins.matchExtensions)
-                      .withCustomJsltFunctions(
-                          union(
-                              customFunctions(),
-                              set(trace(context.logger)),
-                              plugins.jsltFunctions));
-            });
+        .map(
+            plugins ->
+                context
+                    .withStageExtensions(plugins.stageExtensions)
+                    .withFeatures(
+                        context
+                            .features
+                            .withExpressionExtensions(
+                                merge(
+                                    operators(context.database, context.environment),
+                                    plugins.expressionExtensions))
+                            .withMatchExtensions(plugins.matchExtensions)
+                            .withCustomJsltFunctions(
+                                union(
+                                    customFunctions(),
+                                    set(trace(context.logger)),
+                                    plugins.jsltFunctions))))
+        .orElse(context);
   }
 
   private static void logAggregate(
@@ -561,7 +569,7 @@ class Run implements Runnable {
     }
   }
 
-  private static void metrics(final Context context) {
+  private static Context metrics(final Context context) {
     tryToGetSilent(() -> context.config.getString(METRICS_TOPIC))
         .ifPresent(
             topic ->
@@ -571,6 +579,30 @@ class Run implements Runnable {
                         tryToGetSilent(() -> context.config.getDuration(METRICS_INTERVAL))
                             .orElseGet(() -> ofMinutes(1)))
                     .start());
+
+    return context;
+  }
+
+  private static Stream<JsonObject> parts(final JsonArray parts, final Set<String> types) {
+    return parts.stream()
+        .filter(JsonUtil::isObject)
+        .map(JsonValue::asJsonObject)
+        .filter(part -> types.contains(part.getString(TYPE)));
+  }
+
+  private static Context prepareContext(final Context context) {
+    return context
+        .doTask(c -> c.logger.info("Connecting to Kafka ..."))
+        .withProducer(
+            createReliableProducer(
+                fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer()))
+        .doTask(Run::logging)
+        .doTask(c -> c.logger.info("Loading plugins ..."))
+        .with(Run::loadPlugins)
+        .doTask(c -> c.logger.info("Settings up metrics ..."))
+        .with(Run::metrics)
+        .doTask(c -> setContextPath(c.config.getString(CONTEXT_PATH)))
+        .doTask(c -> c.logger.info("Loading applications ..."));
   }
 
   private static Aggregate reducers(
@@ -583,13 +615,6 @@ class Run implements Runnable {
                     c.getString(NAME),
                     createReducer(c.getString(REDUCER), c.getJsonObject(VALIDATOR), context)),
             (a1, a2) -> a1);
-  }
-
-  private static Stream<JsonObject> parts(final JsonArray parts, final Set<String> types) {
-    return parts.stream()
-        .filter(JsonUtil::isObject)
-        .map(JsonValue::asJsonObject)
-        .filter(part -> types.contains(part.getString(TYPE)));
   }
 
   private static KStream<String, JsonObject> stream(
@@ -742,19 +767,6 @@ class Run implements Runnable {
   }
 
   public void run() {
-    context.logger.info("Connecting to Kafka ...");
-    context.producer =
-        createReliableProducer(
-            fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer());
-    logging(context);
-    context.logger.info("Loading plugins ...");
-    loadPlugins(context);
-    addPipelineStages(context);
-    context.logger.info("Settings up metrics ...");
-    metrics(context);
-    setContextPath(context.config.getString(CONTEXT_PATH));
-    context.logger.info("Loading applications ...");
-
     Optional.of(
             getTopologies()
                 .map(

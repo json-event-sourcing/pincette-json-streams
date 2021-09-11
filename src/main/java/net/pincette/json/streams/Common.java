@@ -183,11 +183,11 @@ class Common {
   static TopologyContext createTopologyContext(
       final JsonObject specification,
       final File topFile,
-      final String topologyPath,
-      final Context context) {
-    return new TopologyContext(context)
+      final String topologyPath,final Context context) {
+    return new TopologyContext()
         .withApplication(specification.getString(APPLICATION_FIELD))
-        .withBaseDirectory(topFile != null ? baseDirectory(topFile, topologyPath) : null);
+        .withBaseDirectory(topFile != null ? baseDirectory(topFile, topologyPath) : null)
+        .withContext(context);
   }
 
   private static Transformer createTransformer(

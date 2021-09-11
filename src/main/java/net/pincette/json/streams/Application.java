@@ -64,32 +64,34 @@ public class Application {
   }
 
   public static void main(final String[] args) {
-    final var context = new Context();
+    final var config = loadDefault();
 
-    context.logger = getLogger(LOGGER);
-    context.config = loadDefault();
-    context.environment = tryToGetSilent(() -> context.config.getString(ENVIRONMENT)).orElse(null);
-    context.logLevel =
-        parse(tryToGetSilent(() -> context.config.getString(LOG_LEVEL)).orElse("SEVERE"));
-    context.logTopic = tryToGetSilent(() -> context.config.getString(LOG_TOPIC)).orElse(null);
-    context.logger.setLevel(context.logLevel);
-    initLogging(context.logLevel);
-
-    try (final var client = create(context.config.getString(MONGODB_URI));
-        final var archiveClient = getArchiveClient(context.config)) {
-      context.database = client.getDatabase(context.config.getString(DATABASE));
-
-      if (archiveClient != null) {
-        context.databaseArchive = archiveClient.getDatabase(context.config.getString(DATABASE));
-      }
-
+    try (final var client = create(config.getString(MONGODB_URI));
+        final var archiveClient = getArchiveClient(config)) {
       Optional.of(
-              new CommandLine(new Application())
-                  .addSubcommand("build", new Build(context))
-                  .addSubcommand("delete", new Delete(context))
-                  .addSubcommand("list", new ListApps(context))
-                  .addSubcommand("run", new Run(context))
-                  .execute(args))
+              new Context()
+                  .withLogger(getLogger(LOGGER))
+                  .withConfig(config)
+                  .withEnvironment(tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))
+                  .withLogLevel(
+                      parse(tryToGetSilent(() -> config.getString(LOG_LEVEL)).orElse("SEVERE")))
+                  .withLogTopic(tryToGetSilent(() -> config.getString(LOG_TOPIC)).orElse(null))
+                  .withDatabase(client.getDatabase(config.getString(DATABASE)))
+                  .withIf(
+                      c -> archiveClient != null,
+                      c ->
+                          c.withDatabaseArchive(
+                              archiveClient.getDatabase(config.getString(DATABASE))))
+                  .doTask(c -> c.logger.setLevel(c.logLevel))
+                  .doTask(c -> initLogging(c.logLevel)))
+          .map(
+              context ->
+                  new CommandLine(new Application())
+                      .addSubcommand("build", new Build(context))
+                      .addSubcommand("delete", new Delete(context))
+                      .addSubcommand("list", new ListApps(context))
+                      .addSubcommand("run", new Run(context))
+                      .execute(args))
           .filter(code -> code != 0)
           .ifPresent(System::exit);
     }

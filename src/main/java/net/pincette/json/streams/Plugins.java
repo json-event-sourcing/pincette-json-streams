@@ -1,6 +1,5 @@
 package net.pincette.json.streams;
 
-import static java.lang.ClassLoader.getSystemClassLoader;
 import static java.lang.ModuleLayer.boot;
 import static java.nio.file.Files.list;
 import static java.util.Optional.ofNullable;
@@ -11,6 +10,8 @@ import static net.pincette.util.Util.tryToGetRethrow;
 
 import com.schibsted.spt.data.jslt.Function;
 import java.lang.module.ModuleFinder;
+import java.lang.module.ModuleReference;
+import java.lang.module.ResolvedModule;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import net.pincette.json.streams.plugin.Plugin;
 import net.pincette.mongo.Operator;
 import net.pincette.mongo.QueryOperator;
 import net.pincette.mongo.streams.Stage;
+import net.pincette.util.IsolatingClassLoader;
 
 class Plugins {
   Map<String, Operator> expressionExtensions = new HashMap<>();
@@ -34,13 +36,22 @@ class Plugins {
 
   Plugins() {}
 
+  private static Set<String> alreadyLoaded() {
+    return boot().configuration().modules().stream().map(ResolvedModule::name).collect(toSet());
+  }
+
   private static ModuleLayer createPluginLayer(final Path directory) {
     final var boot = boot();
-    final var finder = ModuleFinder.of(directory);
+    final var finder = new Finder(ModuleFinder.of(directory), alreadyLoaded());
 
     return boot.defineModulesWithOneLoader(
-        boot.configuration().resolve(finder, ModuleFinder.of(), pluginNames(finder)),
-        getSystemClassLoader());
+        boot.configuration().resolve(finder, ModuleFinder.of(), moduleNames(finder)),
+        new IsolatingClassLoader(
+            new String[0],
+            new String[] {"org.apache.kafka", "io.jsonwebtoken", "org.slf4j", "io.netty"},
+            new String[0],
+            null,
+            directory.toFile().listFiles()));
   }
 
   static Plugins load(final Path directory) {
@@ -65,7 +76,7 @@ class Plugins {
         .orElseGet(Stream::empty);
   }
 
-  private static Set<String> pluginNames(final ModuleFinder finder) {
+  private static Set<String> moduleNames(final ModuleFinder finder) {
     return finder.findAll().stream().map(ref -> ref.descriptor().name()).collect(toSet());
   }
 
@@ -80,5 +91,25 @@ class Plugins {
           ofNullable(p.stageExtensions())
               .ifPresent(e -> stageExtensions = merge(stageExtensions, e));
         });
+  }
+
+  private static class Finder implements ModuleFinder {
+    private final Set<String> alreadyLoaded;
+    private final ModuleFinder delegate;
+
+    private Finder(final ModuleFinder delegate, final Set<String> alreadyLoaded) {
+      this.delegate = delegate;
+      this.alreadyLoaded = alreadyLoaded;
+    }
+
+    public Optional<ModuleReference> find(final String name) {
+      return Optional.of(name).filter(n -> !alreadyLoaded.contains(n)).flatMap(delegate::find);
+    }
+
+    public Set<ModuleReference> findAll() {
+      return delegate.findAll().stream()
+          .filter(r -> !alreadyLoaded.contains(r.descriptor().name()))
+          .collect(toSet());
+    }
   }
 }

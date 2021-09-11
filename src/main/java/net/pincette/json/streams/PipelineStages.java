@@ -22,7 +22,6 @@ import javax.json.JsonString;
 import javax.json.JsonValue;
 import net.pincette.function.SideEffect;
 import net.pincette.json.JsonUtil;
-import net.pincette.mongo.Validator;
 import net.pincette.mongo.streams.Stage;
 
 class PipelineStages {
@@ -110,7 +109,7 @@ class PipelineStages {
         return stream;
       }
 
-      final var validator = new Validator(c.features).validator(expression.asJsonObject());
+      final var validator = context.validator.validator(expression.asJsonObject());
 
       return stream.mapValues(
           v ->

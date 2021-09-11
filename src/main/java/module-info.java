@@ -1,6 +1,6 @@
 module application {
   requires net.pincette.common;
-  requires jslt;
+  requires com.schibsted.spt.data.jslt;
   requires net.pincette.json.streams.plugin;
   requires net.pincette.mongo;
   requires net.pincette.mongo.streams;
@@ -21,6 +21,9 @@ module application {
   requires net.pincette.json;
   requires jdk.unsupported;
   requires java.management;
+  requires jjwt.jackson;
+  requires jjwt.impl;
+  requires jjwt.api;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;
