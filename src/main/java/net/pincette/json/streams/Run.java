@@ -84,6 +84,7 @@ import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.transformFieldNames;
 import static net.pincette.json.streams.PipelineStages.logStage;
 import static net.pincette.json.streams.PipelineStages.validateStage;
+import static net.pincette.json.streams.Plugins.load;
 import static net.pincette.json.streams.Validate.validateTopology;
 import static net.pincette.mongo.BsonUtil.fromBson;
 import static net.pincette.mongo.BsonUtil.toBsonDocument;
@@ -190,14 +191,13 @@ class Run implements Runnable {
   private static final String TO_TOPIC = "toTopic";
   private static final String TOPOLOGY_TOPIC = "topologyTopic";
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
-
-  private final Context context;
   private final Duration restartBackoff;
   private final Map<String, TopologyEntry> running = new ConcurrentHashMap<>();
   @ArgGroup() FileOrCollection fileOrCollection;
+  private Context context;
 
   Run(final Context context) {
-    this.context = prepareContext(context);
+    this.context = context;
     restartBackoff = getRestartBackoff(context);
   }
 
@@ -519,7 +519,7 @@ class Run implements Runnable {
   private static Context loadPlugins(final Context context) {
     return tryToGetSilent(() -> context.config.getString(PLUGINS))
         .map(Paths::get)
-        .map(Plugins::load)
+        .map(path -> load(path, context))
         .map(
             plugins ->
                 context
@@ -767,6 +767,8 @@ class Run implements Runnable {
   }
 
   public void run() {
+    context = prepareContext(context);
+
     Optional.of(
             getTopologies()
                 .map(
