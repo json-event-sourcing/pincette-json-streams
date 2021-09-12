@@ -59,7 +59,7 @@ class Plugins {
             concat(
                     Arrays.stream(
                         new String[] {
-                          "org.apache.kafka", "io.jsonwebtoken", "org.slf4j", "io.netty"
+                          "jdk", "org.apache.kafka", "io.jsonwebtoken", "org.slf4j", "io.netty"
                         }),
                     systemPackagePrefixes.stream())
                 .toArray(String[]::new),
