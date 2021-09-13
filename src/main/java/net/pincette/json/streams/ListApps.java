@@ -1,6 +1,8 @@
 package net.pincette.json.streams;
 
+import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Aggregates.project;
+import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Projections.fields;
 import static com.mongodb.client.model.Projections.include;
 import static net.pincette.json.streams.Application.APP_VERSION;
@@ -48,7 +50,9 @@ class ListApps implements Runnable {
   public void run() {
     aggregate(
             context.database.getCollection(getTopologyCollection(collection, context)),
-            list(project(fields(include(APPLICATION_FIELD, VERSION)))))
+            list(
+                match(exists(APPLICATION_FIELD)),
+                project(fields(include(APPLICATION_FIELD, VERSION)))))
         .thenApply(ListApps::print)
         .toCompletableFuture()
         .join();

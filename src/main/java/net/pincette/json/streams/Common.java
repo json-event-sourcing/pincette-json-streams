@@ -13,6 +13,7 @@ import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toList;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
@@ -197,11 +198,15 @@ class Common {
                 : specification,
             createTransformer(jsltImports, validatorImports, parameters))
         .add(
+            VALIDATOR_IMPORTS,
+            createImports(
+                specification,
+                VALIDATOR_IMPORTS,
+                resolveJsltInValidatorImports(validatorImports.values(), jsltImports),
+                v -> v))
+        .add(
             JSLT_IMPORTS,
             createImports(specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
-        .add(
-            VALIDATOR_IMPORTS,
-            createImports(specification, VALIDATOR_IMPORTS, validatorImports.values(), v -> v))
         .add(ID, application(specification))
         .build();
   }
@@ -228,9 +233,10 @@ class Common {
 
   static TopologyContext createTopologyContext(
       final Loaded loaded, final File topFile, final Context context) {
-    return new TopologyContext(context)
+    return new TopologyContext()
         .withApplication(application(loaded.specification))
-        .withBaseDirectory(topFile != null ? baseDirectory(topFile, loaded.path) : null);
+        .withBaseDirectory(topFile != null ? baseDirectory(topFile, loaded.path) : null)
+        .withContext(context);
   }
 
   private static Transformer createTransformer(
@@ -663,15 +669,22 @@ class Common {
         .collect(joining("\n"));
   }
 
+  private static Collection<Pair<String, JsonObject>> resolveJsltInValidatorImports(
+      final Collection<Pair<String, JsonObject>> validatorImports,
+      final Map<File, Pair<String, String>> jsltImports) {
+    return validatorImports.stream()
+        .map(pair -> pair(pair.first, transform(pair.second, jsltResolver(jsltImports))))
+        .collect(toList());
+  }
+
   private static JsonObject resolveValidator(
       final File file,
       final Map<File, Pair<String, JsonObject>> imports,
       final JsonObject parameters) {
     return transform(
         readObject(file),
-        new Transformer(
-            e -> isValidatorRef(e.path),
-            e -> parentDirectory(file).map(p -> resolveValidatorEntry(e, p, imports, parameters))));
+        validatorRefResolver(file, imports, parameters)
+            .thenApply(stageFileResolver(file.getParentFile(), parameters)));
   }
 
   private static String resolveValidator(
@@ -759,6 +772,15 @@ class Common {
 
   private static String unescapeFieldName(final String name) {
     return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
+  }
+
+  private static Transformer validatorRefResolver(
+      final File file,
+      final Map<File, Pair<String, JsonObject>> imports,
+      final JsonObject parameters) {
+    return new Transformer(
+        e -> isValidatorRef(e.path),
+        e -> parentDirectory(file).map(p -> resolveValidatorEntry(e, p, imports, parameters)));
   }
 
   private static Transformer validatorResolver(
