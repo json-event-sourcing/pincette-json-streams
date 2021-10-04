@@ -9,8 +9,10 @@ import static com.mongodb.client.model.Projections.include;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.time.Duration.ofMillis;
+import static java.time.Instant.now;
 import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
+import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
@@ -27,6 +29,7 @@ import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
 import static net.pincette.json.JsonUtil.asLong;
+import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
@@ -53,7 +56,6 @@ import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.getStackTrace;
 import static net.pincette.util.Util.must;
-import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClient.create;
 
 import com.mongodb.client.model.Aggregates;
@@ -93,13 +95,17 @@ class Work {
   private static final int DEFAULT_MAXIMUM_APPS_PER_INSTANCE = 10;
   private static final String EXCESS_MESSAGE_LAG = "excessMessageLag";
   private static final String EXCESS_MESSAGE_LAG_TOPIC = "work.excessMessageLagTopic";
+  private static final String INSTANCES_TOPIC = "work.instancesTopic";
+  private static final String LEADER_FIELD = "leader";
   private static final String MAXIMUM_APPS_PER_INSTANCE = "work.maximumAppsPerInstance";
   private static final String MAXIMUM_MESSAGE_LAG = "maximumMessageLag";
+  private static final String TIME = "time";
 
   private final Duration averageMessageTimeEstimate;
   private final MongoCollection<Document> collection;
   private final Context context;
   private final String excessMessageLagTopic;
+  private final String instancesTopic;
   private final Admin kafkaAdmin;
   private final int maximumAppsPerInstance;
 
@@ -113,7 +119,8 @@ class Work {
     this.maximumAppsPerInstance = maximumAppsPerInstance(context);
     this.context = context;
     this.excessMessageLagTopic =
-        tryToGetSilent(() -> context.config.getString(EXCESS_MESSAGE_LAG_TOPIC)).orElse(null);
+        config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
+    this.instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
   }
 
   private static int applicationInstancesRunning(
@@ -139,6 +146,18 @@ class Work {
   private static Map<String, Set<String>> copy(final Map<String, Set<String>> map) {
     return StreamUtil.toMap(
         map.entrySet().stream().map(e -> pair(e.getKey(), new HashSet<>(e.getValue()))));
+  }
+
+  private static JsonObject instances(final String leader, final Map<String, Set<String>> work) {
+    return work.entrySet().stream()
+        .reduce(
+            createObjectBuilder()
+                .add(ID, randomUUID().toString())
+                .add(TIME, now().toString())
+                .add(LEADER_FIELD, leader),
+            (b, e) -> b.add(e.getKey(), from(e.getValue().stream())),
+            (b1, b2) -> b1)
+        .build();
   }
 
   private static int keepAtLeastOne(
@@ -301,6 +320,7 @@ class Work {
                     .map(this::giveWork)
                     .map(this::logWork)
                     .map(work -> sendExcessMessageLag(status.get(), work))
+                    .map(this::sendInstances)
                     .map(this::saveWork)
                     .orElseGet(() -> completedFuture(false)))
         .exceptionally(
@@ -421,16 +441,32 @@ class Work {
 
   private Map<String, Set<String>> sendExcessMessageLag(
       final Status status, final Map<String, Set<String>> work) {
-    if (excessMessageLagTopic != null) {
-      send(
-          context.producer,
-          new ProducerRecord<>(
-              excessMessageLagTopic,
-              context.instance,
-              o(f(EXCESS_MESSAGE_LAG, v(totalExcessMessageLag(status, work))))));
-    }
+    return ofNullable(excessMessageLagTopic)
+        .map(
+            topic ->
+                send(
+                    context.producer,
+                    new ProducerRecord<>(
+                        topic,
+                        context.instance,
+                        o(
+                            f(EXCESS_MESSAGE_LAG, v(totalExcessMessageLag(status, work))),
+                            f(ID, v(context.instance)),
+                            f(TIME, v(now().toString()))))))
+        .map(result -> work)
+        .orElse(work);
+  }
 
-    return work;
+  private Map<String, Set<String>> sendInstances(final Map<String, Set<String>> work) {
+    return ofNullable(instancesTopic)
+        .map(topic -> pair(topic, instances(context.instance, work)))
+        .map(
+            pair ->
+                send(
+                    context.producer,
+                    new ProducerRecord<>(pair.first, pair.second.getString(ID), pair.second)))
+        .map(result -> work)
+        .orElse(work);
   }
 
   private void severe(final Stream<String> messages) {

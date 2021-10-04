@@ -10,9 +10,9 @@ import static java.lang.Boolean.TRUE;
 import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
+import static java.util.Optional.empty;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
-import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
@@ -100,6 +100,7 @@ import static net.pincette.mongo.BsonUtil.toBsonDocument;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.Expression.replaceVariables;
 import static net.pincette.mongo.JsonClient.aggregationPublisher;
+import static net.pincette.mongo.JsonClient.findOne;
 import static net.pincette.mongo.Match.predicate;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.difference;
@@ -113,6 +114,7 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
 import static net.pincette.util.Util.isUUID;
+import static net.pincette.util.Util.loadProperties;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
@@ -133,6 +135,8 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
@@ -451,8 +455,21 @@ class Run implements Runnable {
     return new TopologyEntry(topology, streamsConfig, null, realContext.context);
   }
 
-  private static Optional<JsonObject> document(final ChangeStreamDocument<Document> change) {
-    return ofNullable(change.getFullDocument()).map(doc -> fromBson(toBsonDocument(doc)));
+  private static CompletionStage<Optional<JsonObject>> document(
+      final ChangeStreamDocument<Document> change, final MongoCollection<Document> collection) {
+    return tryWith(() -> documentFromChange(change))
+        .or(() -> getId(change).map(id -> findOne(collection, eq(ID, id))).orElse(null))
+        .get()
+        .orElseGet(() -> completedFuture(empty()));
+  }
+
+  private static CompletionStage<Optional<JsonObject>> documentFromChange(
+      final ChangeStreamDocument<Document> change) {
+    return ofNullable(change.getFullDocument())
+        .map(doc -> fromBson(toBsonDocument(doc)))
+        .map(Optional::of)
+        .map(CompletableFuture::completedFuture)
+        .orElse(null);
   }
 
   private static Optional<String> environment(
@@ -479,10 +496,6 @@ class Run implements Runnable {
     return entry.properties.getProperty(APPLICATION_ID);
   }
 
-  private static Optional<String> getApplication(final JsonObject changedDocument) {
-    return ofNullable(changedDocument.getString(APPLICATION_FIELD, null));
-  }
-
   private static String getCollection(final String type, final Context context) {
     return type + (context.environment != null ? ("-" + context.environment) : "");
   }
@@ -496,6 +509,13 @@ class Run implements Runnable {
         aggregationPublisher(
             context.database.getCollection(getCollection(destinationType, context)),
             replaceVariables(projected, map(pair(EVENT_VAR, event))).asJsonArray());
+  }
+
+  private static String getGitCommit() {
+    return ofNullable(Run.class.getResourceAsStream("/git.properties"))
+        .map(in -> loadProperties(() -> in))
+        .map(properties -> properties.get("git.commit.id.full"))
+        .orElse(null);
   }
 
   private static Optional<String> getId(final ChangeStreamDocument<Document> change) {
@@ -560,9 +580,10 @@ class Run implements Runnable {
         && getId(change).map(id -> !isUUID(id)).orElse(false);
   }
 
-  private static boolean isRestartApplication(final ChangeStreamDocument<Document> change) {
+  private static boolean isRestartApplication(
+      final ChangeStreamDocument<Document> change, final JsonObject document) {
     return isUpdate(change)
-        && document(change).map(doc -> doc.containsKey(APPLICATION_FIELD)).orElse(false);
+        && ofNullable(document).map(doc -> doc.containsKey(APPLICATION_FIELD)).orElse(false);
   }
 
   private static boolean isRunning(
@@ -619,13 +640,7 @@ class Run implements Runnable {
 
   private static Void logChangeError(
       final Throwable thrown, final ChangeStreamDocument<Document> change, final Context context) {
-    context.logger.log(
-        SEVERE,
-        thrown,
-        () ->
-            "Changed application "
-                + document(change).flatMap(Run::getApplication).orElse(null)
-                + " has an error.");
+    context.logger.log(SEVERE, thrown, () -> "Change event failed: " + change.toString());
 
     return null;
   }
@@ -665,6 +680,7 @@ class Run implements Runnable {
 
   private static Context prepareContext(final Context context) {
     return context
+        .doTask(c -> c.logger.info("This is commit " + getGitCommit()))
         .doTask(c -> c.logger.info("Connecting to Kafka ..."))
         .withProducer(
             createReliableProducer(
@@ -850,18 +866,19 @@ class Run implements Runnable {
   }
 
   private void handleChange(final ChangeStreamDocument<Document> change) {
-    runAsync(
-            () ->
+    document(change, getTopologyCollection())
+        .thenAccept(
+            document ->
                 withValue(change)
                     .or(Run::isDeleteApplication, c -> getId(c).ifPresent(this::stop))
                     .or(
-                        Run::isRestartApplication,
+                        c -> isRestartApplication(c, document.orElse(null)),
                         c ->
-                            document(c)
-                                .ifPresent(doc -> restart(doc, doc.getString(APPLICATION_FIELD))))
+                            document.ifPresent(
+                                doc -> restart(doc, doc.getString(APPLICATION_FIELD))))
                     .or(
                         c -> isRunning(c, context.instance),
-                        c -> document(c).flatMap(Run::running).ifPresent(this::reconcile)))
+                        c -> document.flatMap(Run::running).ifPresent(this::reconcile)))
         .exceptionally(e -> logChangeError(e, change, context));
   }
 

@@ -101,7 +101,6 @@ class Common {
   static final String APPLICATION_FIELD = "application";
   static final String COMMAND = "command";
   static final String COMMANDS = "commands";
-  static final String CURRENT_DATE = "$currentDate";
   static final String DESTINATION_TYPE = "destinationType";
   static final String DESTINATIONS = "destinations";
   static final String DOLLAR = "_dollar_";
