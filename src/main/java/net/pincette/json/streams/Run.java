@@ -65,6 +65,7 @@ import static net.pincette.json.streams.Common.FROM_TOPICS;
 import static net.pincette.json.streams.Common.JOIN;
 import static net.pincette.json.streams.Common.JSLT_IMPORTS;
 import static net.pincette.json.streams.Common.LEFT;
+import static net.pincette.json.streams.Common.LOG;
 import static net.pincette.json.streams.Common.MERGE;
 import static net.pincette.json.streams.Common.NAME;
 import static net.pincette.json.streams.Common.ON;
@@ -86,6 +87,7 @@ import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
+import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.getCommands;
@@ -206,7 +208,6 @@ class Run implements Runnable {
       union(
           configNames(),
           set("ssl.endpoint.identification.algorithm", "sasl.mechanism", "sasl.jaas.config"));
-  private static final String LOG = "$log";
   private static final String METRICS_INTERVAL = "metricsInterval";
   private static final String METRICS_TOPIC = "metricsTopic";
   private static final String PLUGINS = "plugins";
@@ -556,8 +557,7 @@ class Run implements Runnable {
   }
 
   private static Duration getRestartBackoff(final Context context) {
-    return tryToGetSilent(() -> context.config.getDuration(RESTART_BACKOFF))
-        .orElse(DEFAULT_RESTART_BACKOFF);
+    return config(context, config -> config.getDuration(RESTART_BACKOFF), DEFAULT_RESTART_BACKOFF);
   }
 
   private static KStream<String, JsonObject> getStream(
@@ -645,7 +645,7 @@ class Run implements Runnable {
     return null;
   }
 
-  private static void logging(final Context context) {
+  private static Context logging(final Context context) {
     if (context.logTopic != null) {
       log(
           context.logger,
@@ -655,6 +655,8 @@ class Run implements Runnable {
           context.producer,
           context.logTopic);
     }
+
+    return context;
   }
 
   private static Context metrics(final Context context) {
@@ -685,12 +687,14 @@ class Run implements Runnable {
         .withProducer(
             createReliableProducer(
                 fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer()))
-        .doTask(Run::logging)
+        .with(Run::logging)
         .doTask(c -> c.logger.info("Loading plugins ..."))
         .with(Run::loadPlugins)
         .doTask(c -> c.logger.info("Settings up metrics ..."))
         .with(Run::metrics)
-        .doTask(c -> setContextPath(c.config.getString(CONTEXT_PATH)))
+        .doTask(
+            c ->
+                setContextPath(tryToGetSilent(() -> c.config.getString(CONTEXT_PATH)).orElse(null)))
         .doTask(c -> c.logger.info("Loading applications ..."));
   }
 

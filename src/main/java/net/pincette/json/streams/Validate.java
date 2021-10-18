@@ -90,19 +90,19 @@ class Validate {
     final var streams = getStreams(specification);
 
     return getStreamReferences(specification)
-            .filter(pair -> !streams.contains(pair.second))
-            .map(
-                pair ->
-                    SideEffect.<String>run(
-                            () ->
-                                getGlobal()
-                                    .log(
-                                        SEVERE,
-                                        "Part {0} refers to non-existing stream {1}",
-                                        new Object[] {pair.first, pair.second}))
-                        .andThenGet(() -> pair.first))
-            .count()
-        == 0;
+        .filter(pair -> !streams.contains(pair.second))
+        .map(
+            pair ->
+                SideEffect.<String>run(
+                        () ->
+                            getGlobal()
+                                .log(
+                                    SEVERE,
+                                    "Part {0} refers to non-existing stream {1}",
+                                    new Object[] {pair.first, pair.second}))
+                    .andThenGet(() -> pair.first))
+        .findAny()
+        .isEmpty();
   }
 
   private static boolean validateAggregate(final JsonObject specification) {

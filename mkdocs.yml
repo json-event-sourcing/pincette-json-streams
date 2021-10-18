@@ -1,0 +1,30 @@
+site_name: "JSON Streams"
+site_url: ""
+use_directory_urls: false
+theme:
+  name: readthedocs
+extra_css:
+- stylesheet.css
+nav:
+- 'index.md'
+- 'application.md'
+- 'streams.md'
+- 'merge.md'
+- 'join.md'
+- 'state.md'
+- 'validator.md'
+- 'query.md'
+- 'aggregation_operators.md'
+- 'aggregation_stages.md'
+- 'system_variables.md'
+- 'custom_jslt.md'
+- 'documentation.md'
+- 'troubleshooting.md'
+- 'serialisation.md'
+- 'plugins.md'
+- 'autoscaling.md'
+- 'configuration.md'
+- 'build.md'
+- 'docker.md'
+- 'cli.md'
+- 'topology.md'

@@ -11,6 +11,8 @@ import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.string;
+import static net.pincette.json.streams.Common.LOG;
+import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.mongo.Expression.function;
 
 import java.util.Optional;
@@ -67,7 +69,7 @@ class PipelineStages {
   static Stage logStage(final Context context) {
     return (stream, expression, c) -> {
       if (!isObject(expression)) {
-        logObject("$log", expression, context);
+        logObject(LOG, expression, context);
 
         return stream;
       }
@@ -104,7 +106,7 @@ class PipelineStages {
   static Stage validateStage(final Context context) {
     return (stream, expression, c) -> {
       if (!isObject(expression)) {
-        logObject("$validate", expression, context);
+        logObject(VALIDATE, expression, context);
 
         return stream;
       }

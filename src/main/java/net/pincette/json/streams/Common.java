@@ -119,6 +119,7 @@ class Common {
   static final String JSLT_IMPORTS = "jsltImports";
   static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
+  static final String LOG = "$log";
   static final String MERGE = "merge";
   static final String NAME = "name";
   static final String ON = "on";

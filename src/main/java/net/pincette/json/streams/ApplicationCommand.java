@@ -20,7 +20,7 @@ import picocli.CommandLine.Option;
 
 class ApplicationCommand {
   protected final Context context;
-  @ArgGroup() private FileOrApplication fileOrApplication;
+  @ArgGroup(multiplicity = "1") private FileOrApplication fileOrApplication;
 
   ApplicationCommand(final Context context) {
     this.context = context;
