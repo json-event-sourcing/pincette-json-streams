@@ -52,6 +52,7 @@ A command is a JSON document, which has the following technical fields on top of
 |\_id|Yes|The identifier of the aggregate instance. It is usually a UUID.|
 |\_jwt|No|The decoded JSON Web Token. It is propagated throughout the flow.|
 |\_languages|No|An array of [language tags](https://datatracker.ietf.org/doc/html/rfc1766) in the order of preference. When a validator or some other component wishes to send messages to the user, it can use the proper language for it.|
+|\_seq|No|A sequence number. If this field is present then its value should be the same as that field in the aggregate instance. Otherwise the command is ignored.|
 |\_type|Yes|The aggregate type, which is composed as `<application>-<name>`.|
 
 There are three built-in commands called `put`, `patch` and `delete`. The `put` command replaces the entire contents of the aggregate instance. The `patch` command has the array field `_ops`, which is a [JSON patch](https://tools.ietf.org/html/rfc6902) that is applied to the instance. The `delete` command performs a logical deletion. It sets the field `_deleted` to `true`. The reducers for these commands can be replaced.
@@ -90,11 +91,7 @@ The number of topic partitions should be the same for all topics. This is the up
 
 ## Storing the State
 
-The state is always stored in MongoDB in the form of an event log. The name of the collection is `<application>-<type>-event[-<environment>]`. The events that are published on the Kafka topic with purpose `event` are saved in that collection. You can reconstruct an aggregate instance by starting with an empty JSON object and applying all the JSON patches in the `_ops` field in sequence.
-
-A second collection, with the name `<application>-<type>[-<environment>]`, keeps the latest version of the aggregate instances. This avoids continuous reconstruction and it can be used for queries.
-
-If you use [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) then you can enjoy the [data archiving feature](https://docs.atlas.mongodb.com/online-archive/manage-online-archive/). Events are never updated, only inserted. So, you could keep one day's worth of events in the cluster and archive the rest. Use the `_timestamp` field as the date field, the `_id.id` field as the second most queried field and the `_id.seq` as the third most queried field. In the configuration you need to add a special MongoDB connection string, which provides a unified view over the cluster part and the archive part of the collection.
+The state is always stored in MongoDB in the collection with the name `<application>-<type>[-<environment>]`.
 
 ## Uniqueness
 

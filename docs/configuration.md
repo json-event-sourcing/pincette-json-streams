@@ -16,7 +16,6 @@ The configuration is managed by the
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
 |logTopic|No|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
 |mongodb.uri|Yes|The MongoDB connection URL.|
-|mongodb.uriArchive|No|If you use online archiving for the event collections on MongoDB Atlas, then this is the URL with which you can access the cluster and the archive together in one unified view.| 
 |mongodb.database|Yes|The MongoDB database.|
 |mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line.|
 |plugins|No|The directory from where the plugins are loaded.|

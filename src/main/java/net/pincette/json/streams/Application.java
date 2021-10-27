@@ -9,11 +9,9 @@ import static java.util.logging.Logger.getLogger;
 import static net.pincette.jes.util.Configuration.loadDefault;
 import static net.pincette.json.streams.Common.ENVIRONMENT;
 import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.Util.tryToDoWithRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 
-import com.mongodb.reactivestreams.client.MongoClient;
-import com.mongodb.reactivestreams.client.MongoClients;
-import com.typesafe.config.Config;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Optional;
@@ -34,15 +32,8 @@ public class Application {
   private static final String LOG_LEVEL = "logLevel";
   private static final String LOG_TOPIC = "logTopic";
   private static final String MONGODB_URI = "mongodb.uri";
-  private static final String MONGODB_URI_ARCHIVE = "mongodb.uriArchive";
 
   private Application() {}
-
-  private static MongoClient getArchiveClient(final Config config) {
-    return tryToGetSilent(() -> config.getString(MONGODB_URI_ARCHIVE))
-        .map(MongoClients::create)
-        .orElse(null);
-  }
 
   private static void initLogging(final Level level) {
     if (getProperty("java.util.logging.config.class") == null
@@ -71,39 +62,37 @@ public class Application {
   public static void main(final String[] args) {
     final var config = loadDefault();
 
-    try (final var client = create(config.getString(MONGODB_URI));
-        final var archiveClient = getArchiveClient(config)) {
-      Optional.of(
-              new Context()
-                  .withLogger(getLogger(LOGGER))
-                  .withConfig(config)
-                  .withEnvironment(tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))
-                  .withLogLevel(
-                      parse(tryToGetSilent(() -> config.getString(LOG_LEVEL)).orElse("SEVERE")))
-                  .withLogTopic(tryToGetSilent(() -> config.getString(LOG_TOPIC)).orElse(null))
-                  .withClient(client)
-                  .withDatabase(client.getDatabase(config.getString(DATABASE)))
-                  .withIf(
-                      c -> archiveClient != null,
-                      c ->
-                          c.withDatabaseArchive(
-                              archiveClient.getDatabase(config.getString(DATABASE))))
-                  .doTask(c -> c.logger.setLevel(c.logLevel))
-                  .doTask(c -> initLogging(c.logLevel)))
-          .map(
-              context ->
-                  new CommandLine(new Application())
-                      .addSubcommand("build", new Build(context))
-                      .addSubcommand("delete", new Delete(context))
-                      .addSubcommand("doc", new Doc(context))
-                      .addSubcommand("dot", new Dot(context))
-                      .addSubcommand(new HelpCommand())
-                      .addSubcommand("list", new ListApps(context))
-                      .addSubcommand("run", new Run(context))
-                      .addSubcommand("yaml", new Yaml())
-                      .execute(args))
-          .filter(code -> code != 0)
-          .ifPresent(System::exit);
-    }
+    tryToDoWithRethrow(
+        () -> create(config.getString(MONGODB_URI)),
+        client ->
+            Optional.of(
+                    new Context()
+                        .withLogger(getLogger(LOGGER))
+                        .withConfig(config)
+                        .withEnvironment(
+                            tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))
+                        .withLogLevel(
+                            parse(
+                                tryToGetSilent(() -> config.getString(LOG_LEVEL)).orElse("SEVERE")))
+                        .withLogTopic(
+                            tryToGetSilent(() -> config.getString(LOG_TOPIC)).orElse(null))
+                        .withClient(client)
+                        .withDatabase(client.getDatabase(config.getString(DATABASE)))
+                        .doTask(c -> c.logger.setLevel(c.logLevel))
+                        .doTask(c -> initLogging(c.logLevel)))
+                .map(
+                    context ->
+                        new CommandLine(new Application())
+                            .addSubcommand("build", new Build(context))
+                            .addSubcommand("delete", new Delete(context))
+                            .addSubcommand("doc", new Doc(context))
+                            .addSubcommand("dot", new Dot(context))
+                            .addSubcommand(new HelpCommand())
+                            .addSubcommand("list", new ListApps(context))
+                            .addSubcommand("run", new Run(context))
+                            .addSubcommand("yaml", new Yaml())
+                            .execute(args))
+                .filter(code -> code != 0)
+                .ifPresent(System::exit));
   }
 }

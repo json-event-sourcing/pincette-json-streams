@@ -21,7 +21,6 @@ class Context {
   final MongoClient client;
   final Config config;
   final MongoDatabase database;
-  final MongoDatabase databaseArchive;
   final String environment;
   final Features features;
   final String instance = randomUUID().toString();
@@ -33,7 +32,7 @@ class Context {
   final Validator validator;
 
   Context() {
-    this(null, null, null, null, null, null, null, null, null, null, null, null);
+    this(null, null, null, null, null, null, null, null, null, null, null);
   }
 
   @SuppressWarnings("java:S107") // Internal constructor for immutable object.
@@ -41,7 +40,6 @@ class Context {
       final MongoClient client,
       final Config config,
       final MongoDatabase database,
-      final MongoDatabase databaseArchive,
       final String environment,
       final Features features,
       final Level logLevel,
@@ -53,7 +51,6 @@ class Context {
     this.client = client;
     this.config = config;
     this.database = database;
-    this.databaseArchive = databaseArchive;
     this.environment = environment;
     this.features = features != null ? features : new Features();
     this.logLevel = logLevel;
@@ -83,7 +80,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -99,7 +95,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -115,23 +110,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
-        environment,
-        features,
-        logLevel,
-        logTopic,
-        logger,
-        producer,
-        stageExtensions,
-        validator);
-  }
-
-  Context withDatabaseArchive(final MongoDatabase databaseArchive) {
-    return new Context(
-        client,
-        config,
-        database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -147,7 +125,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -163,7 +140,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -187,7 +163,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -203,7 +178,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -219,7 +193,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -235,7 +208,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -251,7 +223,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,
@@ -267,7 +238,6 @@ class Context {
         client,
         config,
         database,
-        databaseArchive,
         environment,
         features,
         logLevel,

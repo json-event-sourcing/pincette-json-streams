@@ -166,7 +166,6 @@ import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Match;
-import net.pincette.mongo.Session;
 import net.pincette.mongo.Validator;
 import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
@@ -268,8 +267,6 @@ class Run implements Runnable {
         .withApp(app)
         .withType(type)
         .withMongoDatabase(context.context.database)
-        .withMongoDatabaseArchive(context.context.databaseArchive)
-        .withMongoClientSession(Session.create(context.context.client).toCompletableFuture().join())
         .withBuilder(context.builder)
         .withLogger(context.context.logger);
   }
@@ -981,6 +978,7 @@ class Run implements Runnable {
   private void startTopologies(final Stream<TopologyEntry> topologies) {
     topologies
         .map(t -> pair(getApplication(t), t))
+        .filter(pair -> !running.containsKey(pair.first))
         .map(
             pair ->
                 pair(
