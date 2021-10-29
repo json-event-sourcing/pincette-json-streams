@@ -18,11 +18,11 @@ This is an example:
 application: "my-app"
 version: "1.0"
 parts:
-- type: "merge"
-  name: "merged-init"
-  fromStreams:
-  - "absences-init"
-  - "activities-init"
-  - "owners-init"
-  - "subscriptions-init"
+  - type: "merge"
+    name: "merged-init"
+    fromStreams:
+      - "absences-init"
+      - "activities-init"
+      - "owners-init"
+      - "subscriptions-init"
 ```

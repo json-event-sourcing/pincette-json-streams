@@ -11,13 +11,13 @@ This is a simple application with just one stream. It consumes the Kafka topic `
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-commands"
-  toTopic: "my-commands-filtered"
-  pipeline:
-  - $match:
-      _command: "put"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-commands"
+    toTopic: "my-commands-filtered"
+    pipeline:
+      - $match:
+          _command: "put"
 ```        
 
 We could have left out the `toTopic` field. In that case the results are available as the stream called `my-stream`. Another part of the application can consume that stream by referring to its name. It could look like this:
@@ -27,19 +27,19 @@ We could have left out the `toTopic` field. In that case the results are availab
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-commands"
-  pipeline:
-  - $match:
-      _command: "put"
-- type: "stream"
-  name: "set-filtered"
-  fromStream: "my-stream"
-  toTopic: "my-commands-filtered"    
-  pipeline:
-  - $addFields:
-      filtered: true    
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-commands"
+    pipeline:
+      - $match:
+          _command: "put"
+  - type: "stream"
+    name: "set-filtered"
+    fromStream: "my-stream"
+    toTopic: "my-commands-filtered"
+    pipeline:
+      - $addFields:
+          filtered: true    
 ```        
 
 Now the second part takes the output of the first one and adds the `filtered` field to each message before writing it to the topic `my-commands-filtered`. Of course, in practice you would add the `$addFields` pipeline stage to the first part, right after the `$match` stage.
@@ -51,8 +51,8 @@ Sometimes a file can grow very large when there are many parts. Then it is more 
 application: "my-app"
 version: "1.0"
 parts:
-- "my_stream.yml"
-- "set_filtered.yml"
+  - "my_stream.yml"
+  - "set_filtered.yml"
 ```
 
 The files would then contain the following respectively:
@@ -63,17 +63,17 @@ type: "stream"
 name: "my-stream"
 fromTopic: "my-commands"
 pipeline:
-- $match:
-    _command: "put"
+  - $match:
+      _command: "put"
 
 ---
 type: "stream"
 name: "set-filtered"
 fromStream: "my-stream"
-toTopic: "my-commands-filtered"    
+toTopic: "my-commands-filtered"
 pipeline:
-- $addFields:
-    filtered: true    
+  - $addFields:
+      filtered: true    
 ```        
 
 Part files can also contain arrays of parts. Everything will be loaded and assembled into one array of parts. Several applications can be combined in one array as well. Each entry will still be treated as a separate application. This is an example:
@@ -83,11 +83,11 @@ Part files can also contain arrays of parts. Everything will be loaded and assem
 - application: "my-app1"
   version: "1.0"
   parts:
-  - "parts1.yml"
+    - "parts1.yml"
 - application: "my-app2"
   version: "1.0"
   parts:
-  - "parts2.yml"  
+    - "parts2.yml"  
 ```
 
 Sometimes you will have stuff that you don't want to repeat all the time. With the top-level `parameters` object you can add values that are available in all parts of the application. Any JSON value is allowed. It works with simple substitution. In the following example the first parameter is an object. The second and third parameters have a value that starts with the `config:` prefix. This is how you can pull in values from the external configuration. A special parameter is `ENV`, which is drawn from the configuration entry `environment`.
@@ -97,32 +97,32 @@ Sometimes you will have stuff that you don't want to repeat all the time. With t
 application: "my-app"
 version: "1.0"
 parameters:
-- SETTINGS:
-    delay: 10
-    interval: 5
-- ENDPOINT: "config:endpoint"   
-- CREDENTIALS: "config:credentials"
+  - SETTINGS:
+      delay: 10
+      interval: 5
+  - ENDPOINT: "config:endpoint"
+  - CREDENTIALS: "config:credentials"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-commands-${ENV}"
-  toTopic: "my-commands-filtered-${ENV}"
-  pipeline:
-  - $match:
-      _command: "put"
-  - $http:
-     url:
-       $concat:
-       - ${ENDPOINT}
-       - "/resource"   
-     method: "POST"
-     headers:
-       Authorization:
-         $concat:
-         - "Basic "
-         - "${CREDENTIALS}"
-     body:
-       command: "$$ROOT"      
-     as: "result"       
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-commands-${ENV}"
+    toTopic: "my-commands-filtered-${ENV}"
+    pipeline:
+      - $match:
+          _command: "put"
+      - $http:
+          url:
+            $concat:
+              - ${ENDPOINT}
+              - "/resource"
+          method: "POST"
+          headers:
+            Authorization:
+              $concat:
+                - "Basic "
+                - "${CREDENTIALS}"
+          body:
+            command: "$$ROOT"
+          as: "result"       
 ```
 

@@ -91,7 +91,49 @@ The number of topic partitions should be the same for all topics. This is the up
 
 ## Storing the State
 
-The state is always stored in MongoDB in the collection with the name `<application>-<type>[-<environment>]`.
+The state is always stored in MongoDB in the collection with the name `<application>-<type>[-<environment>]`. For better observability you can also store the events, command, etc. by adding a few parts to your application as in the following example. It assumes you use the `environment` configuration setting. If that is not the case then you should remove the `-${ENV}` suffixes. The `AGGREGATE_TYPE` parameter would be the full aggregate type. You can also see that the parts use the predefined aggregate streams.
+
+```yaml
+---
+- type: "stream"
+  name: "save-commands"
+  fromStream: "${AGGREGATE_TYPE}-command"
+  pipeline:
+    - $set:
+        _id:
+          id: $_id
+          corr: $_corr
+          command: $_command
+    - $out: "${AGGREGATE_TYPE}-command-${ENV}"
+- type: "stream"
+  name: "save-events"
+  fromStream: "${AGGREGATE_TYPE}-event"
+  pipeline:
+    - $set:
+        _id:
+          id: "$_id"
+          seq: "$_seq"
+    - $out: "${AGGREGATE_TYPE}-event-${ENV}"
+- type: "stream"
+  name: "save-deleted"
+  fromStream: "${AGGREGATE_TYPE}-aggregate"
+  pipeline:
+    - $match:
+        _deleted: true
+    - $out: "${AGGREGATE_TYPE}-deleted-${ENV}"
+- type: "stream"
+  name: "save-invalid"
+  fromStream: "${AGGREGATE_TYPE}-reply"
+  pipeline:
+    - $match:
+        _error: true
+    - $set:
+        _id:
+          id: $_id
+          corr: $_corr
+          command: $_command
+    - $out: "${AGGREGATE_TYPE}-invalid-${ENV}"
+```
 
 ## Uniqueness
 
@@ -161,18 +203,18 @@ The following example is the aggregate `plusminus-counter`. It has the commands 
 application: "plusminus"
 version: "1.0"
 parts:
-- type: "aggregate"
-  aggregateType: "plusminus-counter"
-  commands:
-    plus:
-      reducer: "plus.jslt"
-      validator: "validate_plus.yml"
-    minus:
-      reducer: "minus.jslt"
-      validator: "validate_minus.yml"
-    put:
-      reducer: "put.jslt"
-      validator: "validate_put.yml"
+  - type: "aggregate"
+    aggregateType: "plusminus-counter"
+    commands:
+      plus:
+        reducer: "plus.jslt"
+        validator: "validate_plus.yml"
+      minus:
+        reducer: "minus.jslt"
+        validator: "validate_minus.yml"
+      put:
+        reducer: "put.jslt"
+        validator: "validate_put.yml"
 ```      
 
 plus.jslt:
@@ -207,9 +249,9 @@ validate_plus.yml:
 ```yaml
 ---
 include:
-- "operator.yml"
+  - "operator.yml"
 conditions
-- _command: "plus"
+  - _command: "plus"
 ```
 
 validate_minus.yml:
@@ -217,9 +259,9 @@ validate_minus.yml:
 ```yaml
 ---
 include:
-- "operator.yml"
+  - "operator.yml"
 conditions
-- _command: "minus"
+  - _command: "minus"
 ```
 
 validate_put.yml:
@@ -227,28 +269,28 @@ validate_put.yml:
 ```yaml
 ---
 include:
-- "type.yml"
+  - "type.yml"
 conditions:
-- _command: "put"
-- value: 0
-  $code: "INIT"
+  - _command: "put"
+  - value: 0
+    $code: "INIT"
 ```
 
 type.yml:
 
 ```yaml
 conditions
-- _type: "plusminus-counter"
+  - _type: "plusminus-counter"
 ```
 
 operator.yml:
 
 ```yaml
 include:
-- "type.json"
+  - "type.json"
 conditions:
-- value:
-    $exists: false
+  - value:
+      $exists: false
     $code: "OPERATOR"
 ```
 

@@ -35,7 +35,6 @@ import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.isLong;
 import static net.pincette.json.JsonUtil.isObject;
-import static net.pincette.json.streams.Common.ACTUAL;
 import static net.pincette.json.streams.Common.ALIVE_AT;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.LEADER;
@@ -420,7 +419,7 @@ class Work {
                     .collect(
                         toMap(
                             json -> json.getString(ID),
-                            json -> getStrings(json, ACTUAL).collect(toSet()))));
+                            json -> getStrings(json, DESIRED).collect(toSet()))));
   }
 
   private CompletionStage<Boolean> saveWork(final Map<String, Set<String>> work) {

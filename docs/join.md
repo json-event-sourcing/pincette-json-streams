@@ -19,15 +19,15 @@ The following example joins the command and event streams from the above-mention
 application: "my-app"
 version: "1.0"
 parts:
-- type: "join"
-  name: "joined"
-  toTopic: "string-test"
-  toString: true
-  window: 5000
-  left:
-    fromStream: "plusminus-counter-command"
-    on: "$_corr"
-  right:
-    fromStream: "plusminus-counter-event"
-    on: "$_corr"
+  - type: "join"
+    name: "joined"
+    toTopic: "string-test"
+    toString: true
+    window: 5000
+    left:
+      fromStream: "plusminus-counter-command"
+      on: "$_corr"
+    right:
+      fromStream: "plusminus-counter-event"
+      on: "$_corr"
 ```

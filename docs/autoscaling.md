@@ -22,6 +22,10 @@ The leader of the JSON Streams instances will calculate the overall excess messa
 
 The leader will spread the available work evenly across all available instances. At some point an application will have reached its maximum number of instances. This is defined by the highest number of topic partitions for any topic the application is consuming. Extra instances would be idle in the respective Kafka consumer groups. If there is still message lag the number of JSON Streams instances can be grown in order to spread the applications thinner. Each instance will have less applications to run. Instances of the same application will also be spread over different JSON Streams instances.
 
+You should not set the maximum number of applications per instance to more than 10, which is the default. Otherwise there will be "too many open files" issues with Kafka Streams.
+
+For faster start-up it is best to set the minimum number of instances so that all applications can be run. Otherwise it will take a few rounds to ramp up.
+
 If the configuration has set the entry `work.excessMessageLagTopic`, then the overall excess message lag will be published on it. This can be used by auto-scalers as a custom metric. The target value should be zero. A published message looks like this:
 
 ```json

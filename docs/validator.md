@@ -7,13 +7,14 @@ The result of a validation is the message itself. If there are validation errors
 Say we have the following validator, which checks that the field `myfield` is present and that it is an integer.
 
 ```yaml
+---
 conditions:
-- myfield:
-    $exists: true
-    $code: "REQUIRED"
-  myfield:
-    $type: "int"
-    $code: "INT"    
+  - myfield:
+      $exists: true
+      $code: "REQUIRED"
+    myfield:
+      $type: "int"
+      $code: "INT"    
 ```
 
 The following message doesn't have the field `myfield`.
@@ -72,21 +73,23 @@ This will produce the following:
 A validator can include others with the `include` field, which expects an array of filenames. This makes validators more modular. The effect is that the conditions in the included validator are added to the including one. The combined conditions will be applied to the messages. Here is an example:
 
 ```yaml
+---
 include:
-- other.yml
+  - other.yml
 conditions:
-- myfield:
-    $exists: true
-    $code: "REQUIRED"
+  - myfield:
+      $exists: true
+      $code: "REQUIRED"
 ```
 
 other.yml:
 
 ```yaml
+---
 conditions:
-- myfield:
-    $type: "int"
-    $code: "INT"
+  - myfield:
+      $type: "int"
+      $code: "INT"
 ```
 
 The resulting validator will behave the same way as the first example of this chapter.
@@ -100,13 +103,14 @@ If an inclusion contains macros, then these are available in the including valid
 In the following example the integer condition is defined as a macro.
 
 ```yaml
+---
 macros:
   int:
     $type: "int"
     $code: "INT"
 conditions:
-- field1: "_int_"
-- field2: "_int_"
+  - field1: "_int_"
+  - field2: "_int_"
 ```
 
 ## Nesting
@@ -114,21 +118,22 @@ conditions:
 Validators can be nested by creating a condition for a field with another validator as its value instead of a Boolean expression. You would apply this on subobjects. In that case the subobject is the context for the nested validator. In the following example there is a nested validator for the `_jwt` field.
 
 ```yaml
+---
 macros:
   exists:
     $exists: true
-    $code: "REQUIRED"    
+    $code: "REQUIRED"
 conditions:
-- myfield: "_exists"
-- _jwt:
-    conditions:
-    - sub: "_exists_"
-    - sub:
-        $type: "string"
-        $code: "STRING"
-    - roles:
-        $type: "array"
-        $code: "ARRAY"        
+  - myfield: "_exists"
+  - _jwt:
+      conditions:
+        - sub: "_exists_"
+        - sub:
+            $type: "string"
+            $code: "STRING"
+        - roles:
+            $type: "array"
+            $code: "ARRAY"        
 ```
 
 In the following message the `_jwt.roles` field has the wrong type.
@@ -169,17 +174,19 @@ Nesting of validators can be made more modular with the `ref` field, which expec
 The above nested validator can be rewritten like this:
 
 ```yaml
+---
 include:
-- "macros.yml"
+  - "macros.yml"
 conditions:
-- myfield: "_exists"
-- _jwt:
-    ref: "jwt.yml"  
+  - myfield: "_exists"
+  - _jwt:
+      ref: "jwt.yml"  
 ```
 
 macros.yml:
 
 ```yaml
+---
 macros:
   exists:
     $exists: true
@@ -189,14 +196,15 @@ macros:
 jwt.yml:
 
 ```yaml
+---
 include:
-- "macros.yml"
+  - "macros.yml"
 conditions:
-- sub: "_exists_"
-- sub:
-    $type: "string"
-    $code: "STRING"
-- roles:
-    $type: "array"
-    $code: "ARRAY"        
+  - sub: "_exists_"
+  - sub:
+      $type: "string"
+      $code: "STRING"
+  - roles:
+      $type: "array"
+      $code: "ARRAY"        
 ```

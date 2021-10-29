@@ -1,6 +1,7 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.reactivestreams.client.MongoClients.create;
+import static com.typesafe.config.ConfigFactory.defaultOverrides;
 import static java.lang.ClassLoader.getSystemResourceAsStream;
 import static java.lang.System.getProperty;
 import static java.util.logging.Level.parse;
@@ -60,7 +61,7 @@ public class Application {
   }
 
   public static void main(final String[] args) {
-    final var config = loadDefault();
+    final var config = defaultOverrides().withFallback(loadDefault());
 
     tryToDoWithRethrow(
         () -> create(config.getString(MONGODB_URI)),

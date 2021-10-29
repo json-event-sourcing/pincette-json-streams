@@ -41,9 +41,9 @@ Example:
 ```yaml
 myfield:
   $in:
-  - 1
-  - 2
-  - 3
+    - 1
+    - 2
+    - 3
 ```
 
 ### [$lt](https://docs.mongodb.com/manual/reference/operator/query/lt/#mongodb-query-op.-lt)
@@ -78,9 +78,9 @@ Example:
 ```yaml
 myfield:
   $nin:
-  - 1
-  - 2
-  - 3
+    - 1
+    - 2
+    - 3
 ```
 
 ## Logical
@@ -91,10 +91,10 @@ Example:
 
 ```yaml
 $and:
-- x:
-    $gte: 0
-- y:
-    $gte: 0
+  - x:
+      $gte: 0
+  - y:
+      $gte: 0
 ```
 
 ### [$not](https://docs.mongodb.com/manual/reference/operator/query/not/#mongodb-query-op.-not)
@@ -113,10 +113,10 @@ Example:
 
 ```yaml
 $nor:
-- x:
-    $lt: 0
-- y:
-    $lt: 0
+  - x:
+      $lt: 0
+  - y:
+      $lt: 0
 ```
 
 ### [$or](https://docs.mongodb.com/manual/reference/operator/query/or/#mongodb-query-op.-or)
@@ -125,10 +125,10 @@ Example:
 
 ```yaml
 $or:
-- x:
-    $gt: 0
-- y:
-    $gt: 0
+  - x:
+      $gt: 0
+  - y:
+      $gt: 0
 ```
 
 ## Element
@@ -162,8 +162,8 @@ Example:
 ```yaml
 $expr:
   $gt:
-  - "$field1"
-  - "$field2"
+    - "$field1"
+    - "$field2"
 ```
 
 ### [$mod](https://docs.mongodb.com/manual/reference/operator/query/mod/#mongodb-query-op.-mod)
@@ -173,8 +173,8 @@ Example:
 ```yaml
 myfield:
   $mod:
-  - 5
-  - 1
+    - 5
+    - 1
 ```
 
 ### [$regex](https://docs.mongodb.com/manual/reference/operator/query/regex/#mongodb-query-op.-regex)
@@ -204,9 +204,9 @@ Example:
 ```yaml
 myfield:
   $all:
-  - 1
-  - 2
-  - 3
+    - 1
+    - 2
+    - 3
 ```
 
 ### [$elemMatch](https://docs.mongodb.com/manual/reference/operator/query/elemMatch/#mongodb-query-op.-elemMatch)
@@ -237,8 +237,8 @@ Example:
 ```yaml
 myfield:
   $bitsAllClear:
-  - 2
-  - 3
+    - 2
+    - 3
 ```
 
 ### [$bitsAllSet](https://docs.mongodb.com/manual/reference/operator/query/bitsAllSet/#mongodb-query-op.-bitsAllSet)
@@ -248,8 +248,8 @@ Example:
 ```yaml
 myfield:
   $bitsAllSet:
-  - 2
-  - 3
+    - 2
+    - 3
 ```
 
 ### [$bitsAnyClear](https://docs.mongodb.com/manual/reference/operator/query/bitsAnyClear/#mongodb-query-op.-bitsAnyClear)
@@ -259,8 +259,8 @@ Example:
 ```yaml
 myfield:
   $bitsAnyClear:
-  - 2
-  - 3
+    - 2
+    - 3
 ```
 
 ### [$bitsAnySet](https://docs.mongodb.com/manual/reference/operator/query/bitsAnySet/#mongodb-query-op.-bitsAnySet)
@@ -270,8 +270,8 @@ Example:
 ```yaml
 myfield:
   $bitsAnySet:
-  - 2
-  - 3
+    - 2
+    - 3
 ```
 
 ## Miscellaneous
@@ -283,7 +283,7 @@ Example:
 ```yaml
 x:
   $mod:
-  - 2
-  - 0
+    - 2
+    - 0
 $comment: "Select even values"  
 ```

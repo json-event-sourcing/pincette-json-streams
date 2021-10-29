@@ -7,13 +7,13 @@ A stream is an aggregation pipeline with stages that transform JSON messages. Th
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-filtered"
-  pipeline:
-  - $match:
-      shouldFilter: true
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-filtered"
+    pipeline:
+      - $match:
+          shouldFilter: true
 ```
 
 When pipeline stages are large it is more convenient to put them in a separate file. A file can contain just one stage or an array of stages. This example moves the stage to another file.
@@ -23,12 +23,12 @@ When pipeline stages are large it is more convenient to put them in a separate f
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-filtered"
-  pipeline:
-  - "filter.yml"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-filtered"
+    pipeline:
+      - "filter.yml"
 ```
 
 Where the file `filter.yml` is then like this:

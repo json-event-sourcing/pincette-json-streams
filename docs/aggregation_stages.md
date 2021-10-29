@@ -11,17 +11,17 @@ The following example pulls three fields from the incoming message and adds them
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-added"
-  pipeline:
-  - $addFields:
-      totalScore:
-        $add:
-        - "$totalHomework"
-        - "$totalQuiz"
-        - "$extraCredit"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-added"
+    pipeline:
+      - $addFields:
+          totalScore:
+            $add:
+              - "$totalHomework"
+              - "$totalQuiz"
+              - "$extraCredit"
 ```
 
 ### [$bucket](https://docs.mongodb.com/manual/reference/operator/aggregation/bucket/)
@@ -39,31 +39,31 @@ The following example groups all message per the `year_born` field and pours the
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-grouped"
-  pipeline:
-  - $bucket:
-      groupBy: "$year_born"
-      boundaries:
-      - 1840
-      - 1850
-      - 1860
-      - 1870
-      - 1880
-      default: "Other"
-      output:
-        count:
-          $sum: 1
-        artists:
-          $push:
-            name:
-              $concat:
-              - "$first_name"
-              - " "
-              - "$last_name"
-            year_born: "$year_born"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-grouped"
+    pipeline:
+      - $bucket:
+          groupBy: "$year_born"
+          boundaries:
+            - 1840
+            - 1850
+            - 1860
+            - 1870
+            - 1880
+          default: "Other"
+          output:
+            count:
+              $sum: 1
+            artists:
+              $push:
+                name:
+                  $concat:
+                    - "$first_name"
+                    - " "
+                    - "$last_name"
+                year_born: "$year_born"
 ```
 
 ### [$count](https://docs.mongodb.com/manual/reference/operator/aggregation/count/)
@@ -75,15 +75,15 @@ The same remarks apply as for the `$bucket` stage. The following example counts 
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-counted-scores"
-  pipeline:
-  - $match:
-      score:
-        $gt: 80
-  - $count: "passing_scores"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-counted-scores"
+    pipeline:
+      - $match:
+          score:
+            $gt: 80
+      - $count: "passing_scores"
 ```
 
 ### $delay
@@ -99,33 +99,34 @@ The main use-case for this stage is retry logic. The following example submits m
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "submit"
-  fromTopic: "my-messages"
-  pipeline:
-  - $http:
-      url: "https://my-domain/"
-      method: "POST"
-      body: "$$ROOT"
-      as: "result"
-- type: "stream"
-  name: "success"
-  fromStream: "submit"
-  toTopic: "my-submitted-messages"
-  pipeline:
-  - $match:
-      httpError:
-        $exists: false    
-- type: "stream"
-  name: "failed"
-  fromStream: "submit"
-  pipeline:
-  - $match:
-      httpError.statusCode: 503
-  - $unset: "httpError"      
-  - $delay:
-      duration: 5000
-      topic: "my-messages"
+  - type: "stream"
+    name: "submit"
+    fromTopic: "my-messages"
+    pipeline:
+      - $http:
+          url: "https://my-domain/"
+          method: "POST"
+          body: "$$ROOT"
+          as: "result"
+  - type: "stream"
+    name: "success"
+    fromStream: "submit"
+    toTopic: "my-submitted-messages"
+    pipeline:
+      - $match:
+          httpError:
+            $exists: false
+  - type: "stream"
+    name: "failed"
+    fromStream: "submit"
+    pipeline:
+      - $match:
+          httpError.statusCode: 503
+      - $unset: "httpError"
+      - $delay:
+          duration: 5000
+          topic: "my-messages"
+
 ```
 
 ### $delete
@@ -137,14 +138,14 @@ This is an extension stage to delete documents from a MongoDB collection. It has
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-deleted"
-  pipeline:
-  - $delete:
-      from: "my-collection"
-      on: "id"      
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-deleted"
+    pipeline:
+      - $delete:
+          from: "my-collection"
+          on: "id"     
 ```
 
 ### [$group](https://docs.mongodb.com/manual/reference/operator/aggregation/group/)
@@ -156,21 +157,22 @@ The same remarks apply as for the `$bucket` stage. The following example groups 
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-grouped"
-  pipeline:
-  - $group:
-      _id: "$item"
-      totalSaleAmount:
-        $sum:
-          $multiply:
-          - "$price"
-          - "$quantity"
-  - $match:
-      totalSaleAmount:
-        $gte: 100  
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-grouped"
+    pipeline:
+      - $group:
+          _id: "$item"
+          totalSaleAmount:
+            $sum:
+              $multiply:
+                - "$price"
+                - "$quantity"
+      - $match:
+          totalSaleAmount:
+            $gte: 100
+  
 ```
 
 ### $http
@@ -196,20 +198,20 @@ In the following example the URL is constructed with the `id` field in the incom
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-http"  
-  pipeline:
-  - $http:
-      url:
-        $concat:
-        - "https://my-domain/"
-        - "$id"
-      method: "GET"
-      headers:
-        X-My-Header: "$meta"      
-      as: "result"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-http"
+    pipeline:
+      - $http:
+          url:
+            $concat:
+              - "https://my-domain/"
+              - "$id"
+          method: "GET"
+          headers:
+            X-My-Header: "$meta"
+          as: "result"
 ```
 
 ### $jslt
@@ -221,12 +223,12 @@ This extension stage transforms the incoming message with a [JSLT](https://githu
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-jslt"  
-  pipeline:
-  - $jslt: "my_script.jslt"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-jslt"
+    pipeline:
+      - $jslt: "my_script.jslt"
 ```
 
 ### $log
@@ -240,13 +242,13 @@ The following example logs the field `subobject.field` with the default logger a
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: " my-stream"
-  fromTopic: "my-messages"
-  pipeline:
-  - $log:
-    message: $subobject.field"
-    level: "INFO"    
+  - type: "stream"
+    name: " my-stream"
+    fromTopic: "my-messages"
+    pipeline:
+      - $log:
+        message: $subobject.field"
+        level: "INFO"    
 ```
 
 ### [$lookup](https://docs.mongodb.com/manual/reference/operator/aggregation/lookup/)
@@ -258,23 +260,23 @@ The extra optional Boolean field `inner` is available to make this pipeline stag
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-lookup"  
-  pipeline:
-  - $lookup:
-      from: "my-collection"
-      as: "result"
-      let:
-        field1: "$field1"
-        field2: "$field2"
-      pipeline:
-      - $match:
-          record.field1: "$$field1"
-          record.field2: "$$field2"
-          record.error:
-            $exists: false  
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-lookup"
+    pipeline:
+      - $lookup:
+          from: "my-collection"
+          as: "result"
+          let:
+            field1: "$field1"
+            field2: "$field2"
+          pipeline:
+            - $match:
+                record.field1: "$$field1"
+                record.field2: "$$field2"
+                record.error:
+                  $exists: false  
 ```
 
 ### [$match](https://docs.mongodb.com/manual/reference/operator/aggregation/match/)
@@ -306,16 +308,16 @@ Say you have an application with a probe like the following:
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-filtered"
-  pipeline:
-  - $match:
-      shouldFilter: true
-  - $probe:
-      name: "filtering"
-      topic: "pipeline-probe-part      
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-filtered"
+    pipeline:
+      - $match:
+          shouldFilter: true
+      - $probe:
+          name: "filtering"
+          topic: "pipeline-probe-part      
 ```
 
 The application that then aggregates all topic partitions could then look like this:
@@ -325,27 +327,27 @@ The application that then aggregates all topic partitions could then look like t
 - application: "json-streams-probe"
   version: "1.0"
   parts:
-  - type: "stream"
-    name: "group-probe"
-    fromTopic: "pipeline-probe-part"
-    toTopic: "pipeline-probe"
-    pipeline:
-    - $group:
-        _id:
-          name: "$name"
-          minute: "$minute"
-        _collection: "group-probe"
-        count:
-          $sum: "$count"
-    - $set:
-        name: "$_id.name"
-        minute: "$_id.minute"
-        perSecond:
-          $round:
-          - $divide:
-            - "$count"
-            - 60
-          - 1
+    - type: "stream"
+      name: "group-probe"
+      fromTopic: "pipeline-probe-part"
+      toTopic: "pipeline-probe"
+      pipeline:
+        - $group:
+            _id:
+              name: "$name"
+              minute: "$minute"
+            _collection: "group-probe"
+            count:
+              $sum: "$count"
+        - $set:
+            name: "$_id.name"
+            minute: "$_id.minute"
+            perSecond:
+              $round:
+                - $divide:
+                    - "$count"
+                    - 60
+                - 1
 ```
 
 The counts are grouped over the probe name and then the `perSecond` is added. If all other applications write their probes to the `pipeline-probe-part` topic, then you only need to run the above application once. Otherwise you would pull out the pipeline and embed it in your applications.
@@ -358,19 +360,19 @@ In the following example the resulting messages will only contain the calculated
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-added"
-  pipeline:
-  - $addFields:
-      totalScore:
-        $add:
-        - "$totalHomework"
-        - "$totalQuiz"
-        - "$extraCredit"
-  - $project:
-      totalScore: 1  
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-added"
+    pipeline:
+      - $addFields:
+          totalScore:
+            $add:
+              - "$totalHomework"
+              - "$totalQuiz"
+              - "$extraCredit"
+      - $project:
+          totalScore: 1  
 ```
 
 ### [$redact](https://docs.mongodb.com/manual/reference/operator/aggregation/redact/)
@@ -382,19 +384,19 @@ In the following example objects with the field `age` with a value greater than 
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-redacted"
-  pipeline:
-    $redact:
-      $cond:
-        if:
-          $gt:
-          - "$age"
-          - 17
-        then: "$$DESCEND"
-        else: "$$PRUNE"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-redacted"
+    pipeline:
+      $redact:
+        $cond:
+          if:
+            $gt:
+              - "$age"
+              - 17
+          then: "$$DESCEND"
+          else: "$$PRUNE"
 ```
 
 ### [$replaceRoot](https://docs.mongodb.com/manual/reference/operator/aggregation/replaceRoot/)
@@ -406,13 +408,13 @@ In the following example the contents of the field `subobject` will become the o
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-replaced"
-  pipeline:
-    $replaceRoot:
-      newRoot: "$subobject"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-replaced"
+    pipeline:
+      $replaceRoot:
+        newRoot: "$subobject"
 ```
 
 ### [$replaceWith](https://docs.mongodb.com/manual/reference/operator/aggregation/replaceWith/)
@@ -424,12 +426,12 @@ This stage works like the `$replaceRoot` stage, but without the `newRoot` field.
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-replaced"
-  pipeline:
-    $replaceWith: "$subobject"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-replaced"
+    pipeline:
+      $replaceWith: "$subobject"
 ```
 
 ### $send
@@ -441,12 +443,12 @@ With this extension stage you can send a message to a Kafka topic. The stage is 
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  pipeline:
-    $send:
-      topic: "$topic"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    pipeline:
+      $send:
+        topic: "$topic"
 ```
 
 ### [$set](https://docs.mongodb.com/manual/reference/operator/aggregation/set/)
@@ -462,15 +464,15 @@ With this extension stage you can change the Kafka key of the message without ch
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-key"
-  pipeline:
-    setKey:
-      $concat:
-      - "$field1"
-      - "$field2"      
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-key"
+    pipeline:
+      setKey:
+        $concat:
+          - "$field1"
+          - "$field2"      
 ```
 
 ### $trace
@@ -482,14 +484,14 @@ This extension stage writes all JSON objects that pass through it to the Java lo
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-filtered"
-  pipeline:
-  - $match:
-      shouldFilter: true
-  - $trace: null      
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-filtered"
+    pipeline:
+      - $match:
+          shouldFilter: true
+      - $trace: null     
 ```
 
 ### [$unset](https://docs.mongodb.com/manual/reference/operator/aggregation/unset/)
@@ -501,12 +503,12 @@ In the following example the field `myfield` is removed in the output messages.
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-unset"
-  pipeline:
-  - $unset: "myfield"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-unset"
+    pipeline:
+      - $unset: "myfield"
 ```
 
 ### [$unwind](https://docs.mongodb.com/manual/reference/operator/aggregation/unwind/)
@@ -518,12 +520,12 @@ The Boolean extension option `newIds` will cause UUIDs to be generated for the o
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-stream"
-  fromTopic: "my-messages"
-  toTopic: "my-messages-unwind"
-  pipeline:
-  - $unwind: "$values"
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-unwind"
+    pipeline:
+      - $unwind: "$values"
 ```
 
 ### $validate
@@ -537,15 +539,15 @@ In the following example the presence of the field `subobject.myfield` is checke
 application: "my-app"
 version: "1.0"
 parts:
-- type: "stream"
-  name: "my-validated-messages"
-  fromTopic: "my-messages"
-  pipeline:
-  - $validate:
-      conditions:
-      - subobject.myfield:
-          $exists: true
-        $code: "REQUIRED"          
+  - type: "stream"
+    name: "my-validated-messages"
+    fromTopic: "my-messages"
+    pipeline:
+      - $validate:
+          conditions:
+            - subobject.myfield:
+                $exists: true
+              $code: "REQUIRED"          
 ```
 
 The value of this stage can also be a filename.

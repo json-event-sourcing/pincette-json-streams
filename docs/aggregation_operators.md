@@ -18,9 +18,9 @@ Example:
 
 ```yaml
 $add:
-- "$field1"
-- "$field2"
-- "$field3"
+  - "$field1"
+  - "$field2"
+  - "$field3"
 ```
 
 ### [$ceil](https://docs.mongodb.com/manual/reference/operator/aggregation/ceil/#mongodb-expression-exp.-ceil)
@@ -37,8 +37,8 @@ Example:
 
 ```yaml
 $divide:
-- "$hours"
-- 8
+  - "$hours"
+  - 8
 ```
 
 ### [$exp](https://docs.mongodb.com/manual/reference/operator/aggregation/exp/#mongodb-expression-exp.-exp)
@@ -71,8 +71,8 @@ Example:
 
 ```yaml
 $log:
-- 100
-- 10
+  - 100
+  - 10
 ```
 
 ### [$log10](https://docs.mongodb.com/manual/reference/operator/aggregation/log10/#mongodb-expression-exp.-log10)
@@ -89,8 +89,8 @@ Example:
 
 ```yaml
 $mod:
-- "$myfield"
-- 4
+  - "$myfield"
+  - 4
 ```
 
 ### [$multiply](https://docs.mongodb.com/manual/reference/operator/aggregation/multiply/#mongodb-expression-exp.-multiply)
@@ -99,9 +99,9 @@ Example:
 
 ```yaml
 $multiply:
-- "$field1"
-- "$field2"
-- "$field3"
+  - "$field1"
+  - "$field2"
+  - "$field3"
 ```
 
 ### [$pow](https://docs.mongodb.com/manual/reference/operator/aggregation/pow/#mongodb-expression-exp.-pow)
@@ -110,8 +110,8 @@ Example:
 
 ```yaml
 $pow:
-- "$myfield"
-- 2
+  - "$myfield"
+  - 2
 ```
 
 ### [$round](https://docs.mongodb.com/manual/reference/operator/aggregation/round/#mongodb-expression-exp.-round)
@@ -120,8 +120,8 @@ Example:
 
 ```yaml
 $round:
-- "$value"
-- 0
+  - "$value"
+  - 0
 ```
 
 ### [$sqrt](https://docs.mongodb.com/manual/reference/operator/aggregation/sqrt/#mongodb-expression-exp.-sqrt)
@@ -138,8 +138,8 @@ Example:
 
 ```yaml
 $subtract:
-- "$field1"
-- "$field2"
+  - "$field1"
+  - "$field2"
 ```
 
 ### [$trunc](https://docs.mongodb.com/manual/reference/operator/aggregation/trunc/#mongodb-expression-exp.-trunc)
@@ -148,8 +148,8 @@ Example:
 
 ```yaml
 $trunc:
-- "$myfield"
-- 0
+  - "$myfield"
+  - 0
 ```
 
 ## Array
@@ -160,11 +160,11 @@ Example:
 
 ```yaml
 $arrayElemAt:
--
-  - 0
+  -
+    - 0
+    - 1
+    - 3
   - 1
-  - 3
-- 1
 ```
 
 ### [$arrayToObject](https://docs.mongodb.com/manual/reference/operator/aggregation/arrayToObject/#mongodb-expression-exp.-arrayToObject)
@@ -173,12 +173,12 @@ Example:
 
 ```yaml
 $arrayToObject:
--
-  - "field1"
-  - 23
--
-  - "field2"
-  - 36
+  -
+    - "field1"
+    - 23
+  -
+    - "field2"
+    - 36
 ```
 
 ### [$concatArrays](https://docs.mongodb.com/manual/reference/operator/aggregation/concatArrays/#mongodb-expression-exp.-concatArrays)
@@ -187,9 +187,9 @@ Example:
 
 ```yaml
 $concatArrays:
-- "$array1"
-- "$array2"
-- "$array3"
+  - "$array1"
+  - "$array2"
+  - "$array3"
 ```
 
 ### $elemMatch
@@ -200,9 +200,9 @@ Example:
 
 ```yaml
 $elemMatch:
-- "$myarray"
-- $gt:
-    1
+  - "$myarray"
+  - $gt:
+      1
 ```
 
 ### [$filter](https://docs.mongodb.com/manual/reference/operator/aggregation/filter/#mongodb-expression-exp.-filter)
@@ -215,8 +215,8 @@ $filter:
   as: "item"
   cond:
     $gte:
-    - "$$item.price"
-    - 100
+      - "$$item.price"
+      - 100
 ```
 
 ### [$first](https://docs.mongodb.com/manual/reference/operator/aggregation/first-array-element/#mongodb-expression-exp.-first)
@@ -233,8 +233,8 @@ Example:
 
 ```yaml
 $in:
-- 2
-- "$myarray"
+  - 2
+  - "$myarray"
 ```
 
 ### [$indexOfArray](https://docs.mongodb.com/manual/reference/operator/aggregation/indexOfArray/#mongodb-expression-exp.-indexOfArray)
@@ -243,10 +243,10 @@ Example:
 
 ```yaml
 $indexOfArray:
-- "$myarray"
-- 3
-- 0
-- 10
+  - "$myarray"
+  - 3
+  - 0
+  - 10
 ```
 
 ### [$isArray](https://docs.mongodb.com/manual/reference/operator/aggregation/isArray/#mongodb-expression-exp.-isArray)
@@ -275,8 +275,8 @@ $map:
   as: "el"
   in:
     $add:
-    - "$$el"
-    - 1
+      - "$$el"
+      - 1
 ```
 
 ### [$objectToArray](https://docs.mongodb.com/manual/reference/operator/aggregation/objectToArray/#mongodb-expression-exp.-objectToArray)
@@ -295,9 +295,9 @@ Example:
 
 ```yaml
 $range:
-- 0
-- 10
-- 2
+  - 0
+  - 10
+  - 2
 ```
 
 ### [$reduce](https://docs.mongodb.com/manual/reference/operator/aggregation/reduce/#mongodb-expression-exp.-reduce)
@@ -310,8 +310,8 @@ $reduce:
   initialValue: ""
   in:
     $concat:
-    - "$$value"
-    - "$$this"
+      - "$$value"
+      - "$$this"
 ```
 
 ### [$reverseArray](https://docs.mongodb.com/manual/reference/operator/aggregation/reverseArray/#mongodb-expression-exp.-reverseArray)
@@ -336,9 +336,9 @@ Example:
 
 ```yaml
 $slice:
-- "$myarray",
-- 1
-- 2
+  - "$myarray",
+  - 1
+  - 2
 ```
 
 ### [$zip](https://docs.mongodb.com/manual/reference/operator/aggregation/zip/#mongodb-expression-exp.-zip)
@@ -347,8 +347,8 @@ Example:
 
 ```yaml
 $zip:
-- "$array1"
-- "$array2"
+  - "$array1"
+  - "$array2"
 ```
 
 ## Boolean
@@ -359,12 +359,12 @@ Example:
 
 ```yaml
 $and:
-- $gt:
-  - "$myfield"
-  - 0
-- $lt:
-  - "$myfield"
-  - 10
+  - $gt:
+    - "$myfield"
+    - 0
+  - $lt:
+    - "$myfield"
+    - 10
 ```
 
 ### [$not](https://docs.mongodb.com/manual/reference/operator/aggregation/not/#mongodb-expression-exp.-not)
@@ -373,9 +373,9 @@ Example:
 
 ```yaml
 $not:
-- $gt:
-  - "$myfield"
-  - 0
+  - $gt:
+    - "$myfield"
+    - 0
 ```
 
 ### [$or](https://docs.mongodb.com/manual/reference/operator/aggregation/or/#mongodb-expression-exp.-or)
@@ -384,12 +384,12 @@ Example:
 
 ```yaml
 $or:
-- $lt:
-  - "$myfield"
-  - 10
-- $gt:
-  - "$myfield"
-  - 20
+  - $lt:
+    - "$myfield"
+    - 10
+  - $gt:
+    - "$myfield"
+    - 20
 ```
 
 ## Comparison
@@ -400,8 +400,8 @@ Example:
 
 ```yaml
 $cmp:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$eq](https://docs.mongodb.com/manual/reference/operator/aggregation/eq/#mongodb-expression-exp.-eq)
@@ -410,8 +410,8 @@ Example:
 
 ```yaml
 $eq:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$gt](https://docs.mongodb.com/manual/reference/operator/aggregation/gt/#mongodb-expression-exp.-gt)
@@ -420,8 +420,8 @@ Example:
 
 ```yaml
 $gt:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$gte](https://docs.mongodb.com/manual/reference/operator/aggregation/gte/#mongodb-expression-exp.-gte)
@@ -430,8 +430,8 @@ Example:
 
 ```yaml
 $gte:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$lt](https://docs.mongodb.com/manual/reference/operator/aggregation/lt/#mongodb-expression-exp.-lt)
@@ -440,8 +440,8 @@ Example:
 
 ```yaml
 $lt:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$lte](https://docs.mongodb.com/manual/reference/operator/aggregation/lte/#mongodb-expression-exp.-lte)
@@ -450,8 +450,8 @@ Example:
 
 ```yaml
 $lte:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ### [$ne](https://docs.mongodb.com/manual/reference/operator/aggregation/ne/#mongodb-expression-exp.-ne)
@@ -460,8 +460,8 @@ Example:
 
 ```yaml
 $ee:
-- "$myfield"
-- 100
+  - "$myfield"
+  - 100
 ```
 
 ## Conditional
@@ -474,8 +474,8 @@ Example:
 $cond:
   if:
     $gt:
-    - "$myfield"
-    - 10
+      - "$myfield"
+      - 10
   then: 1
   else: 0
 ```
@@ -488,8 +488,8 @@ Example:
 
 ```yaml
 $ifNull:
-- "$myfield"
-- "My default value"
+  - "$myfield"
+  - "My default value"
 ```
 
 ### [$switch](https://docs.mongodb.com/manual/reference/operator/aggregation/switch/#mongodb-expression-exp.-switch)
@@ -499,15 +499,15 @@ Example:
 ```yaml
 $switch:
   branches:
-  - case:
+    - case:
       $gt:
-      - "$myfield"
-      - 10
+        - "$myfield"
+        - 10
     then: "large"
-  - case:
+    - case:
       $gt:
-      - "$myfield"
-      - 0
+        - "$myfield"
+        - 0
     then: "small"
   default: "Unknown"
 ```
@@ -533,9 +533,9 @@ Example:
 
 ```yaml
 $mergeObjects:
-- "$object1"
-- "$object2"
-- "$object3"
+  - "$object1"
+  - "$object2"
+  - "$object3"
 ```
 
 ### [$objectToArray](https://docs.mongodb.com/manual/reference/operator/aggregation/objectToArray/#mongodb-expression-exp.-objectToArray)
@@ -550,10 +550,10 @@ Example:
 
 ```yaml
 $allElementsTrue:
-- "$field1"
-- $eq:
-  - "$field2"
-  - 1
+  - "$field1"
+  - $eq:
+    - "$field2"
+    - 1
 ```
 
 ### [$anyElementTrue](https://docs.mongodb.com/manual/reference/operator/aggregation/anyElementTrue/#mongodb-expression-exp.-anyElementTrue)
@@ -562,10 +562,10 @@ Example:
 
 ```yaml
 $anyElementTrue:
-- "$field1"
-- $eq:
-  - "$field2"
-  - 1
+  - "$field1"
+  - $eq:
+    - "$field2"
+    - 1
 ```
 
 ### [$setDifference](https://docs.mongodb.com/manual/reference/operator/aggregation/setDifference/#mongodb-expression-exp.-setDifference)
@@ -574,8 +574,8 @@ Example:
 
 ```yaml
 $setDifference:
-- "$array1"
-- "$array2"
+  - "$array1"
+  - "$array2"
 ```
 
 ### [$setEquals](https://docs.mongodb.com/manual/reference/operator/aggregation/setEquals/#mongodb-expression-exp.-setEquals)
@@ -584,8 +584,8 @@ Example:
 
 ```yaml
 $setEquals:
-- "$array1"
-- "$array2"
+  - "$array1"
+  - "$array2"
 ```
 
 ### [$setIntersection](https://docs.mongodb.com/manual/reference/operator/aggregation/setIntersection/#mongodb-expression-exp.-setIntersection)
@@ -594,9 +594,9 @@ Example:
 
 ```yaml
 $setIntersection:
-- "$array1"
-- "$array2"
-- "$array3"
+  - "$array1"
+  - "$array2"
+  - "$array3"
 ```
 
 ### [$setIsSubset](https://docs.mongodb.com/manual/reference/operator/aggregation/setIsSubset/#mongodb-expression-exp.-setIsSubset)
@@ -605,8 +605,8 @@ Example:
 
 ```yaml
 $setIsSubset:
-- "$array1"
-- "$array2"
+  - "$array1"
+  - "$array2"
 ```
 
 ### [$setUnion](https://docs.mongodb.com/manual/reference/operator/aggregation/setUnion/#mongodb-expression-exp.-setUnion)
@@ -615,9 +615,9 @@ Example:
 
 ```yaml
 $setUnion:
-- "$array1"
-- "$array2"
-- "$array3"
+  - "$array1"
+  - "$array2"
+  - "$array3"
 ```
 
 ## String
@@ -628,9 +628,9 @@ Example:
 
 ```yaml
 $concat:
-- "$field1"
-- "$field2"
-- "$field3"
+  - "$field1"
+  - "$field2"
+  - "$field3"
 ```
 
 ### [$indexOfCP](https://docs.mongodb.com/manual/reference/operator/aggregation/indexOfCP/#mongodb-expression-exp.-indexOfCP)
@@ -639,10 +639,10 @@ Example:
 
 ```yaml
 $indexOfCP:
-- "abcd"
-- "bc"
-- 0
-- 3
+  - "abcd"
+  - "bc"
+  - 0
+  - 3
 ```
 
 ### [$ltrim](https://docs.mongodb.com/manual/reference/operator/aggregation/ltrim/#mongodb-expression-exp.-ltrim)
@@ -699,8 +699,8 @@ Example:
 
 ```yaml
 $split:
-- "$myfield"
-- ","
+  - "$myfield"
+  - ","
 ```
 
 ### [$strLenCP](https://docs.mongodb.com/manual/reference/operator/aggregation/strLenCP/#mongodb-expression-exp.-strLenCP)
@@ -717,8 +717,8 @@ Example:
 
 ```yaml
 $strcasecmp:
-- "$field1"
-- "$field2"
+  - "$field1"
+  - "$field2"
 ```
 
 ### [$substrCP](https://docs.mongodb.com/manual/reference/operator/aggregation/substrCP/#mongodb-expression-exp.-substrCP)
@@ -727,9 +727,9 @@ Example:
 
 ```yaml
 $substrCP:
-- "abcd"
-- 1
-- 2
+  - "abcd"
+  - 1
+  - 2
 ```
 
 ### [$toLower](https://docs.mongodb.com/manual/reference/operator/aggregation/toLower/#mongodb-expression-exp.-toLower)
@@ -774,8 +774,8 @@ Example:
 ```yaml
 $acos:
   $divide:
-  - "$side_b"
-  - "$hypotenuse"
+    - "$side_b"
+    - "$hypotenuse"
 ```
 
 ### [$acosh](https://docs.mongodb.com/manual/reference/operator/aggregation/acosh/#mongodb-expression-exp.-acosh)
@@ -793,8 +793,8 @@ Example:
 ```yaml
 $asin:
   $divide:
-  - "$side_b"
-  - "$hypotenuse"
+    - "$side_b"
+    - "$hypotenuse"
 ```
 
 ### [$asinh](https://docs.mongodb.com/manual/reference/operator/aggregation/asinh/#mongodb-expression-exp.-asinh)
@@ -812,8 +812,8 @@ Example:
 ```yaml
 $atan:
   $divide:
-  - "$side_b"
-  - "$side_a"
+    - "$side_b"
+    - "$side_a"
 ```
 
 ### [$atan2](https://docs.mongodb.com/manual/reference/operator/aggregation/atan2/#mongodb-expression-exp.-atan2)
@@ -823,8 +823,8 @@ Example:
 ```yaml
 $atan2:
   $divide:
-  - "$side_b"
-  - "$side_a"
+    - "$side_b"
+    - "$side_a"
 ```
 
 ### [$atanh](https://docs.mongodb.com/manual/reference/operator/aggregation/atanh/#mongodb-expression-exp.-atanh)
@@ -988,8 +988,8 @@ $let:
     high: "$$low"
   in:
     $gt:
-    - "$$low"
-    - "$$high"
+      - "$$low"
+      - "$$high"
 ```    
 
 ### $sort
@@ -1003,9 +1003,9 @@ $sort:
   input: "$myarray"
   direction: "desc"
   paths:
-  - "a.b.c"
-  - "a.d.e"
-  - "a.f"
+    - "a.b.c"
+    - "a.d.e"
+    - "a.f"
 ```  
  
 ### $trace
@@ -1034,9 +1034,9 @@ type: "stream"
 name: "myapp-mytype-added"
 fromStream: "myapp-mytype-event"
 pipeline:
-- $match:
-    $expr:
-      $jes-added: "/myfield"    
+  - $match:
+      $expr:
+        $jes-added: "/myfield"    
 ```
 
 ### $jes-changed
@@ -1050,12 +1050,12 @@ type: "stream"
 name: "myapp-mytype-changed"
 fromStream: "myapp-mytype-event-full"
 pipeline:
-- $match:
-    $expr:
-      $jes-changed:
-        pointer: "/myfield"
-        from: 0
-        to: 1        
+  - $match:
+      $expr:
+        $jes-changed:
+          pointer: "/myfield"
+          from: 0
+          to: 1        
 ```
 
 ### $jes-href
@@ -1069,12 +1069,12 @@ type: "stream"
 name: "mystream"
 fromStream: "myapp-mytype-aggregate"
 pipeline:
-- $set:
-    href:
-      $jes-href:
-        app: "myapp"
-        type: "myothertype"
-        id: "$otherId"
+  - $set:
+      href:
+        $jes-href:
+          app: "myapp"
+          type: "myothertype"
+          id: "$otherId"
 ```
 
 ### $jes-name-uuid
@@ -1088,11 +1088,11 @@ type: "stream"
 name: "mystream"
 fromStream: "myapp-mytype-aggregate"
 pipeline:
-- $set:
-    otherId:
-      $jes-name-uuid:
-        scope: "myentity"
-        key: "$myotherId"
+  - $set:
+      otherId:
+        $jes-name-uuid:
+          scope: "myentity"
+          key: "$myotherId"
 ```
 
 ### $jes-removed
@@ -1106,9 +1106,9 @@ type: "stream"
 name: "myapp-mytype-removed"
 fromStream: "myapp-mytype-event"
 pipeline:
-- $match:
-    $expr:
-      $jes-removed: "/myfield"    
+  - $match:
+      $expr:
+        $jes-removed: "/myfield"    
 ```
 
 ### $jes-uuid
@@ -1122,7 +1122,7 @@ type: "stream"
 name: "mystream"
 fromStream: "myapp-mytype-aggregate"
 pipeline:
-- $set:
-    otherId:
-      $jes-uuid: null
+  - $set:
+      otherId:
+        $jes-uuid: null
 ```
