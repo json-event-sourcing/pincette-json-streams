@@ -6,6 +6,7 @@ import static java.lang.Boolean.TRUE;
 import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.logging.Level.SEVERE;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.streams.Common.ALIVE_AT;
 import static net.pincette.json.streams.Common.INSTANCE;
@@ -18,6 +19,7 @@ import static net.pincette.mongo.Collection.insertOne;
 import static net.pincette.mongo.JsonClient.findOne;
 import static net.pincette.util.Collections.list;
 import static net.pincette.util.ScheduledCompletionStage.composeAsyncAfter;
+import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.must;
 
 import com.mongodb.client.model.Field;
@@ -78,7 +80,13 @@ class Leader {
         ? deleteLeader()
         : becomeLeader()
             .thenAccept(this::notification)
-            .thenComposeAsync(result -> composeAsyncAfter(this::next, interval));
+            .thenComposeAsync(result -> composeAsyncAfter(this::next, interval))
+            .exceptionally(
+                e -> {
+                  context.logger.log(SEVERE, e.getMessage(), e);
+                  runAsyncAfter(this::next, interval);
+                  return false;
+                });
   }
 
   private void notification(final boolean isLeader) {

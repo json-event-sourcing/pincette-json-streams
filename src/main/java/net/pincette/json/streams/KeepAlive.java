@@ -2,6 +2,7 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
 import static java.time.Duration.ofSeconds;
+import static java.util.logging.Level.SEVERE;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.streams.Common.ACTUAL;
@@ -10,6 +11,7 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.deleteOne;
 import static net.pincette.util.ScheduledCompletionStage.composeAsyncAfter;
+import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.must;
 
 import com.mongodb.client.model.Field;
@@ -56,7 +58,14 @@ class KeepAlive {
   private CompletionStage<Boolean> next() {
     return stop
         ? deleteAlive()
-        : setAlive().thenComposeAsync(result -> composeAsyncAfter(this::next, interval));
+        : setAlive()
+            .thenComposeAsync(result -> composeAsyncAfter(this::next, interval))
+            .exceptionally(
+                e -> {
+                  context.logger.log(SEVERE, e.getMessage(), e);
+                  runAsyncAfter(this::next, interval);
+                  return false;
+                });
   }
 
   private CompletionStage<Boolean> setAlive() {
