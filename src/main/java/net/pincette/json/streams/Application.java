@@ -27,7 +27,7 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.0";
+  static final String APP_VERSION = "2.0.1";
   private static final String DATABASE = "mongodb.database";
   private static final String LOGGER = "pincette-json-streams";
   private static final String LOG_LEVEL = "logLevel";

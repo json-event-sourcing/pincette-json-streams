@@ -65,7 +65,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -74,6 +73,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -142,9 +142,16 @@ class Work {
         DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE);
   }
 
-  private static Map<String, Set<String>> copy(final Map<String, Set<String>> map) {
+  private static Map<String, Set<String>> copy(
+      final Map<String, Set<String>> map, final Predicate<String> filter) {
     return StreamUtil.toMap(
-        map.entrySet().stream().map(e -> pair(e.getKey(), new HashSet<>(e.getValue()))));
+        map.entrySet().stream()
+            .map(e -> pair(e.getKey(), filterApplications(e.getValue(), filter))));
+  }
+
+  private static Set<String> filterApplications(
+      final Set<String> applications, final Predicate<String> filter) {
+    return applications.stream().filter(filter).collect(toSet());
   }
 
   private static JsonObject instances(final String leader, final Map<String, Set<String>> work) {
@@ -331,7 +338,7 @@ class Work {
 
   private Map<String, Set<String>> giveWork(final Status status) {
     final Map<String, Set<String>> desiredApplicationsPerInstance =
-        copy(status.runningInstancesWithApplications);
+        copy(status.runningInstancesWithApplications, status.allApplications::contains);
     final Map<String, Integer> extraInstances = neededExtraApplicationInstances(status);
 
     removeRunningInExcess(
