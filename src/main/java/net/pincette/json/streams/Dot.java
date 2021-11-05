@@ -1,6 +1,7 @@
 package net.pincette.json.streams;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Optional.ofNullable;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
@@ -80,12 +81,19 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<Link> joinLinks(final JsonObject json) {
-    return Stream.of(
-        new Link(
-            getString(json, "/" + LEFT + "/" + FROM_STREAM).orElse(null),
-            getString(json, "/" + LEFT + "/" + FROM_TOPIC).orElse(null),
-            getString(json, "/" + RIGHT + "/" + FROM_STREAM).orElse(null),
-            getString(json, "/" + RIGHT + "/" + FROM_STREAM).orElse(null)));
+    return concat(
+        Stream.of(
+            new Link(
+                getString(json, "/" + LEFT + "/" + FROM_STREAM).orElse(null),
+                getString(json, "/" + LEFT + "/" + FROM_TOPIC).orElse(null),
+                json.getString(NAME),
+                null),
+            new Link(
+                getString(json, "/" + RIGHT + "/" + FROM_STREAM).orElse(null),
+                getString(json, "/" + RIGHT + "/" + FROM_STREAM).orElse(null),
+                json.getString(NAME),
+                null)),
+        toTopic(json));
   }
 
   private static Stream<Link> links(final JsonObject specification, final String environment) {
@@ -94,14 +102,12 @@ class Dot extends ApplicationCommand implements Runnable {
 
   private static Stream<Link> mergeLinks(final JsonObject json) {
     return concat(
-        getStrings(json, FROM_STREAMS)
-            .map(
-                stream ->
-                    new Link(stream, null, json.getString(NAME), json.getString(TO_TOPIC, null))),
-        getStrings(json, FROM_TOPICS)
-            .map(
-                topic ->
-                    new Link(null, topic, json.getString(NAME), json.getString(TO_TOPIC, null))));
+        concat(
+            getStrings(json, FROM_STREAMS)
+                .map(stream -> new Link(stream, null, json.getString(NAME), null)),
+            getStrings(json, FROM_TOPICS)
+                .map(topic -> new Link(null, topic, json.getString(NAME), null))),
+        toTopic(json));
   }
 
   private static Stream<Link> partLinks(final JsonObject json, final String environment) {
@@ -167,12 +173,19 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<Link> streamLinks(final JsonObject json) {
-    return Stream.of(
-        new Link(
-            json.getString(FROM_STREAM, null),
-            json.getString(FROM_TOPIC, null),
-            json.getString(NAME),
-            json.getString(TO_TOPIC, null)));
+    return concat(
+        Stream.of(
+            new Link(
+                json.getString(FROM_STREAM, null),
+                json.getString(FROM_TOPIC, null),
+                json.getString(NAME),
+                null)),
+        toTopic(json));
+  }
+
+  private static Stream<Link> toTopic(final JsonObject json) {
+    return ofNullable(json.getString(TO_TOPIC, null)).stream()
+        .map(topic -> new Link(json.getString(NAME), null, null, topic));
   }
 
   @SuppressWarnings("java:S106") // Not logging.

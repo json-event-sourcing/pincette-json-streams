@@ -1,7 +1,7 @@
 package net.pincette.json.streams;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.Map.Entry.comparingByKey;
+import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.joining;
 import static net.pincette.json.JsonUtil.getObjects;
@@ -10,7 +10,6 @@ import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.COMMAND;
-import static net.pincette.json.streams.Common.COMMANDS;
 import static net.pincette.json.streams.Common.DESTINATION_TYPE;
 import static net.pincette.json.streams.Common.EVENT;
 import static net.pincette.json.streams.Common.EVENT_FULL;
@@ -32,6 +31,7 @@ import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VERSION;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.repeat;
@@ -71,16 +71,11 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<String> aggregateCommands(final JsonObject json) {
-    return ofNullable(json.getJsonObject(COMMANDS))
-        .map(
-            commands ->
-                concat(
-                    Stream.of(title("Commands", 3)),
-                    commands.entrySet().stream()
-                        .sorted(comparingByKey())
-                        .flatMap(
-                            entry -> command(entry.getKey(), entry.getValue().asJsonObject()))))
-        .orElseGet(Stream::empty);
+    return concat(
+        Stream.of(title("Commands", 3)),
+        getCommands(json)
+            .sorted(comparing(pair -> pair.first))
+            .flatMap(pair -> command(pair.first, pair.second)));
   }
 
   private static Stream<String> aggregateMetadata(final JsonObject json) {
