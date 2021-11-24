@@ -19,6 +19,7 @@ nav:
 - 'system_variables.md'
 - 'custom_jslt.md'
 - 'documentation.md'
+- 'logging.md'
 - 'troubleshooting.md'
 - 'serialisation.md'
 - 'plugins.md'

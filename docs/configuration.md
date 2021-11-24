@@ -13,6 +13,7 @@ The configuration is managed by the
 |kafka.replication.factor|No|Check your Kafka cluster settings for this.|
 |keepAliveInterval|No|The interval between keep-alive signals from a running instance. These are saved in the same collection as in `mongodb.collection`. The default value is `10s`.|
 |leaderInterval|No|The interval between attempts to become or stay the leader of a group of instances. The leader record is saved in the same collection as in `mongodb.collection`. The leader distributes the work among all instances. The default value is `10s`.|
+|log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Logging](logging.md).|
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
 |logTopic|No|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
 |mongodb.uri|Yes|The MongoDB connection URL.|

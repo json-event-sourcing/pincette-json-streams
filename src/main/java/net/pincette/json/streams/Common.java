@@ -34,6 +34,7 @@ import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
+import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.json.streams.Read.readObject;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.find;
@@ -158,7 +159,8 @@ class Common {
   static <T> CompletionStage<Boolean> aliveAtUpdate(
       final Supplier<Bson> criterion,
       final Supplier<Field<T>> field,
-      final MongoCollection<Document> collection) {
+      final MongoCollection<Document> collection,
+      final String logger) {
     return updateOne(
             collection,
             criterion.get(),
@@ -166,6 +168,7 @@ class Common {
                 Aggregates.set(
                     new Field<>(ALIVE_AT, new BsonDateTime(now().toEpochMilli())), field.get())),
             new UpdateOptions().upsert(true))
+        .thenApply(result -> trace("aliveAtUpdate", result, logger))
         .thenApply(UpdateResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }
@@ -484,6 +487,10 @@ class Common {
         new Transformer(
             e -> isConfigRef(e.value),
             e -> Optional.of(new JsonEntry(e.path, getConfigValue(e.value, config)))));
+  }
+
+  static String instanceMessage(final String message, final Context context) {
+    return "instance: " + context.instance + ": " + message;
   }
 
   private static boolean isConfigRef(final JsonValue value) {

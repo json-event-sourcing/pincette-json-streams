@@ -9,8 +9,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.json.JsonObject;
 import net.pincette.mongo.Features;
 import net.pincette.mongo.Validator;
@@ -24,15 +22,13 @@ class Context {
   final String environment;
   final Features features;
   final String instance = randomUUID().toString();
-  final Level logLevel;
   final String logTopic;
-  final Logger logger;
   final KafkaProducer<String, JsonObject> producer;
   final Map<String, Stage> stageExtensions;
   final Validator validator;
 
   Context() {
-    this(null, null, null, null, null, null, null, null, null, null, null);
+    this(null, null, null, null, null, null, null, null, null);
   }
 
   @SuppressWarnings("java:S107") // Internal constructor for immutable object.
@@ -42,9 +38,7 @@ class Context {
       final MongoDatabase database,
       final String environment,
       final Features features,
-      final Level logLevel,
       final String logTopic,
-      final Logger logger,
       final KafkaProducer<String, JsonObject> producer,
       final Map<String, Stage> stageExtensions,
       final Validator validator) {
@@ -53,9 +47,7 @@ class Context {
     this.database = database;
     this.environment = environment;
     this.features = features != null ? features : new Features();
-    this.logLevel = logLevel;
     this.logTopic = logTopic;
-    this.logger = logger;
     this.producer = producer;
     this.stageExtensions = stageExtensions;
     this.validator = validator;
@@ -82,9 +74,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -97,9 +87,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -112,9 +100,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -127,9 +113,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -142,9 +126,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -158,21 +140,6 @@ class Context {
     return predicate.test(this) ? with.apply(this) : this;
   }
 
-  Context withLogLevel(final Level logLevel) {
-    return new Context(
-        client,
-        config,
-        database,
-        environment,
-        features,
-        logLevel,
-        logTopic,
-        logger,
-        producer,
-        stageExtensions,
-        validator);
-  }
-
   Context withLogTopic(final String logTopic) {
     return new Context(
         client,
@@ -180,24 +147,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
-        producer,
-        stageExtensions,
-        validator);
-  }
-
-  Context withLogger(final Logger logger) {
-    return new Context(
-        client,
-        config,
-        database,
-        environment,
-        features,
-        logLevel,
-        logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -210,9 +160,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -225,9 +173,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);
@@ -240,9 +186,7 @@ class Context {
         database,
         environment,
         features,
-        logLevel,
         logTopic,
-        logger,
         producer,
         stageExtensions,
         validator);

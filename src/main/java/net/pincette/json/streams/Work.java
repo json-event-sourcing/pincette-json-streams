@@ -40,6 +40,8 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.removeSuffix;
+import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.aggregate;
@@ -62,7 +64,6 @@ import com.mongodb.client.model.Field;
 import com.mongodb.client.result.UpdateResult;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -75,6 +76,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
@@ -99,6 +101,7 @@ class Work {
   private static final String MAXIMUM_APPS_PER_INSTANCE = "work.maximumAppsPerInstance";
   private static final String MAXIMUM_MESSAGE_LAG = "maximumMessageLag";
   private static final String TIME = "time";
+  private static final String WORK_LOGGER = LOGGER + ".work";
 
   private final Duration averageMessageTimeEstimate;
   private final MongoCollection<Document> collection;
@@ -366,8 +369,10 @@ class Work {
   }
 
   private void log(final Level level, final Stream<String> messages) {
-    context.logger.log(
-        level, () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
+    Logger.getLogger(LOGGER)
+        .log(
+            level,
+            () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
   }
 
   private Map<String, Set<String>> logWork(final Map<String, Set<String>> work) {
@@ -440,7 +445,8 @@ class Work {
             eq(ID, instance),
             list(
                 Aggregates.set(
-                    new Field<>(DESIRED, fromJson(from(new ArrayList<>(applications)))))))
+                    new Field<>(DESIRED, fromJson(from(applications.stream().sorted()))))))
+        .thenApply(result -> trace("saveWork", result, WORK_LOGGER))
         .thenApply(UpdateResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }

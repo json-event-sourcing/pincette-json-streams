@@ -13,6 +13,9 @@ import static net.pincette.json.streams.Common.INSTANCE;
 import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.aliveAtUpdate;
 import static net.pincette.json.streams.Common.config;
+import static net.pincette.json.streams.Common.instanceMessage;
+import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.toDocument;
 import static net.pincette.mongo.Collection.deleteOne;
 import static net.pincette.mongo.Collection.insertOne;
@@ -29,6 +32,7 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonElement;
@@ -39,6 +43,7 @@ import org.bson.conversions.Bson;
 class Leader {
   private static final Duration DEFAULT_LEADER_INTERVAL = ofSeconds(10);
   private static final String LEADER_INTERVAL = "leaderInterval";
+  private static final String LEADER_LOGGER = LOGGER + ".leader";
 
   private final MongoCollection<Document> collection;
   private final Context context;
@@ -66,32 +71,43 @@ class Leader {
   }
 
   private Bson criterion() {
-    return and(eq(ID, LEADER), eq(INSTANCE, context.instance));
+    return and(
+        eq(ID, LEADER),
+        eq(
+            INSTANCE,
+            trace(instanceMessage("criterion", context), context.instance, LEADER_LOGGER)));
   }
 
   private CompletionStage<Boolean> deleteLeader() {
     return deleteOne(collection, criterion())
+        .thenApply(result -> trace(instanceMessage("deleteLeader", context), result, LEADER_LOGGER))
         .thenApply(DeleteResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }
 
   private CompletionStage<Boolean> next() {
-    return stop
+    return TRUE.equals(trace(instanceMessage("next stop", context), stop, LEADER_LOGGER))
         ? deleteLeader()
         : becomeLeader()
             .thenAccept(this::notification)
-            .thenComposeAsync(result -> composeAsyncAfter(this::next, interval))
+            .thenComposeAsync(
+                result ->
+                    composeAsyncAfter(
+                        this::next,
+                        trace(instanceMessage("next interval", context), interval, LEADER_LOGGER)))
             .exceptionally(
                 e -> {
-                  context.logger.log(SEVERE, e.getMessage(), e);
-                  runAsyncAfter(this::next, interval);
+                  Logger.getLogger(LOGGER).log(SEVERE, e.getMessage(), e);
+                  runAsyncAfter(
+                      this::next,
+                      trace(instanceMessage("next interval", context), interval, LEADER_LOGGER));
                   return false;
                 });
   }
 
   private void notification(final boolean isLeader) {
     if (isLeader) {
-      context.logger.info(() -> "Instance " + context.instance + " is the leader");
+      Logger.getLogger(LEADER_LOGGER).info(() -> "Instance " + context.instance + " is the leader");
     }
 
     onResult.accept(isLeader);
@@ -119,20 +135,31 @@ class Leader {
                             aliveAtUpdate(
                                 this::criterion,
                                 () -> new Field<>(INSTANCE, context.instance),
-                                collection))
-                    .orElseGet(() -> completedFuture(false)));
+                                collection,
+                                LEADER_LOGGER))
+                    .orElseGet(
+                        () ->
+                            completedFuture(
+                                trace(
+                                    instanceMessage("tryMyself", context), false, LEADER_LOGGER))));
   }
 
   private CompletionStage<Boolean> tryToBeFirst() {
+    final String me = "tryToBeFirst";
+
     return insertOne(
             collection,
-            toDocument(
-                new BsonDocument(
-                    list(
-                        new BsonElement(ID, new BsonString(LEADER)),
-                        new BsonElement(INSTANCE, new BsonString(context.instance)),
-                        new BsonElement(ALIVE_AT, new BsonDateTime(now().toEpochMilli()))))))
+            trace(
+                me,
+                toDocument(
+                    new BsonDocument(
+                        list(
+                            new BsonElement(ID, new BsonString(LEADER)),
+                            new BsonElement(INSTANCE, new BsonString(context.instance)),
+                            new BsonElement(ALIVE_AT, new BsonDateTime(now().toEpochMilli()))))),
+                LEADER_LOGGER))
+        .thenApply(result -> trace(me, result, LEADER_LOGGER))
         .thenApply(InsertOneResult::wasAcknowledged)
-        .exceptionally(e -> false);
+        .exceptionally(e -> trace(me, false, LEADER_LOGGER));
   }
 }

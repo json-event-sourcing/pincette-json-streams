@@ -91,8 +91,10 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.removeSuffix;
+import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.PipelineStages.logStage;
 import static net.pincette.json.streams.PipelineStages.validateStage;
 import static net.pincette.json.streams.Plugins.load;
@@ -104,6 +106,7 @@ import static net.pincette.mongo.Expression.replaceVariables;
 import static net.pincette.mongo.JsonClient.aggregationPublisher;
 import static net.pincette.mongo.JsonClient.findOne;
 import static net.pincette.mongo.Match.predicate;
+import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.difference;
 import static net.pincette.util.Collections.map;
@@ -196,6 +199,7 @@ import picocli.CommandLine.Option;
     description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
+  private static final String CHANGE_LOGGER = LOGGER + ".change";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String DESIRED = "desired";
@@ -268,7 +272,7 @@ class Run implements Runnable {
         .withType(type)
         .withMongoDatabase(context.context.database)
         .withBuilder(context.builder)
-        .withLogger(context.context.logger);
+        .withLogger(Logger.getLogger(LOGGER));
   }
 
   private static StreamsBuilder createAggregate(
@@ -395,8 +399,8 @@ class Run implements Runnable {
                 .withStageExtensions(context.context.stageExtensions)
                 .withKafkaAdmin(Admin.create(toAdmin(kafkaConfig(context.context))))
                 .withProducer(context.context.producer)
-                .withLogger(context.context.logger)
-                .withTrace(context.context.logLevel.equals(FINEST))),
+                .withLogger(Logger.getLogger(LOGGER))
+                .withTrace(FINEST.equals(Logger.getLogger(LOGGER).getLevel()))),
         config);
   }
 
@@ -538,8 +542,6 @@ class Run implements Runnable {
       final String application, final String version, final Context context) {
     final var logger = Logger.getLogger(application);
 
-    logger.setLevel(context.logLevel);
-
     if (context.logTopic != null) {
       log(logger, version, context.environment, context.producer, context.logTopic);
     }
@@ -631,13 +633,13 @@ class Run implements Runnable {
   private static void logAggregate(
       final Aggregate aggregate, final String version, final Context context) {
     if (context.logTopic != null) {
-      logKafka(aggregate, context.logLevel, version, context.logTopic);
+      logKafka(aggregate, Logger.getLogger(LOGGER).getLevel(), version, context.logTopic);
     }
   }
 
   private static Void logChangeError(
-      final Throwable thrown, final ChangeStreamDocument<Document> change, final Context context) {
-    context.logger.log(SEVERE, thrown, () -> "Change event failed: " + change.toString());
+      final Throwable thrown, final ChangeStreamDocument<Document> change) {
+    Logger.getLogger(LOGGER).log(SEVERE, thrown, () -> "Change event failed: " + change.toString());
 
     return null;
   }
@@ -645,8 +647,8 @@ class Run implements Runnable {
   private static Context logging(final Context context) {
     if (context.logTopic != null) {
       log(
-          context.logger,
-          context.logLevel,
+          Logger.getLogger(LOGGER),
+          Logger.getLogger(LOGGER).getLevel(),
           APP_VERSION,
           context.environment,
           context.producer,
@@ -678,21 +680,23 @@ class Run implements Runnable {
   }
 
   private static Context prepareContext(final Context context) {
+    final Logger logger = Logger.getLogger(LOGGER);
+
     return context
-        .doTask(c -> c.logger.info("This is commit " + getGitCommit()))
-        .doTask(c -> c.logger.info("Connecting to Kafka ..."))
+        .doTask(c -> logger.info("This is commit " + getGitCommit()))
+        .doTask(c -> logger.info("Connecting to Kafka ..."))
         .withProducer(
             createReliableProducer(
                 fromConfig(context.config, KAFKA), new StringSerializer(), new JsonSerializer()))
         .with(Run::logging)
-        .doTask(c -> c.logger.info("Loading plugins ..."))
+        .doTask(c -> logger.info("Loading plugins ..."))
         .with(Run::loadPlugins)
-        .doTask(c -> c.logger.info("Settings up metrics ..."))
+        .doTask(c -> logger.info("Settings up metrics ..."))
         .with(Run::metrics)
         .doTask(
             c ->
                 setContextPath(tryToGetSilent(() -> c.config.getString(CONTEXT_PATH)).orElse(null)))
-        .doTask(c -> c.logger.info("Loading applications ..."));
+        .doTask(c -> logger.info("Loading applications ..."));
   }
 
   private static Aggregate reducers(
@@ -773,13 +777,13 @@ class Run implements Runnable {
                     new Jslt.Context(tryReader(jslt))
                         .withResolver(context.context.features.jsltResolver)
                         .withFunctions(context.context.features.customJsltFunctions)),
-            context.context.logger,
+            Logger.getLogger(LOGGER),
             () -> jslt);
 
     return json ->
         fatal(
             () -> op.apply(json),
-            context.context.logger,
+            Logger.getLogger(LOGGER),
             () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
   }
 
@@ -806,7 +810,10 @@ class Run implements Runnable {
                         plugins.expressionExtensions))
                 .withMatchExtensions(plugins.matchExtensions)
                 .withCustomJsltFunctions(
-                    union(customFunctions(), set(trace(context.logger)), plugins.jsltFunctions)));
+                    union(
+                        customFunctions(),
+                        set(trace(Logger.getLogger(LOGGER))),
+                        plugins.jsltFunctions)));
   }
 
   private void close() {
@@ -867,7 +874,9 @@ class Run implements Runnable {
   }
 
   private void handleChange(final ChangeStreamDocument<Document> change) {
-    document(change, getTopologyCollection())
+    document(
+            Logging.trace(instanceMessage("handleChange", context), change, CHANGE_LOGGER),
+            getTopologyCollection())
         .thenAccept(
             document ->
                 withValue(change)
@@ -880,7 +889,7 @@ class Run implements Runnable {
                     .or(
                         c -> isRunning(c, context.instance),
                         c -> document.flatMap(Run::running).ifPresent(this::reconcile)))
-        .exceptionally(e -> logChangeError(e, change, context));
+        .exceptionally(e -> logChangeError(e, change));
   }
 
   private void reconcile(final RunningStatus runningStatus) {
@@ -892,7 +901,7 @@ class Run implements Runnable {
     ofNullable(running.get(application))
         .ifPresent(
             entry -> {
-              entry.context.logger.log(SEVERE, "Application {0} failed", getApplication(entry));
+              Logger.getLogger(LOGGER).log(SEVERE, "Application {0} failed", getApplication(entry));
               stop(application);
               runAsyncAfter(() -> start(application), restartBackoff);
             });
@@ -935,11 +944,15 @@ class Run implements Runnable {
 
   private void start() {
     if (fromCollection()) {
-      getTopologyCollection().watch().subscribe(new LambdaSubscriber<>(this::handleChange));
+      retryPublisher(
+              () -> getTopologyCollection().watch(),
+              restartBackoff,
+              e -> Logger.getLogger(LOGGER).log(SEVERE, e, e::getMessage))
+          .subscribe(new LambdaSubscriber<>(this::handleChange));
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));
-    context.logger.info("Ready");
+    Logger.getLogger(LOGGER).info("Ready");
     doForever(() -> runQueue.take().run());
   }
 
@@ -953,7 +966,7 @@ class Run implements Runnable {
             lifeCycle,
             (stop, app) -> restartOnError(app),
             e -> {
-              entry.context.logger.log(SEVERE, e, e::getMessage);
+              Logger.getLogger(LOGGER).log(SEVERE, e, e::getMessage);
               restartOnError(getApplication(entry));
             }),
         entry.context);
@@ -983,7 +996,7 @@ class Run implements Runnable {
             pair ->
                 pair(
                     SideEffect.<String>run(
-                            () -> context.logger.log(INFO, "Starting {0}", pair.first))
+                            () -> Logger.getLogger(LOGGER).log(INFO, "Starting {0}", pair.first))
                         .andThenGet(() -> pair.first),
                     pair.second))
         .map(pair -> pair(pair.first, start(pair.second)))
@@ -1014,7 +1027,7 @@ class Run implements Runnable {
             ofNullable(running.remove(application))
                 .ifPresent(
                     entry -> {
-                      entry.context.logger.log(INFO, "Stopping {0}", application);
+                      Logger.getLogger(LOGGER).log(INFO, "Stopping {0}", application);
                       entry.stop.stop();
                     }));
   }

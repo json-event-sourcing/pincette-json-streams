@@ -13,6 +13,7 @@ import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.streams.Common.LOG;
 import static net.pincette.json.streams.Common.VALIDATE;
+import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.mongo.Expression.function;
 
 import java.util.Optional;
@@ -52,24 +53,24 @@ class PipelineStages {
   }
 
   private static Logger getLogger(
-      final JsonObject json,
-      final Function<JsonObject, JsonValue> application,
-      final Context context) {
-    return callAsString(json, application).map(Logger::getLogger).orElse(context.logger);
+      final JsonObject json, final Function<JsonObject, JsonValue> application) {
+    return callAsString(json, application)
+        .map(Logger::getLogger)
+        .orElseGet(() -> Logger.getLogger(LOGGER));
   }
 
-  private static void logObject(
-      final String name, final JsonValue expression, final Context context) {
-    context.logger.log(
-        SEVERE,
-        "The value of {0} should be an object, but {1} was given.",
-        new Object[] {name, string(expression)});
+  private static void logObject(final String name, final JsonValue expression) {
+    Logger.getLogger(LOGGER)
+        .log(
+            SEVERE,
+            "The value of {0} should be an object, but {1} was given.",
+            new Object[] {name, string(expression)});
   }
 
   static Stage logStage(final Context context) {
     return (stream, expression, c) -> {
       if (!isObject(expression)) {
-        logObject(LOG, expression, context);
+        logObject(LOG, expression);
 
         return stream;
       }
@@ -87,7 +88,7 @@ class PipelineStages {
               v ->
                   SideEffect.<JsonObject>run(
                           () ->
-                              getLogger(v, application, context)
+                              getLogger(v, application)
                                   .log(
                                       getLogLevel(v, level),
                                       escapeFormatting(string(message.apply(v))),
@@ -106,7 +107,7 @@ class PipelineStages {
   static Stage validateStage(final Context context) {
     return (stream, expression, c) -> {
       if (!isObject(expression)) {
-        logObject(VALIDATE, expression, context);
+        logObject(VALIDATE, expression);
 
         return stream;
       }

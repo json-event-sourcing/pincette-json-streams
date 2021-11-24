@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.0.2</version>
+  <version>2.0.3</version>
   <name>pincette-json-streams</name>
   <description>Command line to run JSON Streams on Kafka</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -127,7 +127,7 @@
     <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
-      <version>4.6.1</version>
+      <version>4.6.2</version>
     </dependency>
     <!-- These dependencies are here only for plugins, because the packages are not modules. -->
     <dependency>
@@ -217,7 +217,7 @@
             <path>
               <groupId>info.picocli</groupId>
               <artifactId>picocli-codegen</artifactId>
-              <version>4.6.1</version>
+              <version>4.6.2</version>
             </path>
           </annotationProcessorPaths>
           <compilerArgs>
