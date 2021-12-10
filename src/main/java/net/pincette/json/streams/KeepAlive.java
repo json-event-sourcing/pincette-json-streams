@@ -19,7 +19,6 @@ import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.must;
 
 import com.mongodb.client.model.Field;
-import com.mongodb.client.result.DeleteResult;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
 import java.util.Set;
@@ -58,7 +57,7 @@ class KeepAlive {
   private CompletionStage<Boolean> deleteAlive() {
     return deleteOne(collection, criterion())
         .thenApply(result -> trace(instanceMessage("deleteAlive", context), result, KEEP_LOGGER))
-        .thenApply(DeleteResult::wasAcknowledged)
+        .thenApply(result -> result != null && result.wasAcknowledged())
         .thenApply(result -> must(result, r -> r));
   }
 

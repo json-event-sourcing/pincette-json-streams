@@ -10,11 +10,14 @@ Use `help`, `-h`, `command help` or `command -h` to get a short overview. The `-
 |delete|-a \| --application|Yes|The name of the application that should be removed from the MongoDB collection. As a result, if the service is running off a MongoDB collection, the application will be stopped.|
 ||-c \| --collection|No|A MongoDB collection from which the application will be removed. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
 |doc|-f \| --file|No|A file with an application object for which documentation should be generated. This option can't be used with the next two. This writes a markdown file to `stdout`.|
-||-a \| --application|No|The name of the application for which documentation should be generated off the MongoDB collection. This writes a markdown file to `stdout`.|
+||-a \| --application|No|The name of the application for which documentation should be generated off the MongoDB collection. Without this option all deployed applications are run.|
 ||-c \| --collection|No|A MongoDB collection from which the application is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
+||-d \| --directory|No|Write the output to the given directory instead of to `stdout`. The application name will be used to construct the filename in the directory.|
 |dot|-f \| --file|No|A file with an application object for a dot file should be generated. This option can't be used with the next two.|
-||-a \| --application|No|The name of the application for which a dot file should be generated off the MongoDB collection.|
+||-a \| --application|No|The name of the application for which a dot file should be generated off the MongoDB collection. Without this option all deployed applications are run.|
 ||-c \| --collection|No|A MongoDB collection from which the application is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
+||-d \| --directory|No|Write the output to the given directory instead of to `stdout`. The application name will be used to construct the filename in the directory.|
+||-g \| --global|No|Generate a graph of all the deployed applications. It will connect topics to applications.|
 |list|-c \| --collection|No|A MongoDB collection from which the application list is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
 |run|-f \| --file|No|A file with an array of applications. It builds and then runs all the applications.|
 ||-c \| --collection|No|A MongoDB collection with applications. If neither a collection nor a file is given the tool will try to take the MongoDB collection from the configuration. This and the previous option can't be used together.|

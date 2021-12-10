@@ -21,9 +21,6 @@ module application {
   requires net.pincette.json;
   requires jdk.unsupported;
   requires java.management;
-  requires jjwt.jackson;
-  requires jjwt.impl;
-  requires jjwt.api;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;

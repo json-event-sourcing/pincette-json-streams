@@ -55,7 +55,6 @@ import static net.pincette.util.Util.tryToGetSilent;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
 import com.mongodb.client.model.UpdateOptions;
-import com.mongodb.client.result.UpdateResult;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
@@ -146,6 +145,7 @@ class Common {
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
+  private static final Pattern ENV_PATTERN_STRING = compile("\\$\\{([^:]*:)?(\\w+)(:[^:]*)?}");
   private static final String INCLUDE = "include";
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
@@ -169,7 +169,7 @@ class Common {
                     new Field<>(ALIVE_AT, new BsonDateTime(now().toEpochMilli())), field.get())),
             new UpdateOptions().upsert(true))
         .thenApply(result -> trace("aliveAtUpdate", result, logger))
-        .thenApply(UpdateResult::wasAcknowledged)
+        .thenApply(result -> result != null && result.wasAcknowledged())
         .thenApply(result -> must(result, r -> r));
   }
 
@@ -478,7 +478,7 @@ class Common {
   }
 
   private static boolean hasParameter(final String s) {
-    return ENV_PATTERN.matcher(s).find();
+    return ENV_PATTERN_STRING.matcher(s).find();
   }
 
   private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
@@ -525,6 +525,14 @@ class Common {
     return zip(stream(s.split("\\n")).sequential(), rangeExclusive(1, MAX_VALUE))
         .map(pair -> rightAlign(valueOf(pair.second), 4) + " " + pair.first)
         .collect(joining("\n"));
+  }
+
+  private static String parameterPrefix(final String s) {
+    return s != null ? s.substring(0, s.length() - 1) : "";
+  }
+
+  private static String parameterSuffix(final String s) {
+    return s != null ? s.substring(1) : "";
   }
 
   private static JsonObject parameters(
@@ -582,7 +590,8 @@ class Common {
     return Optional.of(ENV_PATTERN.matcher(s))
         .filter(Matcher::matches)
         .map(
-            matcher -> getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue(s)))
+            matcher ->
+                getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue("")))
         .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
   }
 
@@ -619,11 +628,16 @@ class Common {
   private static String replaceParametersString(final String s, final JsonObject parameters) {
     return replaceAll(
         s,
-        ENV_PATTERN,
+        ENV_PATTERN_STRING,
         matcher ->
-            ofNullable(parameters.get(matcher.group(1)))
+            ofNullable(parameters.get(matcher.group(2)))
                 .map(value -> isString(value) ? asString(value).getString() : string(value))
-                .orElse(s));
+                .map(
+                    value ->
+                        parameterPrefix(matcher.group(1))
+                            + value
+                            + parameterSuffix(matcher.group(3)))
+                .orElse(""));
   }
 
   private static String resolveFile(

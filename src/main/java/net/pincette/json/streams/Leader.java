@@ -27,7 +27,6 @@ import static net.pincette.util.Util.must;
 
 import com.mongodb.client.model.Field;
 import com.mongodb.client.result.DeleteResult;
-import com.mongodb.client.result.InsertOneResult;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -127,6 +126,8 @@ class Leader {
   }
 
   private CompletionStage<Boolean> tryMyself() {
+    final String me = instanceMessage("tryMyself", context);
+
     return findOne(collection, criterion())
         .thenComposeAsync(
             json ->
@@ -137,15 +138,12 @@ class Leader {
                                 () -> new Field<>(INSTANCE, context.instance),
                                 collection,
                                 LEADER_LOGGER))
-                    .orElseGet(
-                        () ->
-                            completedFuture(
-                                trace(
-                                    instanceMessage("tryMyself", context), false, LEADER_LOGGER))));
+                    .orElseGet(() -> completedFuture(trace(me, false, LEADER_LOGGER))))
+        .exceptionally(e -> trace(me, false, LEADER_LOGGER));
   }
 
   private CompletionStage<Boolean> tryToBeFirst() {
-    final String me = "tryToBeFirst";
+    final String me = instanceMessage("tryToBeFirst", context);
 
     return insertOne(
             collection,
@@ -159,7 +157,7 @@ class Leader {
                             new BsonElement(ALIVE_AT, new BsonDateTime(now().toEpochMilli()))))),
                 LEADER_LOGGER))
         .thenApply(result -> trace(me, result, LEADER_LOGGER))
-        .thenApply(InsertOneResult::wasAcknowledged)
+        .thenApply(result -> result != null && result.wasAcknowledged())
         .exceptionally(e -> trace(me, false, LEADER_LOGGER));
   }
 }

@@ -1,6 +1,5 @@
 package net.pincette.json.streams;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.joining;
@@ -9,6 +8,7 @@ import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
+import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.COMMAND;
 import static net.pincette.json.streams.Common.DESTINATION_TYPE;
 import static net.pincette.json.streams.Common.EVENT;
@@ -37,8 +37,6 @@ import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.repeat;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -99,14 +97,17 @@ class Doc extends ApplicationCommand implements Runnable {
     }
   }
 
+  private static Stream<String> applicationMetadata(final JsonObject json) {
+    return concat(field(json, APPLICATION_FIELD, "Name"), field(json, VERSION, "Version"));
+  }
+
   private static String asLink(final String s) {
     return "[" + s + "](#" + s + ")";
   }
 
   private static Stream<String> blocks(final JsonObject specification) {
     return Stream.concat(
-        section(specification, json -> field(json, VERSION, "Version"), noAnchor(), 1),
-        parts(specification));
+        section(specification, Doc::applicationMetadata, noAnchor(), 1), parts(specification));
   }
 
   private static Stream<String> command(final String name, final JsonObject command) {
@@ -249,19 +250,20 @@ class Doc extends ApplicationCommand implements Runnable {
     return field(json, TO_TOPIC, "To topic");
   }
 
-  @SuppressWarnings("java:S106") // Not logging.
   public void run() {
-    tryToDoWithRethrow(
-        () -> new PrintWriter(new OutputStreamWriter(System.out, UTF_8)),
-        writer ->
-            getValidatedTopology()
-                .map(Doc::blocks)
-                .ifPresent(
-                    blocks ->
-                        blocks.forEach(
-                            block -> {
-                              writer.println(block);
-                              writer.println();
-                            })));
+    getValidatedTopologies()
+        .forEach(
+            specification ->
+                tryToDoWithRethrow(
+                    () -> getWriter(application(specification) + ".md"),
+                    writer -> {
+                      blocks(specification)
+                          .forEach(
+                              block -> {
+                                writer.println(block);
+                                writer.println();
+                              });
+                      writer.flush();
+                    }));
   }
 }

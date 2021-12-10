@@ -17,6 +17,7 @@ nav:
 - 'aggregation_operators.md'
 - 'aggregation_stages.md'
 - 'system_variables.md'
+- 'parameters.md'
 - 'custom_jslt.md'
 - 'documentation.md'
 - 'logging.md'
@@ -29,3 +30,4 @@ nav:
 - 'docker.md'
 - 'cli.md'
 - 'topology.md'
+- 'release_notes.md'

@@ -622,6 +622,26 @@ $setUnion:
 
 ## String
 
+### $base64Decode
+
+Takes a Base 64 encoded string and returns the decoded string. Its value should be an expression that yields a string.
+
+Example:
+
+```yaml
+$base64Decode: "$field"
+```
+
+### $base64Encode
+
+Takes a string and returns the Base 64 encoded string. Its value should be an expression that yields a string.
+
+Example:
+
+```yaml
+$base64Encode: "$field"
+```
+
 ### [$concat](https://docs.mongodb.com/manual/reference/operator/aggregation/concat/#mongodb-expression-exp.-concat)
 
 Example:
@@ -643,6 +663,16 @@ $indexOfCP:
   - "bc"
   - 0
   - 3
+```
+
+### $jsonToString
+
+Converts a JSON value to a string representation.
+
+Example:
+
+```yaml
+$jsonToString: "$$ROOT"
 ```
 
 ### [$ltrim](https://docs.mongodb.com/manual/reference/operator/aggregation/ltrim/#mongodb-expression-exp.-ltrim)
@@ -703,14 +733,6 @@ $split:
   - ","
 ```
 
-### [$strLenCP](https://docs.mongodb.com/manual/reference/operator/aggregation/strLenCP/#mongodb-expression-exp.-strLenCP)
-
-Example:
-
-```yaml
-$strLenCP: "$myfield"
-```
-
 ### [$strcasecmp](https://docs.mongodb.com/manual/reference/operator/aggregation/strcasecmp/#mongodb-expression-exp.-strcasecmp)
 
 Example:
@@ -719,6 +741,24 @@ Example:
 $strcasecmp:
   - "$field1"
   - "$field2"
+```
+
+### $stringToJson
+
+Parses a string and returns a JSON value. Its value should be an expression that yields a string.
+
+Example:
+
+```yaml
+$stringToJson: "$field"
+```
+
+### [$strLenCP](https://docs.mongodb.com/manual/reference/operator/aggregation/strLenCP/#mongodb-expression-exp.-strLenCP)
+
+Example:
+
+```yaml
+$strLenCP: "$myfield"
 ```
 
 ### [$substrCP](https://docs.mongodb.com/manual/reference/operator/aggregation/substrCP/#mongodb-expression-exp.-substrCP)
@@ -763,6 +803,26 @@ Example:
 ```yaml
 $trim:
   input: "$myfield"
+```
+
+### $uriDecode
+
+Takes a URI-encoded string and returns the decoded string. Its value should be an expression that yields a string.
+
+Example:
+
+```yaml
+$uriDecode: "$field"
+```
+
+### $uriEncode
+
+Takes a string and returns the URI-encoded string. Its value should be an expression that yields a string.
+
+Example:
+
+```yaml
+$uriEncode: "$field"
 ```
 
 ## Trigonometry

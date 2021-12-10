@@ -7,3 +7,7 @@ The `dot` command-line command generates a [dot file](https://www.graphviz.org) 
 ```
 > js dot -a <my-application> | dot -Tsvg > my-application.svg
 ```
+
+Both the `doc` and `dot` commands have the option `-d, --directory`. Instead of writing to `stdout` they will write to the given directory, using the application name to construct the filename in them.
+
+When the commands are run without any options, they will run for all deployed applications.
