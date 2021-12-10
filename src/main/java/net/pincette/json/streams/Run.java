@@ -2,22 +2,16 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.changestream.OperationType.DELETE;
-import static com.mongodb.client.model.changestream.OperationType.INSERT;
-import static com.mongodb.client.model.changestream.OperationType.REPLACE;
-import static com.mongodb.client.model.changestream.OperationType.UPDATE;
 import static java.lang.Boolean.TRUE;
 import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
-import static java.util.Optional.empty;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toMap;
-import static java.util.stream.Collectors.toSet;
 import static java.util.stream.Stream.concat;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.elastic.Logging.log;
@@ -47,7 +41,6 @@ import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Application.APP_VERSION;
-import static net.pincette.json.streams.Common.ACTUAL;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
@@ -91,7 +84,6 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.getCommands;
-import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER;
@@ -99,34 +91,25 @@ import static net.pincette.json.streams.PipelineStages.logStage;
 import static net.pincette.json.streams.PipelineStages.validateStage;
 import static net.pincette.json.streams.Plugins.load;
 import static net.pincette.json.streams.Validate.validateTopology;
-import static net.pincette.mongo.BsonUtil.fromBson;
-import static net.pincette.mongo.BsonUtil.toBsonDocument;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.Expression.replaceVariables;
 import static net.pincette.mongo.JsonClient.aggregationPublisher;
-import static net.pincette.mongo.JsonClient.findOne;
 import static net.pincette.mongo.Match.predicate;
-import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.util.Builder.create;
-import static net.pincette.util.Collections.difference;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
-import static net.pincette.util.Do.withValue;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
-import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.loadProperties;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
 import static org.apache.kafka.streams.kstream.Produced.valueSerde;
-import static org.bson.BsonType.STRING;
 
-import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
@@ -140,8 +123,6 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
@@ -172,7 +153,6 @@ import net.pincette.mongo.Match;
 import net.pincette.mongo.Validator;
 import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
-import net.pincette.rs.LambdaSubscriber;
 import net.pincette.util.Pair;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.serialization.Serdes.StringSerde;
@@ -183,7 +163,6 @@ import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.JoinWindows;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.ValueMapper;
-import org.bson.BsonDocument;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import picocli.CommandLine.ArgGroup;
@@ -199,10 +178,8 @@ import picocli.CommandLine.Option;
     description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
-  private static final String CHANGE_LOGGER = LOGGER + ".change";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
-  private static final String DESIRED = "desired";
   private static final String EVENT = "event";
   private static final String EVENT_VAR = "$$event";
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
@@ -224,7 +201,6 @@ class Run implements Runnable {
   private final Map<String, TopologyEntry> running = new ConcurrentHashMap<>();
   private Context context;
   @ArgGroup() private FileOrCollection fileOrCollection;
-  private Predicate<JsonObject> filter;
   private KeepAlive keepAlive;
   private Leader leader;
   private TopologyLifeCycle lifeCycle;
@@ -457,31 +433,6 @@ class Run implements Runnable {
     return new TopologyEntry(topology, streamsConfig, null, realContext.context);
   }
 
-  private static CompletionStage<Optional<JsonObject>> document(
-      final ChangeStreamDocument<Document> change,
-      final MongoCollection<Document> collection,
-      final Context context) {
-    return tryWith(() -> documentFromChange(change))
-        .or(() -> getId(change).map(id -> findOne(collection, eq(ID, id))).orElse(null))
-        .get()
-        .orElseGet(() -> completedFuture(empty()))
-        .thenApply(
-            document ->
-                document.map(
-                    d ->
-                        Logging.trace(
-                            instanceMessage("change document", context), d, CHANGE_LOGGER)));
-  }
-
-  private static CompletionStage<Optional<JsonObject>> documentFromChange(
-      final ChangeStreamDocument<Document> change) {
-    return ofNullable(change.getFullDocument())
-        .map(doc -> fromBson(toBsonDocument(doc)))
-        .map(Optional::of)
-        .map(CompletableFuture::completedFuture)
-        .orElse(null);
-  }
-
   private static Optional<String> environment(
       final JsonObject config, final TopologyContext context) {
     return tryWith(() -> config.getString(ENVIRONMENT, null))
@@ -528,16 +479,6 @@ class Run implements Runnable {
         .orElse(null);
   }
 
-  private static Optional<String> getId(final ChangeStreamDocument<Document> change) {
-    return ofNullable(change.getDocumentKey()).flatMap(Run::getId);
-  }
-
-  private static Optional<String> getId(final BsonDocument document) {
-    return ofNullable(document.get(ID))
-        .filter(value -> value.getBsonType().equals(STRING))
-        .map(value -> value.asString().getValue());
-  }
-
   private static Optional<Logger> getLogger(final JsonObject specification, final Context context) {
     return Optional.of(specification)
         .map(Common::application)
@@ -581,29 +522,6 @@ class Run implements Runnable {
                     .orElse(null));
   }
 
-  private static boolean isDeleteApplication(final ChangeStreamDocument<Document> change) {
-    return change.getOperationType().equals(DELETE)
-        && change.getFullDocument() == null
-        && getId(change).map(id -> !isUUID(id)).orElse(false);
-  }
-
-  private static boolean isRestartApplication(
-      final ChangeStreamDocument<Document> change, final JsonObject document) {
-    return isUpdate(change)
-        && ofNullable(document).map(doc -> doc.containsKey(APPLICATION_FIELD)).orElse(false);
-  }
-
-  private static boolean isRunning(
-      final ChangeStreamDocument<Document> change, final String instance) {
-    return isUpdate(change) && getId(change).map(id -> id.equals(instance)).orElse(false);
-  }
-
-  private static boolean isUpdate(final ChangeStreamDocument<Document> change) {
-    return Optional.of(change.getOperationType())
-        .map(t -> t == INSERT || t == REPLACE || t == UPDATE)
-        .orElse(false);
-  }
-
   private static KStream<String, JsonObject> joinStream(
       final JsonObject config,
       final String side,
@@ -643,13 +561,6 @@ class Run implements Runnable {
     if (context.logTopic != null) {
       logKafka(aggregate, Logger.getLogger(LOGGER).getLevel(), version, context.logTopic);
     }
-  }
-
-  private static Void logChangeError(
-      final Throwable thrown, final ChangeStreamDocument<Document> change) {
-    Logger.getLogger(LOGGER).log(SEVERE, thrown, () -> "Change event failed: " + change.toString());
-
-    return null;
   }
 
   private static Context logging(final Context context) {
@@ -718,15 +629,6 @@ class Run implements Runnable {
                     createReducer(
                         p.second.getString(REDUCER), p.second.getJsonObject(VALIDATOR), context)),
             (a1, a2) -> a1);
-  }
-
-  private static Optional<RunningStatus> running(final JsonObject document) {
-    return Optional.of(document)
-        .map(
-            doc ->
-                new RunningStatus(
-                    getStrings(doc, DESIRED).collect(toSet()),
-                    getStrings(doc, ACTUAL).collect(toSet())));
   }
 
   private static KStream<String, JsonObject> stream(
@@ -881,31 +783,6 @@ class Run implements Runnable {
             getCollectionOptions().map(o -> o.collection).orElse(null), context));
   }
 
-  private void handleChange(final ChangeStreamDocument<Document> change) {
-    document(
-            Logging.trace(instanceMessage("handleChange", context), change, CHANGE_LOGGER),
-            getTopologyCollection(),
-            context)
-        .thenAccept(
-            document ->
-                withValue(change)
-                    .or(Run::isDeleteApplication, c -> getId(c).ifPresent(this::stop))
-                    .or(
-                        c -> isRestartApplication(c, document.orElse(null)),
-                        c ->
-                            document.ifPresent(
-                                doc -> restart(doc, doc.getString(APPLICATION_FIELD))))
-                    .or(
-                        c -> isRunning(c, context.instance),
-                        c -> document.flatMap(Run::running).ifPresent(this::reconcile)))
-        .exceptionally(e -> logChangeError(e, change));
-  }
-
-  private void reconcile(final RunningStatus runningStatus) {
-    difference(runningStatus.actual, runningStatus.desired).forEach(this::stop);
-    difference(runningStatus.desired, runningStatus.actual).forEach(this::start);
-  }
-
   private void restartOnError(final String application) {
     ofNullable(running.get(application))
         .ifPresent(
@@ -916,27 +793,10 @@ class Run implements Runnable {
             });
   }
 
-  private void restart(final JsonObject document, final String application) {
-    if (filter != null) {
-      Optional.of(document)
-          .map(Common::fromMongoDB)
-          .filter(filter)
-          .ifPresent(doc -> restart(application));
-    } else {
-      if (running.containsKey(application)) {
-        restart(application);
-      }
-    }
-  }
-
-  private void restart(final String application) {
-    stop(application);
-    start(application);
-  }
-
   public void run() {
+    final Predicate<JsonObject> filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
+
     context = prepareContext(context);
-    filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
     lifeCycle = topologyLifeCycleEmitter(context);
 
     if (fromCollection() && filter == null) {
@@ -952,10 +812,6 @@ class Run implements Runnable {
   }
 
   private void start() {
-    if (fromCollection()) {
-      watchForever();
-    }
-
     getRuntime().addShutdownHook(new Thread(this::close));
     Logger.getLogger(LOGGER).info("Ready");
     doForever(() -> runQueue.take().run());
@@ -1012,7 +868,7 @@ class Run implements Runnable {
     final var collection = getTopologyCollection();
     final var work = new Work(collection, toAdmin(kafkaConfig(context)), context);
 
-    keepAlive = new KeepAlive(getTopologyCollection(), context).start();
+    keepAlive = new KeepAlive(getTopologyCollection(), this::start, this::stop, context).start();
     lifeCycle = lifeCycle.andThen(keepAlive(keepAlive, context));
     leader =
         new Leader(
@@ -1035,14 +891,6 @@ class Run implements Runnable {
                       Logger.getLogger(LOGGER).log(INFO, "Stopping {0}", application);
                       entry.stop.stop();
                     }));
-  }
-
-  private void watchForever() {
-    retryPublisher(
-            () -> getTopologyCollection().watch(),
-            restartBackoff,
-            e -> Logger.getLogger(LOGGER).log(SEVERE, e, e::getMessage))
-        .subscribe(new LambdaSubscriber<>(this::handleChange, this::watchForever));
   }
 
   private static class FileOrCollection {
@@ -1081,16 +929,6 @@ class Run implements Runnable {
             description = "The MongoDB query into the collection containing the applications.")
         private String query;
       }
-    }
-  }
-
-  private static class RunningStatus {
-    private final Set<String> actual;
-    private final Set<String> desired;
-
-    private RunningStatus(final Set<String> desired, final Set<String> actual) {
-      this.desired = desired;
-      this.actual = actual;
     }
   }
 

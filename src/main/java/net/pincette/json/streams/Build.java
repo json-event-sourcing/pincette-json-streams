@@ -1,5 +1,7 @@
 package net.pincette.json.streams;
 
+import static java.time.Instant.now;
+import static net.pincette.jes.util.JsonFields.TIMESTAMP;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.streams.Application.APP_VERSION;
@@ -52,17 +54,16 @@ class Build implements Runnable {
   }
 
   private static JsonObject toMongoDB(final JsonObject json) {
-    return transformFieldNames(json, Build::escapeFieldName);
+    return transformFieldNames(json, Build::escapeFieldName)
+        .add(TIMESTAMP, now().toString())
+        .build();
   }
 
   private JsonArray buildTopologies() {
     return readTopologies(file)
         .map(
             loaded ->
-                build(
-                    loaded.specification,
-                    false,
-                    createTopologyContext(loaded, file, context)))
+                build(loaded.specification, false, createTopologyContext(loaded, file, context)))
         .filter(Validate::validateTopology)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();

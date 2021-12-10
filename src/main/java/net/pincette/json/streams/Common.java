@@ -94,7 +94,6 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class Common {
-  static final String ACTUAL = "actual";
   static final String AGGREGATE = "aggregate";
   static final String AGGREGATE_TYPE = "aggregateType";
   static final String ALIVE_AT = "aliveAt";
@@ -357,7 +356,7 @@ class Common {
   }
 
   static JsonObject fromMongoDB(final JsonObject json) {
-    return transformFieldNames(json, Common::unescapeFieldName);
+    return transformFieldNames(json, Common::unescapeFieldName).build();
   }
 
   static Stream<Pair<String, JsonObject>> getCommands(final JsonObject aggregate) {
@@ -766,26 +765,26 @@ class Common {
                             e.path, createValue(resolveFile(baseDirectory, path, parameters)))));
   }
 
-  static JsonObject transformFieldNames(final JsonObject json, final UnaryOperator<String> op) {
+  static JsonObjectBuilder transformFieldNames(
+      final JsonObject json, final UnaryOperator<String> op) {
     return json.entrySet().stream()
         .map(e -> pair(op.apply(e.getKey()), transformFieldNames(e.getValue(), op)))
-        .reduce(createObjectBuilder(), (b, pair) -> b.add(pair.first, pair.second), (b1, b2) -> b1)
-        .build();
+        .reduce(createObjectBuilder(), (b, pair) -> b.add(pair.first, pair.second), (b1, b2) -> b1);
   }
 
-  static JsonArray transformFieldNames(final JsonArray json, final UnaryOperator<String> op) {
+  static JsonArrayBuilder transformFieldNames(
+      final JsonArray json, final UnaryOperator<String> op) {
     return json.stream()
         .map(v -> transformFieldNames(v, op))
-        .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
-        .build();
+        .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1);
   }
 
   static JsonValue transformFieldNames(final JsonValue json, final UnaryOperator<String> op) {
     switch (json.getValueType()) {
       case OBJECT:
-        return transformFieldNames(json.asJsonObject(), op);
+        return transformFieldNames(json.asJsonObject(), op).build();
       case ARRAY:
-        return transformFieldNames(json.asJsonArray(), op);
+        return transformFieldNames(json.asJsonArray(), op).build();
       default:
         return json;
     }
