@@ -458,11 +458,19 @@ class Run implements Runnable {
   }
 
   private static CompletionStage<Optional<JsonObject>> document(
-      final ChangeStreamDocument<Document> change, final MongoCollection<Document> collection) {
+      final ChangeStreamDocument<Document> change,
+      final MongoCollection<Document> collection,
+      final Context context) {
     return tryWith(() -> documentFromChange(change))
         .or(() -> getId(change).map(id -> findOne(collection, eq(ID, id))).orElse(null))
         .get()
-        .orElseGet(() -> completedFuture(empty()));
+        .orElseGet(() -> completedFuture(empty()))
+        .thenApply(
+            document ->
+                document.map(
+                    d ->
+                        Logging.trace(
+                            instanceMessage("change document", context), d, CHANGE_LOGGER)));
   }
 
   private static CompletionStage<Optional<JsonObject>> documentFromChange(
@@ -876,7 +884,8 @@ class Run implements Runnable {
   private void handleChange(final ChangeStreamDocument<Document> change) {
     document(
             Logging.trace(instanceMessage("handleChange", context), change, CHANGE_LOGGER),
-            getTopologyCollection())
+            getTopologyCollection(),
+            context)
         .thenAccept(
             document ->
                 withValue(change)
@@ -944,11 +953,7 @@ class Run implements Runnable {
 
   private void start() {
     if (fromCollection()) {
-      retryPublisher(
-              () -> getTopologyCollection().watch(),
-              restartBackoff,
-              e -> Logger.getLogger(LOGGER).log(SEVERE, e, e::getMessage))
-          .subscribe(new LambdaSubscriber<>(this::handleChange));
+      watchForever();
     }
 
     getRuntime().addShutdownHook(new Thread(this::close));
@@ -1030,6 +1035,14 @@ class Run implements Runnable {
                       Logger.getLogger(LOGGER).log(INFO, "Stopping {0}", application);
                       entry.stop.stop();
                     }));
+  }
+
+  private void watchForever() {
+    retryPublisher(
+            () -> getTopologyCollection().watch(),
+            restartBackoff,
+            e -> Logger.getLogger(LOGGER).log(SEVERE, e, e::getMessage))
+        .subscribe(new LambdaSubscriber<>(this::handleChange, this::watchForever));
   }
 
   private static class FileOrCollection {

@@ -9,3 +9,4 @@
 * Make it possible to add prefixes and suffixes in parameter references.
 * Fix leader and keep-alive exception.
 * Fix aggregates using `dev` as the default environment.
+* Restart MongoDB watcher if it completes.
