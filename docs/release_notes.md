@@ -7,6 +7,6 @@
 * Make the command-line option `-a, --application` optional for the commands `doc` and `dot`. When no application is given all the deployed applications are run.
 * Add the command-line option `-g, --global` to the `dot` command. It generates a graph that connects topics and applications for all the deployed applications.
 * Make it possible to add prefixes and suffixes in parameter references.
+* Add the `work.maximumInstances` configuration entry, which is used to normalise the excess message lag between 0 and 100.
 * Fix leader and keep-alive exception.
 * Fix aggregates using `dev` as the default environment.
-* Restart MongoDB watcher if it completes.

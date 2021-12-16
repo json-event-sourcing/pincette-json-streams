@@ -22,7 +22,9 @@ The configuration is managed by the
 |plugins|No|The directory from where the plugins are loaded.|
 |restartBackoff|No|The waiting time before a application that was in an error state will be restarted. The default value is `10s`.|
 |topologyTopic|No|When this entry is present topology life cycle events will be published to it.|
+|work|No|Configuration for the leader to divide the work amongst the instances.|
 |work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 50 milliseconds.|
-|work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `excessMessageLag` and `time`.|
+|work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `excessMessageLag`, `normalized` and `time`.|
 |work.instancesTopic|No|If this Kafka topic is provided, then a message with all the running instances and their work is published on it by the leader.|
 |work.maximumAppsPerInstance|No|The maximum number of applications a running instance is willing to pick up. The default value is 10.|
+|work.maximumInstances|Yes|The leader needs this to normalise the excess message lag.|

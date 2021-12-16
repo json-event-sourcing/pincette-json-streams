@@ -6,8 +6,10 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Projections.include;
+import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.lang.Math.round;
 import static java.time.Duration.ofMillis;
 import static java.time.Instant.now;
 import static java.util.Comparator.comparing;
@@ -75,6 +77,7 @@ import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -82,6 +85,7 @@ import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.json.JsonUtil;
 import net.pincette.util.AsyncBuilder;
+import net.pincette.util.Cases;
 import net.pincette.util.Pair;
 import net.pincette.util.StreamUtil;
 import org.apache.kafka.clients.admin.Admin;
@@ -99,6 +103,7 @@ class Work {
   private static final String INSTANCES_TOPIC = "work.instancesTopic";
   private static final String LEADER_FIELD = "leader";
   private static final String MAXIMUM_APPS_PER_INSTANCE = "work.maximumAppsPerInstance";
+  private static final String MAXIMUM_INSTANCES = "work.maximumInstances";
   private static final String MAXIMUM_MESSAGE_LAG = "maximumMessageLag";
   private static final String TIME = "time";
   private static final String WORK_LOGGER = LOGGER + ".work";
@@ -110,6 +115,7 @@ class Work {
   private final String instancesTopic;
   private final Admin kafkaAdmin;
   private final int maximumAppsPerInstance;
+  private final int maximumInstances;
 
   Work(
       final MongoCollection<Document> collection,
@@ -119,6 +125,7 @@ class Work {
     this.kafkaAdmin = create(kafkaAdminConfig);
     this.averageMessageTimeEstimate = averageMessageTimeEstimate(context);
     this.maximumAppsPerInstance = maximumAppsPerInstance(context);
+    this.maximumInstances = context.config.getInt(MAXIMUM_INSTANCES);
     this.context = context;
     this.excessMessageLagTopic =
         config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
@@ -299,20 +306,52 @@ class Work {
     return difference(allApplications, runningApplications(work));
   }
 
+  private int adjustResolution(final int normalizedMessageLag) {
+    final int unit = round(100F / maximumInstances);
+    final Supplier<Float> extra = () -> normalizedMessageLag % unit != 0 ? 0.5F : 0;
+
+    return unit > 0
+        ? round(normalizedMessageLag / (float) unit + extra.get()) * unit
+        : normalizedMessageLag;
+  }
+
+  private int adjustedMessageLagIndicator(
+      final Status status, final Map<String, Set<String>> work) {
+    return adjustResolution(normalizeExcessMessageLag(status, totalExcessMessageLag(status, work)));
+  }
+
   private CompletionStage<Set<String>> allApplications() {
     return aggregate(
             collection, list(match(exists(APPLICATION_FIELD)), project(include(APPLICATION_FIELD))))
         .thenApply(list -> applications(list, "/" + APPLICATION_FIELD).collect(toSet()));
   }
 
+  private long capacity() {
+    return maximumAppsPerInstance * capacityPerSecond();
+  }
+
   private long capacityPerSecond() {
     return 1000 / averageMessageTimeEstimate.toMillis();
   }
 
-  private long excessCapacity(final Map<String, Set<String>> work) {
-    return (work.size() - minimumInstanceCapacity(work))
+  private JsonObject createMessageLagMessage(
+      final Status status, final Map<String, Set<String>> work) {
+    return o(
+        f(EXCESS_MESSAGE_LAG, v(adjustedMessageLagIndicator(status, work))),
+        f(ID, v(context.instance)),
+        f(TIME, v(now().toString())));
+  }
+
+  private long excessCapacity(final Status status, final Map<String, Set<String>> work) {
+    return (work.size() - minimumInstanceCapacity(status.allApplications))
         * maximumAppsPerInstance
         * capacityPerSecond();
+  }
+
+  private long excessInstances(final long excessMessageLag) {
+    return excessMessageLag < 0
+        ? (abs(excessMessageLag) / (maximumAppsPerInstance * capacityPerSecond()))
+        : 0;
   }
 
   private int extraApplicationCapacity(final long messageLag) {
@@ -396,13 +435,20 @@ class Work {
                     .orElseGet(JsonUtil::emptyObject));
   }
 
-  private long minimumInstanceCapacity(final Map<String, Set<String>> work) {
-    return (work.values().stream().mapToLong(Set::size).sum() + maximumAppsPerInstance - 1)
-        / maximumAppsPerInstance;
+  private long minimumInstanceCapacity(final Set<String> allApplications) {
+    return (allApplications.size() + maximumAppsPerInstance - 1) / maximumAppsPerInstance;
   }
 
   private long missingCapacity(final Status status, final Map<String, Set<String>> work) {
     return notRunningApplications(status.allApplications, work).size() * capacityPerSecond();
+  }
+
+  private int normalizeExcessMessageLag(final Status status, final long excessMessageLag) {
+    return Cases.<Long, Integer>withValue(excessMessageLag)
+        .or(v -> v < 0, v -> scaleIn(status, v))
+        .or(v -> v > 0, v -> scaleOut(status, v))
+        .get()
+        .orElse(50);
   }
 
   private Map<String, Integer> neededExtraApplicationInstances(final Status status) {
@@ -414,6 +460,10 @@ class Work {
                         e.getKey(),
                         keepAtLeastOne(
                             e.getKey(), status, extraApplicationCapacity(e.getValue())))));
+  }
+
+  private long remainingCapacity(final Status status) {
+    return (maximumInstances - status.runningInstances()) * capacity();
   }
 
   private Map<String, Map<TopicPartition, Long>> removeSuffixes(
@@ -451,6 +501,18 @@ class Work {
         .thenApply(result -> must(result, r -> r));
   }
 
+  private int scaleIn(final Status status, final long excessMessageLag) {
+    final long running = status.runningInstances();
+
+    return round(((running - excessInstances(excessMessageLag)) / (float) running) * 50F);
+  }
+
+  private int scaleOut(final Status status, final long excessMessageLag) {
+    final long extraInstances = min(excessMessageLag, remainingCapacity(status)) / capacity();
+
+    return min(round((extraInstances / (float) status.runningInstances()) * 50F) + 50, 100);
+  }
+
   private Map<String, Set<String>> sendExcessMessageLag(
       final Status status, final Map<String, Set<String>> work) {
     return ofNullable(excessMessageLagTopic)
@@ -459,12 +521,7 @@ class Work {
                 send(
                     context.producer,
                     new ProducerRecord<>(
-                        topic,
-                        context.instance,
-                        o(
-                            f(EXCESS_MESSAGE_LAG, v(totalExcessMessageLag(status, work))),
-                            f(ID, v(context.instance)),
-                            f(TIME, v(now().toString()))))))
+                        topic, context.instance, createMessageLagMessage(status, work))))
         .map(result -> work)
         .orElse(work);
   }
@@ -514,7 +571,9 @@ class Work {
   }
 
   private long totalExcessMessageLag(final Status status, final Map<String, Set<String>> work) {
-    return status.totalExcessMessageLag() + missingCapacity(status, work) - excessCapacity(work);
+    return status.totalExcessMessageLag()
+        + missingCapacity(status, work)
+        - excessCapacity(status, work);
   }
 
   private static class Status {
@@ -658,6 +717,10 @@ class Work {
               .filter(e -> maximumAllowed.containsKey(e.getKey()))
               .map(e -> pair(e.getKey(), e.getValue() - maximumAllowed.get(e.getKey())))
               .filter(pair -> pair.second > 0));
+    }
+
+    private int runningInstances() {
+      return runningInstancesWithApplications.size();
     }
 
     private long totalExcessMessageLag() {

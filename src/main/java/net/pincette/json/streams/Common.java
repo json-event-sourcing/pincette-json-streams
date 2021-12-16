@@ -17,7 +17,6 @@ import static java.util.stream.Collectors.toList;
 import static net.pincette.jes.util.JsonFields.ID;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
-import static net.pincette.json.JsonUtil.copy;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createValue;
@@ -544,7 +543,7 @@ class Common {
                             parameters ->
                                 runtime
                                     ? injectConfiguration(parameters, context.context.config)
-                                    : removeConfiguration(parameters))
+                                    : parameters)
                         .orElseGet(JsonUtil::emptyObject)))
         .updateIf(() -> ofNullable(context.context.environment), (b, e) -> b.add(ENV, e))
         .build()
@@ -557,14 +556,6 @@ class Common {
 
   private static JsonArray readArray(final File file) {
     return read(file).map(JsonValue::asJsonArray).orElse(null);
-  }
-
-  private static JsonObject removeConfiguration(final JsonObject parameters) {
-    return copy(
-            parameters,
-            createObjectBuilder(),
-            field -> !hasConfigurationParameters(parameters.get(field)))
-        .build();
   }
 
   static String removeSuffix(final String application, final Context context) {
@@ -590,7 +581,9 @@ class Common {
         .filter(Matcher::matches)
         .map(
             matcher ->
-                getValue(parameters, "/" + matcher.group(1)).orElseGet(() -> createValue("")))
+                getValue(parameters, "/" + matcher.group(1))
+                    .map(v -> isConfigRef(v) ? createValue(s) : v)
+                    .orElseGet(() -> createValue("")))
         .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
   }
 
