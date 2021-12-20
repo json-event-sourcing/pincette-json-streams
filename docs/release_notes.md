@@ -3,6 +3,7 @@
 ## 2.1.1
 
 * Fix the issue where multiple parameter references in the same string are not replaced correctly.
+* Add config and build tracing.
 
 ## 2.1
 

@@ -84,6 +84,7 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER;
@@ -206,6 +207,7 @@ class Run implements Runnable {
   private TopologyLifeCycle lifeCycle;
 
   Run(final Context context) {
+    Logging.trace(instanceMessage("config", context), context.config, LOGGER);
     this.context = context;
     restartBackoff = getRestartBackoff(context);
   }

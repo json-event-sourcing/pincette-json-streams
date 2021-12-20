@@ -33,6 +33,7 @@ import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
+import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.json.streams.Read.readObject;
 import static net.pincette.mongo.Collection.updateOne;
@@ -191,25 +192,33 @@ class Common {
       final TopologyContext topologyContext) {
     final Map<File, Pair<String, String>> jsltImports = new HashMap<>();
     final Map<File, Pair<String, JsonObject>> validatorImports = new HashMap<>();
-    final var parameters = parameters(specification, runtime, topologyContext);
+    final String message = instanceMessage("build", topologyContext.context);
+    final var parameters =
+        trace(
+            message, parameters(specification, runtime, topologyContext), JsonUtil::string, LOGGER);
 
-    return transformBuilder(
-            topologyContext.baseDirectory != null
-                ? expandApplication(specification, topologyContext.baseDirectory, parameters)
-                : specification,
-            createTransformer(jsltImports, validatorImports, parameters))
-        .add(
-            VALIDATOR_IMPORTS,
-            createImports(
-                specification,
+    return trace(
+        message,
+        transformBuilder(
+                topologyContext.baseDirectory != null
+                    ? expandApplication(specification, topologyContext.baseDirectory, parameters)
+                    : specification,
+                createTransformer(jsltImports, validatorImports, parameters))
+            .add(
                 VALIDATOR_IMPORTS,
-                resolveJsltInValidatorImports(validatorImports.values(), jsltImports),
-                v -> v))
-        .add(
-            JSLT_IMPORTS,
-            createImports(specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
-        .add(ID, application(specification))
-        .build();
+                createImports(
+                    specification,
+                    VALIDATOR_IMPORTS,
+                    resolveJsltInValidatorImports(validatorImports.values(), jsltImports),
+                    v -> v))
+            .add(
+                JSLT_IMPORTS,
+                createImports(
+                    specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
+            .add(ID, application(specification))
+            .build(),
+        JsonUtil::string,
+        LOGGER);
   }
 
   static <T> T config(final Context context, final Function<Config, T> get, final T defaultValue) {

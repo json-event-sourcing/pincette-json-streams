@@ -13,6 +13,7 @@ import com.typesafe.config.ConfigObject;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Properties;
+import java.util.function.Function;
 import java.util.logging.Logger;
 
 class Logging {
@@ -62,7 +63,16 @@ class Logging {
   }
 
   static <T> T trace(final String message, final T value, final String logger) {
-    Logger.getLogger(logger).finest(() -> logger + ": " + message + ": " + value);
+    return trace(message, value, T::toString, logger);
+  }
+
+  static <T> T trace(
+      final String message,
+      final T value,
+      final Function<T, String> createString,
+      final String logger) {
+    Logger.getLogger(logger)
+        .finest(() -> logger + ": " + message + ": " + createString.apply(value));
 
     return value;
   }
