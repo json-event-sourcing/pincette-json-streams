@@ -143,7 +143,7 @@ class Common {
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
-  private static final Pattern ENV_PATTERN_STRING = compile("\\$\\{([^:]*:)?(\\w+)(:[^:]*)?}");
+  private static final Pattern ENV_PATTERN_STRING = compile("\\$\\{([^:}]+:)?(\\w+)(:[^:}]+)?}");
   private static final String INCLUDE = "include";
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");

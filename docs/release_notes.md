@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.1.1
+
+* Fix the issue where multiple parameter references in the same string are not replaced correctly.
+
 ## 2.1
 
 * Add the operators `$base64Encode`, `$base64Decode`, `$uriEncode`, `$uriDecode`, `$jsonToString` and `$stringToJson`.
