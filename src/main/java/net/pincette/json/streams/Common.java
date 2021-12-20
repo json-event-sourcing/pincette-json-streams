@@ -140,6 +140,7 @@ class Common {
   static final String VERSION = "version";
   static final String WINDOW = "window";
   static final String RESOURCE = "resource:";
+  private static final String BUILD_LOGGER = LOGGER + ".build";
   private static final String CONFIG_PREFIX = "config:";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
@@ -195,7 +196,10 @@ class Common {
     final String message = instanceMessage("build", topologyContext.context);
     final var parameters =
         trace(
-            message, parameters(specification, runtime, topologyContext), JsonUtil::string, LOGGER);
+            message,
+            parameters(specification, runtime, topologyContext),
+            JsonUtil::string,
+            BUILD_LOGGER);
 
     return trace(
         message,
@@ -218,7 +222,7 @@ class Common {
             .add(ID, application(specification))
             .build(),
         JsonUtil::string,
-        LOGGER);
+        BUILD_LOGGER);
   }
 
   static <T> T config(final Context context, final Function<Config, T> get, final T defaultValue) {
@@ -591,7 +595,7 @@ class Common {
         .map(
             matcher ->
                 getValue(parameters, "/" + matcher.group(1))
-                    .map(v -> isConfigRef(v) ? createValue(s) : v)
+                    .map(v -> hasConfigurationParameters(v) ? createValue(s) : v)
                     .orElseGet(() -> createValue("")))
         .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
   }

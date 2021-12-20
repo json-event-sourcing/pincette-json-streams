@@ -4,6 +4,7 @@
 
 * Fix the issue where multiple parameter references in the same string are not replaced correctly.
 * Add config and build tracing.
+* Fix config injection for parameters that are objects or arrays.
 
 ## 2.1
 

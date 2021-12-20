@@ -179,6 +179,7 @@ import picocli.CommandLine.Option;
     description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
   private static final String APPLICATION_ID = "application.id";
+  private static final String CONFIG_LOGGER = LOGGER + ".config";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_RESTART_BACKOFF = ofSeconds(10);
   private static final String EVENT = "event";
@@ -207,7 +208,7 @@ class Run implements Runnable {
   private TopologyLifeCycle lifeCycle;
 
   Run(final Context context) {
-    Logging.trace(instanceMessage("config", context), context.config, LOGGER);
+    Logging.trace(instanceMessage("config", context), context.config, CONFIG_LOGGER);
     this.context = context;
     restartBackoff = getRestartBackoff(context);
   }
