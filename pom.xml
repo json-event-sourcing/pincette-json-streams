@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>1.7.13</version>
+  <version>1.7.14</version>
   <name>pincette-json-streams</name>
   <description>Command line to run JSON streams on Kafka</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>

@@ -35,7 +35,6 @@ import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getObject;
-import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isString;
@@ -44,7 +43,6 @@ import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
-import static net.pincette.json.streams.Common.COMMANDS;
 import static net.pincette.json.streams.Common.DESTINATIONS;
 import static net.pincette.json.streams.Common.DESTINATION_TYPE;
 import static net.pincette.json.streams.Common.DOLLAR;
@@ -80,6 +78,7 @@ import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createTopologyContext;
 import static net.pincette.json.streams.Common.fatal;
+import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.transformFieldNames;
 import static net.pincette.json.streams.PipelineStages.logStage;
@@ -607,13 +606,14 @@ class Run implements Runnable {
 
   private static Aggregate reducers(
       final Aggregate aggregate, final JsonObject config, final TopologyContext context) {
-    return getObjects(config, COMMANDS)
+    return getCommands(config)
         .reduce(
             aggregate,
-            (a, c) ->
+            (a, p) ->
                 a.withReducer(
-                    c.getString(NAME),
-                    createReducer(c.getString(REDUCER), c.getJsonObject(VALIDATOR), context)),
+                    p.first,
+                    createReducer(
+                        p.second.getString(REDUCER), p.second.getJsonObject(VALIDATOR), context)),
             (a1, a2) -> a1);
   }
 

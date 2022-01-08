@@ -28,6 +28,7 @@ import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
+import static net.pincette.json.JsonUtil.objects;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
@@ -36,6 +37,7 @@ import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.computeIfAbsent;
 import static net.pincette.util.Collections.set;
+import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
@@ -120,6 +122,7 @@ class Common {
   static final String VERSION = "version";
   static final String WINDOW = "window";
   private static final String CONFIG_PREFIX = "config:";
+  private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
   private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
   private static final String INCLUDE = "include";
@@ -183,7 +186,8 @@ class Common {
   static TopologyContext createTopologyContext(
       final JsonObject specification,
       final File topFile,
-      final String topologyPath,final Context context) {
+      final String topologyPath,
+      final Context context) {
     return new TopologyContext()
         .withApplication(specification.getString(APPLICATION_FIELD))
         .withBaseDirectory(topFile != null ? baseDirectory(topFile, topologyPath) : null)
@@ -201,13 +205,13 @@ class Common {
 
   private static JsonObject expandAggregate(
       final JsonObject aggregate, final File baseDirectory, final JsonObject parameters) {
-    return createObjectBuilder(aggregate)
+        return createObjectBuilder(aggregate)
         .add(
             COMMANDS,
-            from(
-                getObjects(aggregate, COMMANDS)
-                    .map(JsonValue::asJsonObject)
-                    .map(command -> expandCommand(command, baseDirectory, parameters))))
+            getCommands(aggregate)
+                .map(
+                    pair -> pair(pair.first, expandCommand(pair.second, baseDirectory, parameters)))
+                .reduce(createObjectBuilder(), (b, p) -> b.add(p.first, p.second), (b1, b2) -> b1))
         .build();
   }
 
@@ -302,6 +306,46 @@ class Common {
               return null;
             })
         .orElse(null);
+  }
+
+  static Stream<Pair<String, JsonObject>> getCommands(final JsonObject aggregate) {
+    return tryWith(
+            () ->
+                getValue(aggregate, "/" + COMMANDS)
+                    .filter(JsonUtil::isObject)
+                    .map(JsonValue::asJsonObject)
+                    .map(Common::getCommandsObject)
+                    .orElse(null))
+        .or(
+            () ->
+                ofNullable(aggregate.getJsonArray(COMMANDS))
+                    .map(Common::getCommandsArray)
+                    .orElse(null))
+        .get()
+        .orElseGet(Stream::empty);
+  }
+
+  private static Stream<Pair<String, JsonObject>> getCommandsArray(final JsonArray commands) {
+    return objects(commands)
+        .map(
+            command ->
+                pair(
+                    command.getString(NAME),
+                    create(JsonUtil::createObjectBuilder)
+                        .update(b -> b.add(REDUCER, command.getString(REDUCER)))
+                        .updateIf(
+                            () -> getValue(command, "/" + VALIDATOR), (b, v) -> b.add(VALIDATOR, v))
+                        .updateIf(
+                            () -> getString(command, "/" + DESCRIPTION),
+                            (b, v) -> b.add(DESCRIPTION, v))
+                        .build()
+                        .build()));
+  }
+
+  private static Stream<Pair<String, JsonObject>> getCommandsObject(final JsonObject commands) {
+    return commands.entrySet().stream()
+        .filter(e -> isObject(e.getValue()))
+        .map(e -> pair(e.getKey(), e.getValue().asJsonObject()));
   }
 
   private static JsonValue getConfigValue(final JsonValue value, final Config config) {
