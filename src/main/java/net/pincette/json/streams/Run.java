@@ -1,6 +1,7 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.exists;
 import static java.lang.Runtime.getRuntime;
 import static java.lang.System.exit;
 import static java.time.Duration.ofMinutes;
@@ -169,6 +170,7 @@ import picocli.CommandLine.Option;
     name = "run",
     description = "Runs topologies from a file containing a JSON array or a MongoDB collection.")
 class Run implements Runnable {
+  private static final Bson ALL_APPLICATIONS = exists(APPLICATION_FIELD);
   private static final String APPLICATION_ID = "application.id";
   private static final String APP_VERSION = "1.7.13";
   private static final String CONTEXT_PATH = "contextPath";
@@ -709,7 +711,10 @@ class Run implements Runnable {
   }
 
   private Bson getFilter() {
-    return tryWith(this::getFilterQuery).or(this::getFilterApplication).get().orElse(null);
+    return tryWith(this::getFilterQuery)
+        .or(this::getFilterApplication)
+        .get()
+        .orElse(ALL_APPLICATIONS);
   }
 
   private Bson getFilterApplication() {
