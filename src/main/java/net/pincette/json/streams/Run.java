@@ -246,7 +246,6 @@ class Run implements Runnable {
                                       .withApp(aggregateType.first)
                                       .withType(aggregateType.second)
                                       .withMongoDatabase(context.context.database)
-                                      .withMongoDatabaseArchive(context.context.databaseArchive)
                                       .withBuilder(context.builder)
                                       .withLogger(context.context.logger))
                           .updateIf(() -> environment(config, context), Aggregate::withEnvironment)
