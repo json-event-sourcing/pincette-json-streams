@@ -1,0 +1,18 @@
+---
+application: app8
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: "plusminus-counter"
+    name: plusminus
+    preprocessor: "duplicates.yaml"
+    commands:
+      plus:
+        reducer: "reducers/plus.jslt"
+        validator: "validators/validate_plus.yaml"
+      minus:
+        reducer: "reducers/minus.jslt"
+        validator: "validators/validate_minus.yaml"
+      put:
+        reducer: "reducers/put.jslt"
+        validator: "validators/validate_put.yaml"

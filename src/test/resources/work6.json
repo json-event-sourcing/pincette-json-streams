@@ -1,0 +1,54 @@
+{
+  "averageMessageTimeEstimate": 50,
+  "maximumAppsPerInstance": 2,
+  "maximumMessageLag": {
+    "app1": {
+      "topic1": 100
+    }
+  },
+  "messageLagPerApplication": {
+    "app1": {
+      "topic1": {
+        "0": 850,
+        "1": 300
+      }
+    },
+    "app2": {
+      "topic2": {
+        "0": 1,
+        "1": 6
+      }
+    },
+    "app3": {
+      "topic3": {
+        "0": 0,
+        "1": 8
+      }
+    },
+    "app4": {
+      "topic3": {
+        "0": 0,
+        "1": 8
+      }
+    },
+    "app5": {
+      "topic3": {
+        "0": 0,
+        "1": 8
+      }
+    },
+    "app6": {
+      "topic3": {
+        "0": 0,
+        "1": 8
+      }
+    }
+  },
+  "runningInstancesWithApplications": {
+    "instance1": [
+      "app1",
+      "app2"
+    ]
+  },
+  "expected": 4
+}

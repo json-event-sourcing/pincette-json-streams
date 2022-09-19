@@ -1,0 +1,8 @@
+---
+application: app28
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out

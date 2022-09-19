@@ -1,0 +1,10 @@
+---
+application: app13
+version: "1.0"
+parts:
+  - type: merge
+    name: merged
+    toCollection: out
+    fromCollections:
+      - in1
+      - in2

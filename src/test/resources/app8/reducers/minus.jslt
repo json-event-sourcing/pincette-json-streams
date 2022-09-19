@@ -1,0 +1,6 @@
+import "../common/op.jslt" as op
+
+.state | {
+             "value" : op:decr(.value),
+             * : .
+         }

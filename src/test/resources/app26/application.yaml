@@ -1,0 +1,14 @@
+---
+application: app26
+version: "1.0"
+parts:
+  - type: join
+    name: joined
+    toTopic: out
+    window: 5000
+    left:
+      fromCollection: in1
+      on: "$value"
+    right:
+      fromCollection: in2
+      on: "$value"

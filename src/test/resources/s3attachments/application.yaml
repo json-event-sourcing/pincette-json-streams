@@ -1,0 +1,12 @@
+---
+application: s3attachments
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out
+    pipeline:
+      - $s3Attachments:
+          url: "http://localhost:9000"
+          attachments: "$attachments"

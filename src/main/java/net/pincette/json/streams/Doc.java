@@ -10,9 +10,10 @@ import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.COMMAND;
-import static net.pincette.json.streams.Common.DESTINATION_TYPE;
 import static net.pincette.json.streams.Common.EVENT;
 import static net.pincette.json.streams.Common.EVENT_FULL;
+import static net.pincette.json.streams.Common.FROM_COLLECTION;
+import static net.pincette.json.streams.Common.FROM_COLLECTIONS;
 import static net.pincette.json.streams.Common.FROM_STREAM;
 import static net.pincette.json.streams.Common.FROM_STREAMS;
 import static net.pincette.json.streams.Common.FROM_TOPIC;
@@ -22,14 +23,13 @@ import static net.pincette.json.streams.Common.LEFT;
 import static net.pincette.json.streams.Common.MERGE;
 import static net.pincette.json.streams.Common.NAME;
 import static net.pincette.json.streams.Common.PARTS;
-import static net.pincette.json.streams.Common.REACTOR;
 import static net.pincette.json.streams.Common.REPLY;
 import static net.pincette.json.streams.Common.RIGHT;
-import static net.pincette.json.streams.Common.SOURCE_TYPE;
 import static net.pincette.json.streams.Common.STREAM;
+import static net.pincette.json.streams.Common.TO_COLLECTION;
 import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
-import static net.pincette.json.streams.Common.VERSION;
+import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.util.Or.tryWith;
@@ -98,7 +98,7 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<String> applicationMetadata(final JsonObject json) {
-    return concat(field(json, APPLICATION_FIELD, "Name"), field(json, VERSION, "Version"));
+    return concat(field(json, APPLICATION_FIELD, "Name"), field(json, VERSION_FIELD, "Version"));
   }
 
   private static String asLink(final String s) {
@@ -157,7 +157,8 @@ class Doc extends ApplicationCommand implements Runnable {
   private static Stream<String> from(final JsonObject json) {
     return concat(
         field(json, FROM_STREAM, "From stream", Doc::asLink),
-        field(json, FROM_TOPIC, "From topic"));
+        field(json, FROM_TOPIC, "From topic"),
+        field(json, FROM_COLLECTION, "From collection"));
   }
 
   private static Optional<String> getTitle(final JsonObject json) {
@@ -179,7 +180,8 @@ class Doc extends ApplicationCommand implements Runnable {
   private static Stream<String> mergeMetadata(final JsonObject json) {
     return concat(
         fieldArray(json, FROM_STREAMS, "From streams", Doc::asLink),
-        fieldArray(json, FROM_TOPICS, "From topics"));
+        fieldArray(json, FROM_TOPICS, "From topics"),
+        fieldArray(json, FROM_COLLECTIONS, "From collections"));
   }
 
   private static Function<JsonObject, Stream<String>> metadata(final JsonObject json) {
@@ -190,8 +192,6 @@ class Doc extends ApplicationCommand implements Runnable {
         return Doc::joinMetadata;
       case MERGE:
         return Doc::mergeMetadata;
-      case REACTOR:
-        return Doc::reactorMetadata;
       case STREAM:
         return Doc::streamMetadata;
       default:
@@ -218,11 +218,6 @@ class Doc extends ApplicationCommand implements Runnable {
     return getObjects(specification, PARTS).flatMap(Doc::part);
   }
 
-  private static Stream<String> reactorMetadata(final JsonObject json) {
-    return concat(
-        field(json, SOURCE_TYPE, "Source type"), field(json, DESTINATION_TYPE, "Destination type"));
-  }
-
   private static Stream<String> section(
       final JsonObject json,
       final Function<JsonObject, Stream<String>> metadata,
@@ -247,11 +242,11 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<String> to(final JsonObject json) {
-    return field(json, TO_TOPIC, "To topic");
+    return concat(field(json, TO_TOPIC, "To topic"), field(json, TO_COLLECTION, "To collection"));
   }
 
   public void run() {
-    getValidatedTopologies()
+    getValidatedApplications()
         .forEach(
             specification ->
                 tryToDoWithRethrow(

@@ -1,0 +1,12 @@
+---
+application: app32
+version: "1.0"
+parameters:
+  TEST1: "test1"
+  TEST2: "test2"
+parts:
+  - "part1.yml"
+  - include:
+      file: "part2.yml"
+      parameters:
+        TEST1: "test11"

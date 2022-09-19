@@ -5,7 +5,7 @@ import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Logger.getGlobal;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
-import static net.pincette.json.streams.Common.getTopologyCollection;
+import static net.pincette.json.streams.Common.getApplicationCollection;
 import static net.pincette.mongo.Collection.deleteOne;
 import static net.pincette.util.Util.must;
 
@@ -48,7 +48,7 @@ class Delete implements Runnable {
 
   public void run() {
     deleteOne(
-            context.database.getCollection(getTopologyCollection(collection, context)),
+            context.database.getCollection(getApplicationCollection(collection, context)),
             eq(APPLICATION_FIELD, application))
         .thenApply(result -> must(result, DeleteResult::wasAcknowledged))
         .thenApply(this::logExists)

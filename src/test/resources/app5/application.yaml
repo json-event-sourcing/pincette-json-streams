@@ -1,0 +1,10 @@
+---
+application: app5
+version: "1.0"
+parts:
+  - type: merge
+    name: merged
+    toTopic: out
+    fromTopics:
+      - in1
+      - in2

@@ -7,9 +7,9 @@ import static com.mongodb.client.model.Projections.fields;
 import static com.mongodb.client.model.Projections.include;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
-import static net.pincette.json.streams.Common.VERSION;
+import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.application;
-import static net.pincette.json.streams.Common.getTopologyCollection;
+import static net.pincette.json.streams.Common.getApplicationCollection;
 import static net.pincette.mongo.JsonClient.aggregate;
 import static net.pincette.util.Collections.list;
 
@@ -40,7 +40,7 @@ class ListApps implements Runnable {
   @SuppressWarnings("java:S106") // Not logging.
   private static List<JsonObject> print(final List<JsonObject> result) {
     result.stream()
-        .map(r -> application(r) + " " + r.getString(VERSION, null))
+        .map(r -> application(r) + " " + r.getString(VERSION_FIELD, null))
         .sorted()
         .forEach(System.out::println);
 
@@ -49,10 +49,10 @@ class ListApps implements Runnable {
 
   public void run() {
     aggregate(
-            context.database.getCollection(getTopologyCollection(collection, context)),
+            context.database.getCollection(getApplicationCollection(collection, context)),
             list(
                 match(exists(APPLICATION_FIELD)),
-                project(fields(include(APPLICATION_FIELD, VERSION)))))
+                project(fields(include(APPLICATION_FIELD, VERSION_FIELD)))))
         .thenApply(ListApps::print)
         .toCompletableFuture()
         .join();

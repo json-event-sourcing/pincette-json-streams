@@ -1,0 +1,36 @@
+{
+  "averageMessageTimeEstimate": 50,
+  "maximumAppsPerInstance": 2,
+  "maximumMessageLag": {
+    "app1": {
+      "topic1": 100
+    },
+    "app2": {
+      "topic1": 100
+    }
+  },
+  "messageLagPerApplication": {
+    "app1": {
+      "topic1": {
+        "0": 8,
+        "1": 3
+      }
+    },
+    "app2": {
+      "topic1": {
+        "0": 10,
+        "1": 6,
+        "2": 5
+      }
+    }
+  },
+  "runningInstancesWithApplications": {
+    "instance1": [
+      "app1"
+    ],
+    "instance2": [
+      "app2"
+    ]
+  },
+  "expected": 1
+}

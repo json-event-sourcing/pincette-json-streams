@@ -4,9 +4,11 @@ You can merge several streams or topics with a merge part. All the messages from
 
 |Field|Mandatory|Description|
 |---|---|---|
-|fromStreams|Eclusive with `fromTopics`|An array of stream names.|
-|fromTopics|Exclusive with `fromStreams`|An array of Kafka topic names.|
+|fromCollections|Exclusive with `fromTopics` and `fromStreams`|An array of MongoDB collection names. See also [streams](streams.md).|
+|fromStreams|Eclusive with `fromTopics` and `fromCollections`|An array of stream names.|
+|fromTopics|Exclusive with `fromStreams` and `fromCollections`|An array of Kafka topic names.|
 |name|Yes|The name of the output stream. Other streams can connect to it with that name.|
+|toCollection|No|The name of the MongoDB collection to which the messages are sent.|
 |toString|No|A boolean field that, when the `toTopic` field is present, will cause the JSON messages to be written as strings.| 
 |toTopic|No|The name of the Kafka topic to which this stream will be connected as a producer.|
 |type|Yes|The value is always `merge`.|

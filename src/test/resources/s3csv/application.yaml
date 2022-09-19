@@ -1,0 +1,13 @@
+---
+application: s3csv
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out
+    pipeline:
+      - $s3Csv:
+          bucket: "$bucket"
+          key: "$key"
+          separator: "\t"

@@ -13,10 +13,8 @@ import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
-import static net.pincette.json.streams.Common.DESTINATIONS;
-import static net.pincette.json.streams.Common.DESTINATION_TYPE;
-import static net.pincette.json.streams.Common.EVENT_TO_COMMAND;
-import static net.pincette.json.streams.Common.FILTER;
+import static net.pincette.json.streams.Common.FROM_COLLECTION;
+import static net.pincette.json.streams.Common.FROM_COLLECTIONS;
 import static net.pincette.json.streams.Common.FROM_STREAM;
 import static net.pincette.json.streams.Common.FROM_STREAMS;
 import static net.pincette.json.streams.Common.FROM_TOPIC;
@@ -27,14 +25,13 @@ import static net.pincette.json.streams.Common.MERGE;
 import static net.pincette.json.streams.Common.NAME;
 import static net.pincette.json.streams.Common.ON;
 import static net.pincette.json.streams.Common.PARTS;
-import static net.pincette.json.streams.Common.REACTOR;
 import static net.pincette.json.streams.Common.REDUCER;
 import static net.pincette.json.streams.Common.RIGHT;
-import static net.pincette.json.streams.Common.SOURCE_TYPE;
 import static net.pincette.json.streams.Common.STREAM;
 import static net.pincette.json.streams.Common.STREAM_TYPES;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATOR;
+import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.getCommands;
@@ -123,6 +120,26 @@ class Validate {
     return result;
   }
 
+  static boolean validateApplication(final JsonObject specification) {
+    var result =
+        application(specification) != null
+            && getValue(specification, "/" + VERSION_FIELD).map(JsonUtil::isString).orElse(false)
+            && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
+
+    if (!result) {
+      getGlobal()
+          .severe(
+              "A topology should have an \"application\" and a \"version\" field, both "
+                  + "strings, and an array called \"parts\".");
+    } else {
+      result =
+          validateStreamReferences(specification)
+              && getObjects(specification, PARTS).allMatch(Validate::validatePart);
+    }
+
+    return result;
+  }
+
   private static boolean validateCommand(
       final String aggregateType, final String name, final JsonObject command) {
     final var result =
@@ -158,17 +175,19 @@ class Validate {
             && getValue(specification, left + ON).isPresent()
             && getValue(specification, right + ON).isPresent()
             && (getString(specification, left + FROM_STREAM).isPresent()
-                || getString(specification, left + FROM_TOPIC).isPresent())
+                || getString(specification, left + FROM_TOPIC).isPresent()
+                || getString(specification, left + FROM_COLLECTION).isPresent())
             && (getString(specification, right + FROM_STREAM).isPresent()
-                || getString(specification, right + FROM_TOPIC).isPresent());
+                || getString(specification, right + FROM_TOPIC).isPresent()
+                || getString(specification, right + FROM_COLLECTION).isPresent());
 
     if (!result) {
       getGlobal()
           .log(
               SEVERE,
               "The join {0} should have the fields \"window\", \"left.on\", \"right.on\", either "
-                  + "\"left.fromStream\" or \"left.fromTopic\" and either \"right.fromStream\" or "
-                  + "\"right.fromTopic\".",
+                  + "\"left.fromCollection\", \"left.fromStream\" or \"left.fromTopic\" and "
+                  + "either \"right.fromCollection\", \"right.fromStream\" or \"right.fromTopic\".",
               new Object[] {specification.getString(NAME, null)});
     }
 
@@ -179,14 +198,15 @@ class Validate {
     final var result =
         specification.getString(NAME, null) != null
             && (specification.getJsonArray(FROM_STREAMS) != null
-                || specification.getJsonArray(FROM_TOPICS) != null);
+                || specification.getJsonArray(FROM_TOPICS) != null
+                || specification.getJsonArray(FROM_COLLECTIONS) != null);
 
     if (!result) {
       getGlobal()
           .log(
               SEVERE,
-              "The merge {0} should have the fields \"name\" and \"fromStreams\" or "
-                  + "\"fromTopics\".",
+              "The merge {0} should have the fields \"name\" and "
+                  + "\"fromCollections\", \"fromStreams\" or \"fromTopics\".",
               new Object[] {specification.getString(NAME, null)});
     }
 
@@ -220,8 +240,6 @@ class Validate {
         return validateJoin(specification);
       case MERGE:
         return validateMerge(specification);
-      case REACTOR:
-        return validateReactor(specification);
       case STREAM:
         return validateStream(specification);
       default:
@@ -229,61 +247,20 @@ class Validate {
     }
   }
 
-  private static boolean validateReactor(final JsonObject specification) {
-    final var result =
-        specification.getString(SOURCE_TYPE, null) != null
-            && specification.getString(DESTINATION_TYPE, null) != null
-            && specification.getString(EVENT_TO_COMMAND, null) != null
-            && specification.getJsonArray(DESTINATIONS) != null
-            && (!specification.containsKey(FILTER)
-                || getObject(specification, "/" + FILTER).isPresent());
-
-    if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The reactor from {0} to {1} should have the fields \"sourceType\","
-                  + " \"destinationType\", \"eventToCommand\", and \"destinations\" and "
-                  + "optionally the object \"filter\".",
-              new Object[] {
-                specification.getString(SOURCE_TYPE, null),
-                specification.getString(DESTINATION_TYPE, null)
-              });
-    }
-
-    return result;
-  }
-
   private static boolean validateStream(final JsonObject specification) {
     final var result =
         specification.getString(NAME, null) != null
             && (specification.getString(FROM_STREAM, null) != null
-                || specification.getString(FROM_TOPIC, null) != null);
+                || specification.getString(FROM_TOPIC, null) != null
+                || specification.getString(FROM_COLLECTION, null) != null);
 
     if (!result) {
       getGlobal()
           .log(
               SEVERE,
-              "The stream {0} should have the field \"name\" and either \"fromStream\" or"
-                  + " \"fromTopic\".",
+              "The stream {0} should have the field \"name\" and either "
+                  + "\"fromCollection\", \"fromStream\" or \"fromTopic\".",
               new Object[] {specification.getString(NAME, null)});
-    }
-
-    return result;
-  }
-
-  static boolean validateTopology(final JsonObject specification) {
-    var result =
-        application(specification) != null
-            && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
-
-    if (!result) {
-      getGlobal()
-          .severe("A topology should have an \"application\" field and an array called \"parts\".");
-    } else {
-      result =
-          validateStreamReferences(specification)
-              && getObjects(specification, PARTS).allMatch(Validate::validatePart);
     }
 
     return result;

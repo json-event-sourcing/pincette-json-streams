@@ -2,6 +2,9 @@ package net.pincette.json.streams;
 
 import static java.util.Objects.hash;
 import static java.util.Optional.ofNullable;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getString;
@@ -12,6 +15,8 @@ import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.COMMAND;
 import static net.pincette.json.streams.Common.EVENT;
 import static net.pincette.json.streams.Common.EVENT_FULL;
+import static net.pincette.json.streams.Common.FROM_COLLECTION;
+import static net.pincette.json.streams.Common.FROM_COLLECTIONS;
 import static net.pincette.json.streams.Common.FROM_STREAM;
 import static net.pincette.json.streams.Common.FROM_STREAMS;
 import static net.pincette.json.streams.Common.FROM_TOPIC;
@@ -24,16 +29,21 @@ import static net.pincette.json.streams.Common.PARTS;
 import static net.pincette.json.streams.Common.REPLY;
 import static net.pincette.json.streams.Common.RIGHT;
 import static net.pincette.json.streams.Common.STREAM;
+import static net.pincette.json.streams.Common.TO_COLLECTION;
 import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.util.Or.tryWith;
+import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 
 import java.io.PrintWriter;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
@@ -51,7 +61,7 @@ import picocli.CommandLine.Option;
 class Dot extends ApplicationCommand implements Runnable {
   @Option(
       names = {"-g", "--global"},
-      description = "Create a graph with the applications and their topics.")
+      description = "Create a graph with the applications.")
   private boolean global;
 
   Dot(final Context context) {
@@ -103,6 +113,31 @@ class Dot extends ApplicationCommand implements Runnable {
     return getObjects(specification, PARTS).flatMap(part -> partLinks(part, environment));
   }
 
+  private static Stream<Link> applicationLinks(final Stream<Link> links) {
+    final List<Link> collected = links.collect(toList());
+
+    return applicationLinks(
+        collected.stream()
+            .filter(l -> l.from.application != null)
+            .collect(groupingBy(l -> l.from.application, mapping(l -> l.to, toSet()))),
+        collected.stream()
+            .filter(l -> l.to.application != null)
+            .collect(groupingBy(l -> l.from, mapping(l -> l.to.application, toSet()))));
+  }
+
+  private static Stream<Link> applicationLinks(
+      final Map<String, Set<End>> from, final Map<End, Set<String>> to) {
+    return from.entrySet().stream()
+        .flatMap(e -> e.getValue().stream().map(end -> pair(e.getKey(), end)))
+        .flatMap(
+            p ->
+                ofNullable(to.get(p.second)).stream()
+                    .flatMap(Set::stream)
+                    .map(app -> pair(p.first, app)))
+        .filter(p -> !p.first.equals(p.second))
+        .map(p -> new Link(End.application(p.first), End.application(p.second)));
+  }
+
   private static Stream<Link> fromTopic(final String application, final JsonObject json) {
     return ofNullable(json.getString(FROM_TOPIC, null)).stream()
         .map(topic -> new Link(End.topic(topic), End.application(application)));
@@ -123,15 +158,18 @@ class Dot extends ApplicationCommand implements Runnable {
                 new End(
                     null,
                     getString(json, "/" + LEFT + "/" + FROM_STREAM).orElse(null),
-                    getString(json, "/" + LEFT + "/" + FROM_TOPIC).orElse(null)),
+                    getString(json, "/" + LEFT + "/" + FROM_TOPIC).orElse(null),
+                    getString(json, "/" + LEFT + "/" + FROM_COLLECTION).orElse(null)),
                 End.stream(json.getString(NAME))),
             new Link(
                 new End(
                     null,
                     getString(json, "/" + RIGHT + "/" + FROM_STREAM).orElse(null),
-                    getString(json, "/" + RIGHT + "/" + FROM_TOPIC).orElse(null)),
+                    getString(json, "/" + RIGHT + "/" + FROM_TOPIC).orElse(null),
+                    getString(json, "/" + RIGHT + "/" + FROM_COLLECTION).orElse(null)),
                 End.stream(json.getString(NAME)))),
-        toTopic(json));
+        toTopic(json),
+        toCollection(json));
   }
 
   private static Stream<Link> joinLinks(final String application, final JsonObject json) {
@@ -141,13 +179,15 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<Link> mergeLinks(final JsonObject json) {
+    final End thisEnd = End.stream(json.getString(NAME));
+
     return concat(
-        concat(
-            getStrings(json, FROM_STREAMS)
-                .map(stream -> new Link(End.stream(stream), End.stream(json.getString(NAME)))),
-            getStrings(json, FROM_TOPICS)
-                .map(topic -> new Link(End.topic(topic), End.stream(json.getString(NAME))))),
-        toTopic(json));
+        getStrings(json, FROM_STREAMS).map(stream -> new Link(End.stream(stream), thisEnd)),
+        getStrings(json, FROM_TOPICS).map(topic -> new Link(End.topic(topic), thisEnd)),
+        getStrings(json, FROM_COLLECTIONS)
+            .map(collection -> new Link(End.collection(collection), thisEnd)),
+        toTopic(json),
+        toCollection(json));
   }
 
   private static Stream<Link> mergeLinks(final String application, final JsonObject json) {
@@ -188,7 +228,11 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static void printApplication(final String name, final PrintWriter writer) {
-    printPart(name, " [shape=ellipse][href=\"" + name + ".svg\"][label=\"Application ", writer);
+    printPart(name, " [shape=ellipse][href=\"" + name + ".svg\"][label=\"", writer);
+  }
+
+  private static void printCollection(final String name, final PrintWriter writer) {
+    printPart(name, " [shape=cylinder][label=\"Topic ", writer);
   }
 
   private static void printEnd(final End end, final PrintWriter writer) {
@@ -196,8 +240,10 @@ class Dot extends ApplicationCommand implements Runnable {
       printApplication(end.name(), writer);
     } else if (end.stream != null) {
       printStream(end.stream, writer);
-    } else {
+    } else if (end.topic != null) {
       printTopic(end.topic, writer);
+    } else {
+      printCollection(end.collection, writer);
     }
   }
 
@@ -236,13 +282,23 @@ class Dot extends ApplicationCommand implements Runnable {
     return concat(
         Stream.of(
             new Link(
-                new End(null, json.getString(FROM_STREAM, null), json.getString(FROM_TOPIC, null)),
+                new End(
+                    null,
+                    json.getString(FROM_STREAM, null),
+                    json.getString(FROM_TOPIC, null),
+                    json.getString(FROM_COLLECTION, null)),
                 End.stream(json.getString(NAME)))),
-        toTopic(json));
+        toTopic(json),
+        toCollection(json));
   }
 
   private static Stream<Link> streamLinks(final String application, final JsonObject json) {
     return concat(fromTopic(application, json), toTopic(application, json, "/" + TO_TOPIC));
+  }
+
+  private static Stream<Link> toCollection(final JsonObject json) {
+    return ofNullable(json.getString(TO_COLLECTION, null)).stream()
+        .map(collection -> new Link(End.stream(json.getString(NAME)), End.collection(collection)));
   }
 
   private static Stream<Link> toTopic(final JsonObject json) {
@@ -261,8 +317,9 @@ class Dot extends ApplicationCommand implements Runnable {
         () -> getWriter("applications.dot"),
         writer -> {
           writer.println("digraph Applications {");
-          specifications
-              .flatMap(specification -> globalLinks(specification, context.environment))
+          applicationLinks(
+                  specifications.flatMap(
+                      specification -> globalLinks(specification, context.environment)))
               .collect(toSet())
               .forEach(link -> printLink(link, writer));
           writer.println('}');
@@ -284,33 +341,43 @@ class Dot extends ApplicationCommand implements Runnable {
 
   public void run() {
     if (global) {
-      manyApplications(getValidatedTopologies());
+      manyApplications(getValidatedApplications());
     } else {
-      getValidatedTopologies().forEach(this::oneApplication);
+      getValidatedApplications().forEach(this::oneApplication);
     }
   }
 
   private static class End {
     private final String application;
+    private final String collection;
     private final String stream;
     private final String topic;
 
-    private End(final String application, final String stream, final String topic) {
+    private End(
+        final String application,
+        final String stream,
+        final String topic,
+        final String collection) {
       this.application = application;
       this.stream = stream;
       this.topic = topic;
+      this.collection = collection;
     }
 
     private static End application(final String application) {
-      return new End(application, null, null);
+      return new End(application, null, null, null);
+    }
+
+    private static End collection(final String collection) {
+      return new End(null, null, null, collection);
     }
 
     private static End stream(final String stream) {
-      return new End(null, stream, null);
+      return new End(null, stream, null, null);
     }
 
     private static End topic(final String topic) {
-      return new End(null, null, topic);
+      return new End(null, null, topic, null);
     }
 
     @Override
@@ -323,13 +390,14 @@ class Dot extends ApplicationCommand implements Runnable {
                   end ->
                       Objects.equals(application, end.application)
                           && Objects.equals(stream, end.stream)
-                          && Objects.equals(topic, end.topic))
+                          && Objects.equals(topic, end.topic)
+                          && Objects.equals(collection, end.collection))
               .orElse(false);
     }
 
     @Override
     public int hashCode() {
-      return hash(application, stream, topic);
+      return hash(application, stream, topic, collection);
     }
 
     private String name() {

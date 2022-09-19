@@ -6,11 +6,11 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Projections.include;
-import static java.lang.Math.abs;
+import static java.lang.Integer.parseInt;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
-import static java.lang.Math.round;
 import static java.time.Duration.ofMillis;
+import static java.time.Duration.ofMinutes;
 import static java.time.Instant.now;
 import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
@@ -24,9 +24,7 @@ import static java.util.stream.Collectors.summingInt;
 import static java.util.stream.Collectors.summingLong;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
-import static net.pincette.jes.util.JsonFields.ID;
-import static net.pincette.jes.util.Kafka.messageLag;
-import static net.pincette.jes.util.Kafka.send;
+import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
@@ -37,6 +35,7 @@ import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.isLong;
 import static net.pincette.json.JsonUtil.isObject;
+import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.streams.Common.ALIVE_AT;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.LEADER;
@@ -48,9 +47,10 @@ import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.aggregate;
 import static net.pincette.mongo.JsonClient.findOne;
+import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Collections.difference;
 import static net.pincette.util.Collections.list;
-import static net.pincette.util.Collections.merge;
+import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
 import static net.pincette.util.Pair.pair;
@@ -59,13 +59,13 @@ import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.getStackTrace;
 import static net.pincette.util.Util.must;
-import static org.apache.kafka.clients.admin.AdminClient.create;
 
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
 import com.mongodb.client.result.UpdateResult;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -75,9 +75,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
-import java.util.function.BiPredicate;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -85,58 +83,51 @@ import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.json.JsonUtil;
 import net.pincette.util.AsyncBuilder;
-import net.pincette.util.Cases;
 import net.pincette.util.Pair;
-import net.pincette.util.StreamUtil;
-import org.apache.kafka.clients.admin.Admin;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.TopicPartition;
 import org.bson.Document;
 
-class Work {
+class Work<T, U, V, W> {
   private static final String AVERAGE_MESSAGE_TIME_ESTIMATE = "work.averageMessageTimeEstimate";
-  private static final Duration DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE = ofMillis(50);
+  private static final String AVERAGE_MESSAGE_TIME_ESTIMATE_SIM = "averageMessageTimeEstimate";
+  private static final Duration DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE = ofMillis(20);
+  private static final Duration DEFAULT_INTERVAL = ofMinutes(1);
   private static final String DESIRED = "desired";
-  private static final int DEFAULT_MAXIMUM_APPS_PER_INSTANCE = 10;
-  private static final String EXCESS_MESSAGE_LAG = "excessMessageLag";
+  private static final int DEFAULT_MAXIMUM_APPS_PER_INSTANCE = 50;
   private static final String EXCESS_MESSAGE_LAG_TOPIC = "work.excessMessageLagTopic";
   private static final String INSTANCES_TOPIC = "work.instancesTopic";
+  private static final String INTERVAL = "work.interval";
   private static final String LEADER_FIELD = "leader";
   private static final String MAXIMUM_APPS_PER_INSTANCE = "work.maximumAppsPerInstance";
-  private static final String MAXIMUM_INSTANCES = "work.maximumInstances";
+  private static final String MAXIMUM_APPS_PER_INSTANCE_SIM = "maximumAppsPerInstance";
   private static final String MAXIMUM_MESSAGE_LAG = "maximumMessageLag";
+  private static final String MESSAGE_LAG_PER_APPLICATION = "messageLagPerApplication";
+  private static final String RUNNING = "running";
+  private static final String RUNNING_INSTANCES_WITH_APPLICATIONS =
+      "runningInstancesWithApplications";
   private static final String TIME = "time";
   private static final String WORK_LOGGER = LOGGER + ".work";
 
-  private final Duration averageMessageTimeEstimate;
   private final MongoCollection<Document> collection;
   private final Context context;
   private final String excessMessageLagTopic;
   private final String instancesTopic;
-  private final Admin kafkaAdmin;
-  private final int maximumAppsPerInstance;
-  private final int maximumInstances;
+  private final Duration intervalValue;
+  private final Provider<T, U, V, W> provider;
+  private final WorkContext workContext;
+  private Instant lastWork;
 
   Work(
       final MongoCollection<Document> collection,
-      final Map<String, Object> kafkaAdminConfig,
+      final Provider<T, U, V, W> provider,
       final Context context) {
     this.collection = collection;
-    this.kafkaAdmin = create(kafkaAdminConfig);
-    this.averageMessageTimeEstimate = averageMessageTimeEstimate(context);
-    this.maximumAppsPerInstance = maximumAppsPerInstance(context);
-    this.maximumInstances = context.config.getInt(MAXIMUM_INSTANCES);
+    this.provider = provider;
+    this.workContext = new WorkContext(context);
     this.context = context;
     this.excessMessageLagTopic =
         config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
     this.instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
-  }
-
-  private static int applicationInstancesRunning(
-      final Map<String, Set<String>> work, final String application) {
-    return work.values().stream()
-        .mapToInt(applications -> applications.contains(application) ? 1 : 0)
-        .sum();
+    this.intervalValue = config(context, config -> config.getDuration(INTERVAL), DEFAULT_INTERVAL);
   }
 
   private static Stream<String> applications(final List<JsonObject> list, final String pointer) {
@@ -145,23 +136,112 @@ class Work {
         .filter(Objects::nonNull);
   }
 
-  private static Duration averageMessageTimeEstimate(final Context context) {
-    return config(
-        context,
-        config -> config.getDuration(AVERAGE_MESSAGE_TIME_ESTIMATE),
-        DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE);
+  private static long capacityPerSecond(final WorkContext context) {
+    return 1000 / context.averageMessageTimeEstimate.toMillis();
   }
 
   private static Map<String, Set<String>> copy(
       final Map<String, Set<String>> map, final Predicate<String> filter) {
-    return StreamUtil.toMap(
+    return map(
         map.entrySet().stream()
             .map(e -> pair(e.getKey(), filterApplications(e.getValue(), filter))));
+  }
+
+  private static Map<String, Integer> desiredApplicationInstances(
+      final Status status, final WorkContext context) {
+    return map(
+        status.allApplications.stream()
+            .map(app -> pair(app, desiredApplicationInstances(status, app, context))));
+  }
+
+  private static int desiredInstances(
+      final Map<String, Integer> desiredApplicationInstances, final WorkContext context) {
+    final int minimal =
+        desiredApplicationInstances.values().stream().max(comparing(v -> v)).orElse(1);
+    final int applicationInstances =
+        desiredApplicationInstances.values().stream().mapToInt(v -> v).sum();
+
+    return max(
+        minimal,
+        applicationInstances / context.maximumAppsPerInstance
+            + (applicationInstances % context.maximumAppsPerInstance != 0 ? 1 : 0));
+  }
+
+  private static int desiredApplicationInstances(
+      final Status status, final String application, final WorkContext context) {
+    final Map<String, Long> maximumMessageLagPerTopic =
+        status.maximumMessageLagPerApplication.get(application);
+
+    return min(
+        status.maximumAllowedApplicationInstances(application),
+        status.messageLagPerTopic(application).entrySet().stream()
+            .map(
+                e ->
+                    ofNullable(maximumMessageLagPerTopic)
+                            .map(
+                                max ->
+                                    excessCapacityForTopic(e.getKey(), e.getValue(), max, context))
+                            .orElse(0)
+                        + 1)
+            .max(comparing(c -> c))
+            .orElse(1));
+  }
+
+  private static Map<String, Integer> diffApplicationInstances(
+      final Map<String, Integer> remove, final Map<String, Integer> from) {
+    return map(
+        from.entrySet().stream()
+            .map(e -> pair(e.getKey(), e.getValue() - ofNullable(remove.get(e.getKey())).orElse(0)))
+            .filter(pair -> pair.second > 0));
+  }
+
+  private static int excessCapacityForTopic(
+      final String topic,
+      final long messageLag,
+      final Map<String, Long> maximumMessageLagPerTopic,
+      final WorkContext context) {
+    return ofNullable(maximumMessageLagPerTopic.get(topic))
+        .map(max -> messageLag - max)
+        .filter(excessLag -> excessLag > 0)
+        .map(excessLag -> extraApplicationCapacity(excessLag, context))
+        .orElse(0);
+  }
+
+  private static int extraApplicationCapacity(final long messageLag, final WorkContext context) {
+    final long capacity = instanceCapacityPerSecond(context);
+
+    return (int) (messageLag / capacity) + (messageLag > 0 && messageLag % capacity != 0 ? 1 : 0);
   }
 
   private static Set<String> filterApplications(
       final Set<String> applications, final Predicate<String> filter) {
     return applications.stream().filter(filter).collect(toSet());
+  }
+
+  private static Map<String, Set<String>> giveWork(
+      final Status status,
+      final Map<String, Integer> desiredApplicationInstances,
+      final WorkContext context) {
+    final Map<String, Set<String>> desiredApplicationsPerInstance =
+        copy(status.runningInstancesWithApplications, status.allApplications::contains);
+
+    removeRunningInExcess(
+        desiredApplicationsPerInstance,
+        diffApplicationInstances(
+            desiredApplicationInstances, status.runningApplicationInstances()));
+
+    spreadAdditionalApplications(
+        desiredApplicationsPerInstance,
+        diffApplicationInstances(status.runningApplicationInstances(), desiredApplicationInstances),
+        context.maximumAppsPerInstance);
+
+    rebalance(desiredApplicationsPerInstance);
+
+    return desiredApplicationsPerInstance;
+  }
+
+  private static long instanceCapacityPerSecond(final WorkContext context) {
+    return capacityPerSecond(context) * context.maximumAppsPerInstance;
   }
 
   private static JsonObject instances(final String leader, final Map<String, Set<String>> work) {
@@ -176,15 +256,6 @@ class Work {
         .build();
   }
 
-  private static int keepAtLeastOne(
-      final String application, final Status status, final int extraCapacity) {
-    return extraCapacity < 0
-        ? max(
-            extraCapacity,
-            applicationInstancesRunning(status.runningInstancesWithApplications, application) - 1)
-        : extraCapacity;
-  }
-
   private static int largestInstance(
       final Entry<String, Set<String>> e1, final Entry<String, Set<String>> e2) {
     return e2.getValue().size() - e1.getValue().size();
@@ -197,16 +268,27 @@ class Work {
         .sorted(Work::largestInstance);
   }
 
-  private static int maximumAppsPerInstance(final Context context) {
-    return config(
-        context,
-        config -> config.getInt(MAXIMUM_APPS_PER_INSTANCE),
-        DEFAULT_MAXIMUM_APPS_PER_INSTANCE);
+  private static Map<String, Map<Partition, Long>> messageLagPerApplication(final JsonObject json) {
+    return json.entrySet().stream()
+        .collect(toMap(Entry::getKey, e -> messageLagPerTopic(e.getValue().asJsonObject())));
+  }
+
+  private static Map<Partition, Long> messageLagPerTopic(final JsonObject json) {
+    return map(
+        json.entrySet().stream()
+            .flatMap(
+                e ->
+                    e.getValue().asJsonObject().entrySet().stream()
+                        .map(
+                            t ->
+                                pair(
+                                    new Partition(e.getKey(), parseInt(t.getKey())),
+                                    asLong(t.getValue())))));
   }
 
   private static void rebalance(final Map<String, Set<String>> desired) {
     if (!desired.isEmpty()) {
-      final int average = desired.values().stream().mapToInt(Set::size).sum() / desired.size();
+      final int average = runningApplicationInstances(desired) / desired.size();
 
       if (average > 0) {
         desired.entrySet().stream()
@@ -237,18 +319,49 @@ class Work {
                 desired.put(pair.second.getKey(), difference(pair.second.getValue(), toRemove)));
   }
 
-  private static Set<String> runningApplications(final Map<String, Set<String>> work) {
-    return work.values().stream().flatMap(Set::stream).collect(toSet());
+  private static int runningApplicationInstances(final Map<String, Set<String>> work) {
+    return work.values().stream().mapToInt(Set::size).sum();
   }
 
-  private static <K, V> Map<K, V> select(final Map<K, V> map, final BiPredicate<K, V> predicate) {
-    return map.entrySet().stream()
-        .filter(e -> predicate.test(e.getKey(), e.getValue()))
-        .collect(toMap(Entry::getKey, Entry::getValue));
+  private static Map<String, Set<String>> runningInstancesWithApplications(final JsonObject json) {
+    return json.entrySet().stream()
+        .collect(toMap(Entry::getKey, e -> strings(e.getValue().asJsonArray()).collect(toSet())));
   }
 
-  private static <K> Map<K, Integer> singleOccurrence(final Set<K> values) {
-    return values.stream().collect(toMap(v -> v, v -> 1));
+  private static Pair<Integer, Integer> scalingIndicator(
+      final Map<String, Set<String>> work,
+      final Map<String, Integer> desiredApplicationInstances,
+      final WorkContext context) {
+    return pair(work.size(), desiredInstances(desiredApplicationInstances, context));
+  }
+
+  private static int simulate(final Status status, final WorkContext context) {
+    final Map<String, Integer> desiredApplicationInstances =
+        desiredApplicationInstances(status, context);
+
+    return scalingIndicator(
+            giveWork(status, desiredApplicationInstances, context),
+            desiredApplicationInstances,
+            context)
+        .second;
+  }
+
+  static int simulate(final JsonObject json) {
+    return simulate(
+        new Status()
+            .withAllApplications(json.getJsonObject(MESSAGE_LAG_PER_APPLICATION).keySet())
+            .withMaximumMessageLag(
+                ofNullable(json.getJsonObject(MAXIMUM_MESSAGE_LAG))
+                    .orElseGet(JsonUtil::emptyObject))
+            .withMessageLagPerApplication(
+                messageLagPerApplication(json.getJsonObject(MESSAGE_LAG_PER_APPLICATION)))
+            .withRunningInstancesWithApplications(
+                runningInstancesWithApplications(
+                    json.getJsonObject(RUNNING_INSTANCES_WITH_APPLICATIONS))),
+        new WorkContext()
+            .withAverageMessageTimeEstimate(
+                ofMillis(json.getInt(AVERAGE_MESSAGE_TIME_ESTIMATE_SIM)))
+            .withMaximumAppsPerInstance(json.getInt(MAXIMUM_APPS_PER_INSTANCE_SIM)));
   }
 
   private static int smallestInstance(
@@ -275,6 +388,7 @@ class Work {
         (key, value) -> spreadAdditionalApplications(desired, key, value, maximumAppsPerInstance));
   }
 
+  /** Some extra application instances may not be scheduled because there is no room left. */
   private static void spreadAdditionalApplications(
       final Map<String, Set<String>> desired,
       final String application,
@@ -301,110 +415,55 @@ class Work {
             });
   }
 
-  private static Set<String> notRunningApplications(
-      final Set<String> allApplications, final Map<String, Set<String>> work) {
-    return difference(allApplications, runningApplications(work));
-  }
-
-  private int adjustResolution(final int normalizedMessageLag) {
-    final int unit = round(100F / maximumInstances);
-    final Supplier<Float> extra = () -> normalizedMessageLag % unit != 0 ? 0.5F : 0;
-
-    return unit > 0
-        ? round(normalizedMessageLag / (float) unit + extra.get()) * unit
-        : normalizedMessageLag;
-  }
-
-  private int adjustedMessageLagIndicator(
-      final Status status, final Map<String, Set<String>> work) {
-    return adjustResolution(normalizeExcessMessageLag(status, totalExcessMessageLag(status, work)));
-  }
-
   private CompletionStage<Set<String>> allApplications() {
     return aggregate(
             collection, list(match(exists(APPLICATION_FIELD)), project(include(APPLICATION_FIELD))))
         .thenApply(list -> applications(list, "/" + APPLICATION_FIELD).collect(toSet()));
   }
 
-  private long capacity() {
-    return maximumAppsPerInstance * capacityPerSecond();
+  private boolean canWork() {
+    if (lastWork == null || now().isAfter(lastWork.plus(intervalValue))) {
+      lastWork = now();
+
+      return true;
+    }
+
+    return false;
   }
 
-  private long capacityPerSecond() {
-    return 1000 / averageMessageTimeEstimate.toMillis();
-  }
-
-  private JsonObject createMessageLagMessage(
-      final Status status, final Map<String, Set<String>> work) {
+  private JsonObject createScalingIndicatorMessage(final int running, final int desired) {
     return o(
-        f(EXCESS_MESSAGE_LAG, v(adjustedMessageLagIndicator(status, work))),
+        f(RUNNING, v(running)),
+        f(DESIRED, v(desired)),
         f(ID, v(context.instance)),
         f(TIME, v(now().toString())));
   }
 
-  private long excessCapacity(final Status status, final Map<String, Set<String>> work) {
-    return (work.size() - minimumInstanceCapacity(status.allApplications))
-        * maximumAppsPerInstance
-        * capacityPerSecond();
-  }
-
-  private long excessInstances(final long excessMessageLag) {
-    return excessMessageLag < 0
-        ? (abs(excessMessageLag) / (maximumAppsPerInstance * capacityPerSecond()))
-        : 0;
-  }
-
-  private int extraApplicationCapacity(final long messageLag) {
-    final long capacity = instanceCapacityPerSecond();
-
-    return (int) (messageLag / capacity) + (messageLag > 0 && messageLag % capacity != 0 ? 1 : 0);
-  }
-
   CompletionStage<Boolean> giveWork() {
-    return status()
-        .thenComposeAsync(
-            status ->
-                status
-                    .map(this::giveWork)
-                    .map(this::logWork)
-                    .map(work -> sendExcessMessageLag(status.get(), work))
-                    .map(this::sendInstances)
-                    .map(this::saveWork)
-                    .orElseGet(() -> completedFuture(false)))
-        .exceptionally(
-            e -> {
-              severe(Stream.of(e.getMessage(), getStackTrace(e)));
-              return false;
-            });
-  }
-
-  private Map<String, Set<String>> giveWork(final Status status) {
-    final Map<String, Set<String>> desiredApplicationsPerInstance =
-        copy(status.runningInstancesWithApplications, status.allApplications::contains);
-    final Map<String, Integer> extraInstances = neededExtraApplicationInstances(status);
-
-    removeRunningInExcess(
-        desiredApplicationsPerInstance,
-        merge(status.runningInExcess(), select(extraInstances, (k, v) -> v < 0)));
-
-    spreadAdditionalApplications(
-        desiredApplicationsPerInstance,
-        merge(
-            singleOccurrence(status.notRunningApplications()),
-            select(extraInstances, (k, v) -> v > 0)),
-        maximumAppsPerInstance);
-
-    rebalance(desiredApplicationsPerInstance);
-
-    return desiredApplicationsPerInstance;
+    return canWork()
+        ? status()
+            .thenComposeAsync(
+                status ->
+                    status
+                        .map(s -> pair(s, desiredApplicationInstances(s, workContext)))
+                        .map(
+                            pair ->
+                                pair(giveWork(pair.first, pair.second, workContext), pair.second))
+                        .map(pair -> pair(logWork(pair.first), pair.second))
+                        .map(pair -> scaling(pair.first, pair.second))
+                        .map(this::sendInstances)
+                        .map(this::saveWork)
+                        .orElseGet(() -> completedFuture(false)))
+            .exceptionally(
+                e -> {
+                  severe(Stream.of(e.getMessage(), getStackTrace(e)));
+                  return false;
+                })
+        : completedFuture(false);
   }
 
   private void info(final Stream<String> messages) {
     log(INFO, messages);
-  }
-
-  private long instanceCapacityPerSecond() {
-    return capacityPerSecond() * maximumAppsPerInstance;
   }
 
   private void log(final Level level, final Stream<String> messages) {
@@ -435,40 +494,9 @@ class Work {
                     .orElseGet(JsonUtil::emptyObject));
   }
 
-  private long minimumInstanceCapacity(final Set<String> allApplications) {
-    return (allApplications.size() + maximumAppsPerInstance - 1) / maximumAppsPerInstance;
-  }
-
-  private long missingCapacity(final Status status, final Map<String, Set<String>> work) {
-    return notRunningApplications(status.allApplications, work).size() * capacityPerSecond();
-  }
-
-  private int normalizeExcessMessageLag(final Status status, final long excessMessageLag) {
-    return Cases.<Long, Integer>withValue(excessMessageLag)
-        .or(v -> v < 0, v -> scaleIn(status, v))
-        .or(v -> v > 0, v -> scaleOut(status, v))
-        .get()
-        .orElse(50);
-  }
-
-  private Map<String, Integer> neededExtraApplicationInstances(final Status status) {
-    return StreamUtil.toMap(
-        status.accountableExcessMessageLag().entrySet().stream()
-            .map(
-                e ->
-                    pair(
-                        e.getKey(),
-                        keepAtLeastOne(
-                            e.getKey(), status, extraApplicationCapacity(e.getValue())))));
-  }
-
-  private long remainingCapacity(final Status status) {
-    return (maximumInstances - status.runningInstances()) * capacity();
-  }
-
-  private Map<String, Map<TopicPartition, Long>> removeSuffixes(
-      final Map<String, Map<TopicPartition, Long>> messageLagPerApplication) {
-    return StreamUtil.toMap(
+  private Map<String, Map<Partition, Long>> removeSuffixes(
+      final Map<String, Map<Partition, Long>> messageLagPerApplication) {
+    return map(
         messageLagPerApplication.entrySet().stream()
             .map(e -> pair(removeSuffix(e.getKey(), context), e.getValue())));
   }
@@ -501,29 +529,23 @@ class Work {
         .thenApply(result -> must(result, r -> r));
   }
 
-  private int scaleIn(final Status status, final long excessMessageLag) {
-    final long running = status.runningInstances();
+  private Map<String, Set<String>> scaling(
+      final Map<String, Set<String>> work, final Map<String, Integer> desiredApplicationInstances) {
+    final Pair<Integer, Integer> pair =
+        scalingIndicator(work, desiredApplicationInstances, workContext);
 
-    return round(((running - excessInstances(excessMessageLag)) / (float) running) * 50F);
+    sendExcessMessageLag(pair.first, pair.second);
+
+    return work;
   }
 
-  private int scaleOut(final Status status, final long excessMessageLag) {
-    final long extraInstances = min(excessMessageLag, remainingCapacity(status)) / capacity();
-
-    return min(round((extraInstances / (float) status.runningInstances()) * 50F) + 50, 100);
-  }
-
-  private Map<String, Set<String>> sendExcessMessageLag(
-      final Status status, final Map<String, Set<String>> work) {
-    return ofNullable(excessMessageLagTopic)
-        .map(
+  private void sendExcessMessageLag(final int running, final int desired) {
+    ofNullable(excessMessageLagTopic)
+        .ifPresent(
             topic ->
-                send(
-                    context.producer,
-                    new ProducerRecord<>(
-                        topic, context.instance, createMessageLagMessage(status, work))))
-        .map(result -> work)
-        .orElse(work);
+                context.producer.sendJson(
+                    topic,
+                    message(context.instance, createScalingIndicatorMessage(running, desired))));
   }
 
   private Map<String, Set<String>> sendInstances(final Map<String, Set<String>> work) {
@@ -531,9 +553,8 @@ class Work {
         .map(topic -> pair(topic, instances(context.instance, work)))
         .map(
             pair ->
-                send(
-                    context.producer,
-                    new ProducerRecord<>(pair.first, pair.second.getString(ID), pair.second)))
+                context.producer.sendJson(
+                    pair.first, message(pair.second.getString(ID), pair.second)))
         .map(result -> work)
         .orElse(work);
   }
@@ -559,8 +580,8 @@ class Work {
                     .thenApply(max -> Optional.of(status.withMaximumMessageLag(max))))
         .update(
             status ->
-                messageLag(
-                        kafkaAdmin,
+                provider
+                    .messageLag(
                         group ->
                             status.maximumMessageLagApplications.contains(
                                 removeSuffix(group, context)))
@@ -570,18 +591,11 @@ class Work {
         .build();
   }
 
-  private long totalExcessMessageLag(final Status status, final Map<String, Set<String>> work) {
-    return status.totalExcessMessageLag()
-        + missingCapacity(status, work)
-        - excessCapacity(status, work);
-  }
-
   private static class Status {
     private final Set<String> allApplications;
-    private final Map<String, Integer> maximumAllowed;
     private final Set<String> maximumMessageLagApplications;
     private final Map<String, Map<String, Long>> maximumMessageLagPerApplication;
-    private final Map<String, Map<TopicPartition, Long>> messageLagPerApplication;
+    private final Map<String, Map<Partition, Long>> messageLagPerApplication;
     private final Map<String, Set<String>> runningInstancesWithApplications;
 
     private Status() {
@@ -592,13 +606,11 @@ class Work {
         final Set<String> allApplications,
         final Map<String, Set<String>> runningInstancesWithApplications,
         final Map<String, Map<String, Long>> maximumMessageLagPerApplication,
-        final Map<String, Map<TopicPartition, Long>> messageLagPerApplication) {
+        final Map<String, Map<Partition, Long>> messageLagPerApplication) {
       this.allApplications = allApplications;
       this.runningInstancesWithApplications = runningInstancesWithApplications;
       this.maximumMessageLagPerApplication = maximumMessageLagPerApplication;
       this.messageLagPerApplication = messageLagPerApplication;
-      maximumAllowed =
-          ofNullable(messageLagPerApplication).map(Status::maximumAllowed).orElse(null);
       maximumMessageLagApplications =
           ofNullable(maximumMessageLagPerApplication)
               .map(Map::keySet)
@@ -609,23 +621,9 @@ class Work {
       return partitionsPerTopic.values().stream().max(comparing(v -> v)).orElse(0);
     }
 
-    private static Map<String, Integer> maximumAllowed(
-        final Map<String, Map<TopicPartition, Long>> messageLagPerApplication) {
-      return StreamUtil.toMap(
-          messageLagPerApplication.entrySet().stream()
-              .map(
-                  e ->
-                      pair(
-                          e.getKey(),
-                          max(
-                              1,
-                              largestTopicSize(
-                                  partitionsPerTopic(e.getValue().keySet().stream()))))));
-    }
-
     private static Map<String, Map<String, Long>> maximumMessageLagPerApplication(
         final JsonObject maximumMessageLagPerApplication) {
-      return StreamUtil.toMap(
+      return map(
           maximumMessageLagPerApplication.entrySet().stream()
               .filter(e -> isObject(e.getValue()))
               .map(e -> pair(e.getKey(), e.getValue().asJsonObject()))
@@ -634,63 +632,31 @@ class Work {
 
     private static Map<String, Long> maximumMessageLagPerTopic(
         final JsonObject maximumLagPerTopic) {
-      return StreamUtil.toMap(
+      return map(
           maximumLagPerTopic.entrySet().stream()
               .filter(e -> isLong(e.getValue()))
               .map(e -> pair(e.getKey(), asLong(e.getValue()))));
     }
 
-    private static Map<String, Long> messageLagPerTopic(final Map<TopicPartition, Long> lag) {
-      return lag.entrySet().stream()
-          .collect(groupingBy(e -> e.getKey().topic(), summingLong(Entry::getValue)));
+    private static Map<String, Long> messageLagPerTopic(final Map<Partition, Long> messageLag) {
+      return messageLag.entrySet().stream()
+          .collect(groupingBy(e -> e.getKey().topic, summingLong(Entry::getValue)));
     }
 
-    private static Map<String, Integer> partitionsPerTopic(
-        final Stream<TopicPartition> partitions) {
-      return partitions.collect(groupingBy(TopicPartition::topic, summingInt(p -> 1)));
+    private static Map<String, Integer> partitionsPerTopic(final Stream<Partition> partitions) {
+      return partitions.collect(groupingBy(p -> p.topic, summingInt(p -> 1)));
     }
 
-    private static long totalExcessMessageLag(
-        final Map<String, Long> lagPerTopic, final Map<String, Long> maximumLag) {
-      return lagPerTopic.entrySet().stream()
-          .map(e -> pair(e.getValue(), maximumLag.get(e.getKey())))
-          .filter(pair -> pair.second != null)
-          .mapToLong(pair -> max(pair.first, pair.second) - pair.second)
-          .sum();
+    private int maximumAllowedApplicationInstances(final String application) {
+      return ofNullable(messageLagPerApplication.get(application))
+          .map(lag -> largestTopicSize(partitionsPerTopic(lag.keySet().stream())))
+          .orElse(1);
     }
 
-    private Map<String, Long> accountableExcessMessageLag() {
-      return StreamUtil.toMap(excessMessageLag(accountableMessageLagPerApplication()));
-    }
-
-    private Stream<Pair<String, Map<String, Long>>> accountableMessageLagPerApplication() {
-      return messageLagPerApplication().filter(pair -> canRunMore(pair.first, maximumAllowed));
-    }
-
-    private boolean canRunMore(
-        final String application, final Map<String, Integer> maximumAllowed) {
-      return ofNullable(maximumAllowed.get(application))
-          .map(m -> runningApplicationInstances(application) < m)
-          .orElse(true);
-    }
-
-    private Stream<Pair<String, Long>> excessMessageLag(
-        final Stream<Pair<String, Map<String, Long>>> messageLagPerApplication) {
-      return messageLagPerApplication.map(
-          pair ->
-              pair(
-                  pair.first,
-                  totalExcessMessageLag(
-                      pair.second, maximumMessageLagPerApplication.get(pair.first))));
-    }
-
-    private Stream<Pair<String, Map<String, Long>>> messageLagPerApplication() {
-      return messageLagPerApplication.entrySet().stream()
-          .map(e -> pair(e.getKey(), messageLagPerTopic(e.getValue())));
-    }
-
-    private Set<String> notRunningApplications() {
-      return Work.notRunningApplications(allApplications, runningInstancesWithApplications);
+    private Map<String, Long> messageLagPerTopic(final String application) {
+      return ofNullable(messageLagPerApplication.get(application))
+          .map(Status::messageLagPerTopic)
+          .orElseGet(Collections::emptyMap);
     }
 
     private Map<String, Integer> runningApplicationInstances() {
@@ -703,28 +669,6 @@ class Work {
                 return m;
               },
               (m1, m2) -> m1);
-    }
-
-    private long runningApplicationInstances(final String application) {
-      return runningInstancesWithApplications.values().stream()
-          .filter(v -> v.contains(application))
-          .count();
-    }
-
-    private Map<String, Integer> runningInExcess() {
-      return StreamUtil.toMap(
-          runningApplicationInstances().entrySet().stream()
-              .filter(e -> maximumAllowed.containsKey(e.getKey()))
-              .map(e -> pair(e.getKey(), e.getValue() - maximumAllowed.get(e.getKey())))
-              .filter(pair -> pair.second > 0));
-    }
-
-    private int runningInstances() {
-      return runningInstancesWithApplications.size();
-    }
-
-    private long totalExcessMessageLag() {
-      return excessMessageLag(messageLagPerApplication()).mapToLong(pair -> pair.second).sum();
     }
 
     private Status withAllApplications(final Set<String> allApplications) {
@@ -744,7 +688,7 @@ class Work {
     }
 
     private Status withMessageLagPerApplication(
-        final Map<String, Map<TopicPartition, Long>> messageLagPerApplication) {
+        final Map<String, Map<Partition, Long>> messageLagPerApplication) {
       return new Status(
           allApplications,
           runningInstancesWithApplications,
@@ -759,6 +703,47 @@ class Work {
           runningInstancesWithApplications,
           maximumMessageLagPerApplication,
           messageLagPerApplication);
+    }
+  }
+
+  private static class WorkContext {
+    private final Duration averageMessageTimeEstimate;
+    private final int maximumAppsPerInstance;
+
+    private WorkContext() {
+      this(null, -1);
+    }
+
+    private WorkContext(
+        final Duration averageMessageTimeEstimate, final int maximumAppsPerInstance) {
+      this.averageMessageTimeEstimate = averageMessageTimeEstimate;
+      this.maximumAppsPerInstance = maximumAppsPerInstance;
+    }
+
+    private WorkContext(final Context context) {
+      this(averageMessageTimeEstimate(context), maximumAppsPerInstance(context));
+    }
+
+    private static Duration averageMessageTimeEstimate(final Context context) {
+      return config(
+          context,
+          config -> config.getDuration(AVERAGE_MESSAGE_TIME_ESTIMATE),
+          DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE);
+    }
+
+    private static int maximumAppsPerInstance(final Context context) {
+      return config(
+          context,
+          config -> config.getInt(MAXIMUM_APPS_PER_INSTANCE),
+          DEFAULT_MAXIMUM_APPS_PER_INSTANCE);
+    }
+
+    private WorkContext withAverageMessageTimeEstimate(final Duration averageMessageTimeEstimate) {
+      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance);
+    }
+
+    private WorkContext withMaximumAppsPerInstance(final int maximumAppsPerInstance) {
+      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance);
     }
   }
 }

@@ -1,20 +1,26 @@
 package net.pincette.json.streams;
 
+import static com.mongodb.client.model.Aggregates.match;
+import static com.mongodb.client.model.Filters.in;
 import static java.lang.Integer.MAX_VALUE;
 import static java.lang.Integer.max;
 import static java.lang.String.valueOf;
 import static java.lang.System.exit;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
+import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.Arrays.fill;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.logging.Level.SEVERE;
+import static java.util.logging.Logger.getLogger;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
-import static net.pincette.jes.util.JsonFields.ID;
+import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
@@ -22,22 +28,33 @@ import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createValue;
 import static net.pincette.json.JsonUtil.from;
 import static net.pincette.json.JsonUtil.getArray;
+import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.isString;
+import static net.pincette.json.JsonUtil.merge;
+import static net.pincette.json.JsonUtil.objectValue;
 import static net.pincette.json.JsonUtil.objects;
-import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
+import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.trace;
+import static net.pincette.json.streams.Parameters.replaceParameters;
+import static net.pincette.json.streams.Parameters.replaceParametersString;
+import static net.pincette.json.streams.Parameters.resolve;
 import static net.pincette.json.streams.Read.readObject;
+import static net.pincette.mongo.BsonUtil.fromBson;
+import static net.pincette.mongo.BsonUtil.toBsonDocument;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.find;
+import static net.pincette.mongo.JsonClient.findPublisher;
+import static net.pincette.mongo.JsonClient.update;
+import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.computeIfAbsent;
 import static net.pincette.util.Collections.list;
@@ -47,26 +64,30 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.must;
-import static net.pincette.util.Util.replaceAll;
 import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
+import static net.pincette.util.Util.waitForCondition;
 
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
 import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.changestream.ChangeStreamDocument;
+import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow.Publisher;
 import java.util.function.BiFunction;
-import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -84,10 +105,11 @@ import javax.json.JsonValue;
 import net.pincette.function.Fn;
 import net.pincette.function.SupplierWithException;
 import net.pincette.json.JsonUtil;
-import net.pincette.json.Transform;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
+import net.pincette.rs.streams.Message;
 import net.pincette.util.Builder;
+import net.pincette.util.Cases;
 import net.pincette.util.Pair;
 import org.bson.BsonDateTime;
 import org.bson.Document;
@@ -98,17 +120,21 @@ class Common {
   static final String AGGREGATE_TYPE = "aggregateType";
   static final String ALIVE_AT = "aliveAt";
   static final String APPLICATION_FIELD = "application";
+  static final Duration BACKOFF = ofSeconds(5);
+  static final List<Bson> COLLECTION_CHANGES =
+      list(match(in("operationType", list("insert", "replace", "update"))));
   static final String COMMAND = "command";
   static final String COMMANDS = "commands";
-  static final String DESTINATION_TYPE = "destinationType";
-  static final String DESTINATIONS = "destinations";
+  static final String CONFIG_JSON_PREFIX = "config-json:";
+  static final String CONFIG_PREFIX = "config:";
   static final String DOLLAR = "_dollar_";
   static final String DOT = "_dot_";
   static final String ENVIRONMENT = "environment";
   static final String EVENT = "event";
   static final String EVENT_FULL = "event-full";
   static final String EVENT_TO_COMMAND = "eventToCommand";
-  static final String FILTER = "filter";
+  static final String FROM_COLLECTION = "fromCollection";
+  static final String FROM_COLLECTIONS = "fromCollections";
   static final String FROM_STREAM = "fromStream";
   static final String FROM_STREAMS = "fromStreams";
   static final String FROM_TOPIC = "fromTopic";
@@ -116,6 +142,7 @@ class Common {
   static final String INSTANCE = "instance";
   static final String JOIN = "join";
   static final String JSLT_IMPORTS = "jsltImports";
+  static final String LAG = "$lag";
   static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
   static final String LOG = "$log";
@@ -124,31 +151,35 @@ class Common {
   static final String ON = "on";
   static final String PARTS = "parts";
   static final String PIPELINE = "pipeline";
-  static final String REACTOR = "reactor";
+  static final String PREPROCESSOR = "preprocessor";
   static final String REDUCER = "reducer";
   static final String REPLY = "reply";
   static final String RIGHT = "right";
+  static final String SIGN_JWT = "$signJwt";
   static final String SLASH = "_slash_";
-  static final String SOURCE_TYPE = "sourceType";
   static final String STREAM = "stream";
   static final Set<String> STREAM_TYPES = set(JOIN, MERGE, STREAM);
+  static final String S3ATTACHMENTS = "$s3Attachments";
+  static final String S3CSV = "$s3Csv";
+  static final String S3OUT = "$s3Out";
+  static final String TO_COLLECTION = "toCollection";
   static final String TO_TOPIC = "toTopic";
   static final String TYPE = "type";
   static final String VALIDATE = "$validate";
   static final String VALIDATOR = "validator";
   static final String VALIDATOR_IMPORTS = "validatorImports";
-  static final String VERSION = "version";
+  static final String VERSION_FIELD = "version";
   static final String WINDOW = "window";
   static final String RESOURCE = "resource:";
   private static final String BUILD_LOGGER = LOGGER + ".build";
-  private static final String CONFIG_PREFIX = "config:";
+  private static final String DATABASE = "mongodb.database";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
-  private static final Pattern ENV_PATTERN = compile("\\$\\{(\\w+)}");
-  private static final Pattern ENV_PATTERN_STRING = compile("\\$\\{([^:}]+:)?(\\w+)(:[^:}]+)?}");
+  private static final String FILE = "file";
   private static final String INCLUDE = "include";
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
+  private static final String LOG_TOPIC = "logTopic";
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
   private static final String REF = "ref";
@@ -170,7 +201,7 @@ class Common {
             new UpdateOptions().upsert(true))
         .thenApply(result -> trace("aliveAtUpdate", result, logger))
         .thenApply(result -> result != null && result.wasAcknowledged())
-        .thenApply(result -> must(result, r -> r));
+        .exceptionally(t -> trace(t.getMessage(), false, LOGGER));
   }
 
   static String application(final JsonObject specification) {
@@ -190,22 +221,22 @@ class Common {
   static JsonObject build(
       final JsonObject specification,
       final boolean runtime,
-      final TopologyContext topologyContext) {
+      final ApplicationContext applicationContext) {
     final Map<File, Pair<String, String>> jsltImports = new HashMap<>();
     final Map<File, Pair<String, JsonObject>> validatorImports = new HashMap<>();
-    final String message = instanceMessage("build", topologyContext.context);
+    final String message = instanceMessage("build", applicationContext.context);
     final var parameters =
         trace(
             message,
-            parameters(specification, runtime, topologyContext),
+            parameters(specification, runtime, applicationContext),
             JsonUtil::string,
             BUILD_LOGGER);
 
     return trace(
         message,
         transformBuilder(
-                topologyContext.baseDirectory != null
-                    ? expandApplication(specification, topologyContext.baseDirectory, parameters)
+                applicationContext.baseDirectory != null
+                    ? expandApplication(specification, applicationContext.baseDirectory, parameters)
                     : specification,
                 createTransformer(jsltImports, validatorImports, parameters))
             .add(
@@ -219,16 +250,56 @@ class Common {
                 JSLT_IMPORTS,
                 createImports(
                     specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
-            .add(ID, application(specification))
+            .add(ID, ofNullable(application(specification)).orElse("unknown"))
             .build(),
         JsonUtil::string,
         BUILD_LOGGER);
+  }
+
+  static JsonObject changedDocument(final ChangeStreamDocument<Document> change) {
+    return ofNullable(change.getFullDocument())
+        .map(doc -> fromBson(toBsonDocument(change.getFullDocument())))
+        .orElse(null);
+  }
+
+  private static Stream<Pair<String, JsonObject>> commandAsArray(final JsonObject aggregate) {
+    return ofNullable(aggregate.getJsonArray(COMMANDS)).map(Common::getCommandsArray).orElse(null);
+  }
+
+  private static Stream<Pair<String, JsonObject>> commandsAsObject(final JsonObject aggregate) {
+    return getValue(aggregate, "/" + COMMANDS)
+        .filter(JsonUtil::isObject)
+        .map(JsonValue::asJsonObject)
+        .map(Common::getCommandsObject)
+        .orElse(null);
   }
 
   static <T> T config(final Context context, final Function<Config, T> get, final T defaultValue) {
     return ofNullable(context)
         .flatMap(c -> tryToGetSilent(() -> get.apply(c.config)))
         .orElse(defaultValue);
+  }
+
+  static ApplicationContext createApplicationContext(
+      final Loaded loaded, final File topFile, final Context context) {
+    return new ApplicationContext()
+        .withApplication(application(loaded.specification))
+        .withBaseDirectory(topFile != null ? baseDirectory(topFile, loaded.path) : null)
+        .withContext(context);
+  }
+
+  static Context createContext(final Config config, final MongoClient client) {
+    return new Context()
+        .withConfig(config)
+        .withEnvironment(tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))
+        .withLogTopic(tryToGetSilent(() -> config.getString(LOG_TOPIC)).orElse(null))
+        .withClient(client)
+        .withDatabase(
+            client != null
+                ? tryToGetSilent(() -> config.getString(DATABASE))
+                    .map(client::getDatabase)
+                    .orElse(null)
+                : null);
   }
 
   private static <T> JsonObjectBuilder createImports(
@@ -245,14 +316,6 @@ class Common {
             (b1, b2) -> b1);
   }
 
-  static TopologyContext createTopologyContext(
-      final Loaded loaded, final File topFile, final Context context) {
-    return new TopologyContext()
-        .withApplication(application(loaded.specification))
-        .withBaseDirectory(topFile != null ? baseDirectory(topFile, loaded.path) : null)
-        .withContext(context);
-  }
-
   private static Transformer createTransformer(
       final Map<File, Pair<String, String>> jsltImports,
       final Map<File, Pair<String, JsonObject>> validatorImports,
@@ -264,14 +327,14 @@ class Common {
 
   private static JsonObject expandAggregate(
       final JsonObject aggregate, final File baseDirectory, final JsonObject parameters) {
-    return createObjectBuilder(aggregate)
-        .add(
-            COMMANDS,
-            getCommands(aggregate)
-                .map(
-                    pair -> pair(pair.first, expandCommand(pair.second, baseDirectory, parameters)))
-                .reduce(createObjectBuilder(), (b, p) -> b.add(p.first, p.second), (b1, b2) -> b1))
-        .build();
+    final JsonObject expanded =
+        createObjectBuilder(aggregate)
+            .add(COMMANDS, expandCommands(aggregate, baseDirectory, parameters))
+            .build();
+
+    return expanded.containsKey(PREPROCESSOR)
+        ? expandStream(expanded, PREPROCESSOR, baseDirectory, parameters)
+        : expanded;
   }
 
   private static JsonObject expandApplication(
@@ -293,6 +356,13 @@ class Common {
         .build();
   }
 
+  private static JsonObjectBuilder expandCommands(
+      final JsonObject aggregate, final File baseDirectory, final JsonObject parameters) {
+    return getCommands(aggregate)
+        .map(pair -> pair(pair.first, expandCommand(pair.second, baseDirectory, parameters)))
+        .reduce(createObjectBuilder(), (b, p) -> b.add(p.first, p.second), (b1, b2) -> b1);
+  }
+
   private static Expander expandPart() {
     return part ->
         baseDirectory ->
@@ -301,7 +371,7 @@ class Common {
                 case AGGREGATE:
                   return expandAggregate(part, baseDirectory, parameters);
                 case STREAM:
-                  return expandStream(part, baseDirectory, parameters);
+                  return expandStream(part, PIPELINE, baseDirectory, parameters);
                 default:
                   return part;
               }
@@ -315,18 +385,15 @@ class Common {
       final Expander expander) {
     return from(
         array.stream()
-            .filter(v -> isObject(v) || isString(v))
-            .flatMap(
-                v ->
-                    isObject(v)
-                        ? Stream.of(pair(v.asJsonObject(), baseDirectory))
-                        : getSequenceFromFile(asString(v).getString(), baseDirectory, parameters))
+            .flatMap(v -> expandSequenceEntry(v, baseDirectory, parameters))
             .map(
-                pair ->
-                    expander
-                        .apply(pair.first.asJsonObject())
-                        .apply(pair.second)
-                        .apply(parameters)));
+                expansion ->
+                    transform(
+                        expander
+                            .apply(expansion.specification.asJsonObject())
+                            .apply(expansion.file)
+                            .apply(expansion.parameters),
+                        replaceParameters(expansion.parameters))));
   }
 
   private static BiFunction<String, Expander, JsonObject> expandSequenceContainer(
@@ -341,6 +408,28 @@ class Common {
             .build();
   }
 
+  private static Stream<Expansion> expandSequenceEntry(
+      final JsonValue json, final File baseDirectory, final JsonObject parameters) {
+    return Cases.<JsonValue, Stream<Expansion>>withValue(json)
+        .or(
+            Common::isInclude,
+            i ->
+                getSequenceFromFile(
+                    getString(i.asJsonObject(), "/" + INCLUDE + "/" + FILE).orElse(null),
+                    baseDirectory,
+                    getObject(i.asJsonObject(), "/" + INCLUDE + "/" + PARAMETERS)
+                        .map(pars -> merge(parameters, pars))
+                        .orElse(parameters)))
+        .or(
+            JsonUtil::isObject,
+            o -> Stream.of(new Expansion(o.asJsonObject(), baseDirectory, parameters)))
+        .or(
+            JsonUtil::isString,
+            s -> getSequenceFromFile(asString(s).getString(), baseDirectory, parameters))
+        .get()
+        .orElseGet(Stream::empty);
+  }
+
   private static Expander expandStage() {
     return stage ->
         baseDirectory ->
@@ -348,9 +437,11 @@ class Common {
   }
 
   private static JsonObject expandStream(
-      final JsonObject stream, final File baseDirectory, final JsonObject parameters) {
-    return expandSequenceContainer(stream, baseDirectory, parameters)
-        .apply(PIPELINE, expandStage());
+      final JsonObject stream,
+      final String field,
+      final File baseDirectory,
+      final JsonObject parameters) {
+    return expandSequenceContainer(stream, baseDirectory, parameters).apply(field, expandStage());
   }
 
   static <T> T fatal(
@@ -367,23 +458,29 @@ class Common {
         .orElse(null);
   }
 
+  static CompletionStage<Publisher<JsonObject>> findJson(
+      final MongoCollection<Document> collection, final Bson filter) {
+    return tryToGetForever(() -> completedFuture(findPublisher(collection, filter)));
+  }
+
   static JsonObject fromMongoDB(final JsonObject json) {
     return transformFieldNames(json, Common::unescapeFieldName).build();
   }
 
+  static String getApplicationCollection(final String collection, final Context context) {
+    return collection != null
+        ? collection
+        : tryToGetSilent(() -> context.config.getString(MONGODB_COLLECTION)).orElse(null);
+  }
+
+  static Stream<JsonObject> getApplications(
+      final MongoCollection<Document> collection, final Bson filter) {
+    return find(collection, filter).toCompletableFuture().join().stream().map(Common::fromMongoDB);
+  }
+
   static Stream<Pair<String, JsonObject>> getCommands(final JsonObject aggregate) {
-    return tryWith(
-            () ->
-                getValue(aggregate, "/" + COMMANDS)
-                    .filter(JsonUtil::isObject)
-                    .map(JsonValue::asJsonObject)
-                    .map(Common::getCommandsObject)
-                    .orElse(null))
-        .or(
-            () ->
-                ofNullable(aggregate.getJsonArray(COMMANDS))
-                    .map(Common::getCommandsArray)
-                    .orElse(null))
+    return tryWith(() -> commandsAsObject(aggregate))
+        .or(() -> commandAsArray(aggregate))
         .get()
         .orElseGet(Stream::empty);
   }
@@ -412,8 +509,21 @@ class Common {
   }
 
   private static JsonValue getConfigValue(final JsonValue value, final Config config) {
-    return createValue(
-        config.getValue(asString(value).getString().substring(CONFIG_PREFIX.length())).unwrapped());
+    return stringValue(value)
+        .map(v -> pair(v, v.indexOf(':')))
+        .filter(pair -> pair.second != -1)
+        .map(
+            pair ->
+                pair(
+                    pair.first.substring(0, pair.second + 1),
+                    pair.first.substring(pair.second + 1)))
+        .filter(pair -> CONFIG_PREFIX.equals(pair.first) || CONFIG_JSON_PREFIX.equals(pair.first))
+        .flatMap(
+            pair ->
+                CONFIG_PREFIX.equals(pair.first)
+                    ? Optional.of(createValue(config.getValue(pair.second).unwrapped()))
+                    : from(config.getString(pair.second)))
+        .orElse(value);
   }
 
   private static Optional<String> getImport(final String line) {
@@ -428,68 +538,36 @@ class Common {
       final File baseDirectory,
       final JsonObject parameters) {
     return getString(json, "/" + field)
-        .map(s -> replaceParametersString(s, parameters))
+        .map(s -> replaceParametersString(s, resolve(parameters)))
         .flatMap(path -> net.pincette.util.Util.resolveFile(baseDirectory, path))
         .map(file -> pair(readArray(file), file.getParentFile()))
         .or(() -> getArray(json, "/" + field).map(a -> pair(a, baseDirectory)));
   }
 
-  private static Stream<Pair<JsonValue, File>> getSequenceFromFile(
+  private static Stream<Expansion> getSequenceFromFile(
       final String filename, final File baseDirectory, final JsonObject parameters) {
     return Stream.of(filename)
-        .map(s -> replaceParametersString(s, parameters))
+        .map(s -> replaceParametersString(s, resolve(parameters)))
         .map(s -> net.pincette.util.Util.resolveFile(baseDirectory, s).orElse(null))
         .filter(Objects::nonNull)
         .filter(File::exists)
-        .flatMap(
-            file ->
-                read(file)
-                    .map(Common::asStream)
-                    .map(s -> s.map(p -> pair(p, file.getParentFile())))
-                    .orElseGet(Stream::empty));
+        .flatMap(file -> getSequenceFromFile(file, parameters));
   }
 
-  static Stream<JsonObject> getTopologies(
-      final MongoCollection<Document> collection, final Bson filter) {
-    return find(collection, filter).toCompletableFuture().join().stream().map(Common::fromMongoDB);
-  }
-
-  static String getTopologyCollection(final String collection, final Context context) {
-    return collection != null
-        ? collection
-        : tryToGetSilent(() -> context.config.getString(MONGODB_COLLECTION)).orElse(null);
-  }
-
-  private static boolean hasConfigurationParameters(final JsonValue value) {
-    final BooleanSupplier tryArray =
-        () ->
-            isArray(value)
-                ? hasConfigurationParameters(value.asJsonArray())
-                : stringValue(value).filter(v -> v.startsWith(CONFIG_PREFIX)).isPresent();
-
-    return isObject(value)
-        ? hasConfigurationParameters(value.asJsonObject())
-        : tryArray.getAsBoolean();
-  }
-
-  private static boolean hasConfigurationParameters(final JsonObject value) {
-    return hasConfigurationParameters(value.values().stream());
-  }
-
-  private static boolean hasConfigurationParameters(final JsonArray value) {
-    return hasConfigurationParameters(value.stream());
-  }
-
-  private static boolean hasConfigurationParameters(final Stream<JsonValue> values) {
-    return values.anyMatch(Common::hasConfigurationParameters);
-  }
-
-  private static boolean hasParameter(final JsonValue value) {
-    return isString(value) && hasParameter(asString(value).getString());
-  }
-
-  private static boolean hasParameter(final String s) {
-    return ENV_PATTERN_STRING.matcher(s).find();
+  private static Stream<Expansion> getSequenceFromFile(
+      final File file, final JsonObject parameters) {
+    return read(file)
+        .map(Common::asStream)
+        .map(
+            s ->
+                s.map(v -> new Expansion(v, file.getParentFile(), parameters))
+                    .flatMap(
+                        e ->
+                            isInclude(e.specification) || isString(e.specification)
+                                ? expandSequenceEntry(
+                                    e.specification, file.getParentFile(), parameters)
+                                : Stream.of(e)))
+        .orElseGet(Stream::empty);
   }
 
   private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
@@ -505,7 +583,18 @@ class Common {
   }
 
   private static boolean isConfigRef(final JsonValue value) {
-    return isString(value) && asString(value).getString().startsWith(CONFIG_PREFIX);
+    return stringValue(value).filter(Common::isConfigRef).isPresent();
+  }
+
+  static boolean isConfigRef(final String s) {
+    return s.startsWith(CONFIG_PREFIX) || s.startsWith(CONFIG_JSON_PREFIX);
+  }
+
+  private static boolean isInclude(final JsonValue json) {
+    return objectValue(json)
+        .filter(j -> j.size() == 1)
+        .flatMap(j -> ofNullable(j.getJsonObject(INCLUDE)))
+        .isPresent();
   }
 
   private static boolean isJsltPath(final String path) {
@@ -532,22 +621,32 @@ class Common {
                     e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
   }
 
+  static void logException(final Throwable e) {
+    getLogger(LOGGER).log(SEVERE, e.getMessage(), e);
+  }
+
+  static void logException(final Throwable e, final Supplier<String> message) {
+    logException(e, message, null);
+  }
+
+  static void logException(final Throwable e, final Supplier<String> message, final String app) {
+    getLogger(app != null ? app : LOGGER)
+        .log(
+            SEVERE,
+            e,
+            () ->
+                ofNullable(message).map(Supplier::get).map(m -> (m + "\n")).orElse("")
+                    + e.getMessage());
+  }
+
   static String numberLines(final String s) {
     return zip(stream(s.split("\\n")).sequential(), rangeExclusive(1, MAX_VALUE))
         .map(pair -> rightAlign(valueOf(pair.second), 4) + " " + pair.first)
         .collect(joining("\n"));
   }
 
-  private static String parameterPrefix(final String s) {
-    return s != null ? s.substring(0, s.length() - 1) : "";
-  }
-
-  private static String parameterSuffix(final String s) {
-    return s != null ? s.substring(1) : "";
-  }
-
   private static JsonObject parameters(
-      final JsonObject specification, final boolean runtime, final TopologyContext context) {
+      final JsonObject specification, final boolean runtime, final ApplicationContext context) {
     return Builder.create(
             () ->
                 createObjectBuilder(
@@ -578,73 +677,6 @@ class Common {
         .orElse(application);
   }
 
-  private static Transformer replaceParameters(final JsonObject parameters) {
-    return Optional.of(parameters)
-        .filter(pars -> !pars.isEmpty())
-        .map(Common::replaceParametersTransformer)
-        .orElseGet(Transform::nopTransformer);
-  }
-
-  private static Transformer replaceParametersTransformer(final JsonObject parameters) {
-    return replaceParametersObject(parameters).thenApply(replaceParametersArray(parameters));
-  }
-
-  private static JsonValue replaceParameters(final String s, final JsonObject parameters) {
-    return Optional.of(ENV_PATTERN.matcher(s))
-        .filter(Matcher::matches)
-        .map(
-            matcher ->
-                getValue(parameters, "/" + matcher.group(1))
-                    .map(v -> hasConfigurationParameters(v) ? createValue(s) : v)
-                    .orElseGet(() -> createValue("")))
-        .orElseGet(() -> createValue(replaceParametersString(s, parameters)));
-  }
-
-  private static JsonArray replaceParameters(final JsonArray array, final JsonObject parameters) {
-    return array.stream()
-        .reduce(
-            createArrayBuilder(),
-            (b, v) ->
-                b.add(hasParameter(v) ? replaceParameters(asString(v).getString(), parameters) : v),
-            (b1, b2) -> b1)
-        .build();
-  }
-
-  private static Transformer replaceParametersArray(final JsonObject parameters) {
-    return new Transformer(
-        e -> isArray(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(e.path, replaceParameters(e.value.asJsonArray(), parameters))));
-  }
-
-  private static Transformer replaceParametersObject(final JsonObject parameters) {
-    return new Transformer(
-        e -> hasParameter(e.path) || hasParameter(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(
-                    hasParameter(e.path) ? replaceParametersString(e.path, parameters) : e.path,
-                    hasParameter(e.value)
-                        ? replaceParameters(asString(e.value).getString(), parameters)
-                        : e.value)));
-  }
-
-  private static String replaceParametersString(final String s, final JsonObject parameters) {
-    return replaceAll(
-        s,
-        ENV_PATTERN_STRING,
-        matcher ->
-            ofNullable(parameters.get(matcher.group(2)))
-                .map(value -> isString(value) ? asString(value).getString() : string(value))
-                .map(
-                    value ->
-                        parameterPrefix(matcher.group(1))
-                            + value
-                            + parameterSuffix(matcher.group(3)))
-                .orElse(""));
-  }
-
   private static String resolveFile(
       final File baseDirectory, final String path, final JsonObject parameters) {
     return Optional.of(path)
@@ -652,7 +684,7 @@ class Common {
         .flatMap(
             p ->
                 net.pincette.util.Util.resolveFile(
-                    baseDirectory, replaceParametersString(p, parameters)))
+                    baseDirectory, replaceParametersString(p, resolve(parameters))))
         .map(File::getAbsolutePath)
         .filter(p -> new File(p).exists())
         .orElse(path);
@@ -759,6 +791,20 @@ class Common {
     return new String(padding) + s;
   }
 
+  static CompletionStage<JsonObject> saveJson(
+      final MongoCollection<Document> collection, final JsonObject json) {
+    return tryToGetForever(
+        () ->
+            update(collection, json)
+                .thenApply(result -> must(result, r -> r))
+                .thenApply(result -> json));
+  }
+
+  static CompletionStage<Message<String, JsonObject>> saveMessage(
+      final MongoCollection<Document> collection, final Message<String, JsonObject> message) {
+    return saveJson(collection, message.value).thenApply(value -> message);
+  }
+
   private static Transformer stageFileResolver(
       final File baseDirectory, final JsonObject parameters) {
     return new Transformer(
@@ -769,6 +815,10 @@ class Common {
                     path ->
                         new JsonEntry(
                             e.path, createValue(resolveFile(baseDirectory, path, parameters)))));
+  }
+
+  static Message<String, JsonObject> toMessage(final JsonObject json) {
+    return message(toNative(json.get(ID)).toString(), json);
   }
 
   static JsonObjectBuilder transformFieldNames(
@@ -796,6 +846,23 @@ class Common {
     }
   }
 
+  static <T> CompletionStage<T> tryToGetForever(
+      final SupplierWithException<CompletionStage<T>> fn) {
+    return tryToGetForever(fn, null);
+  }
+
+  static <T> CompletionStage<T> tryToGetForever(
+      final SupplierWithException<CompletionStage<T>> fn, final Supplier<String> message) {
+    return tryToGetForever(fn, message, null);
+  }
+
+  static <T> CompletionStage<T> tryToGetForever(
+      final SupplierWithException<CompletionStage<T>> fn,
+      final Supplier<String> message,
+      final String app) {
+    return net.pincette.util.Util.tryToGetForever(fn, BACKOFF, e -> logException(e, message, app));
+  }
+
   private static String unescapeFieldName(final String name) {
     return name.replace(DOT, ".").replace(SLASH, "/").replace(DOLLAR, "$");
   }
@@ -819,5 +886,27 @@ class Common {
                 .map(file -> new JsonEntry(e.path, resolveValidator(file, imports, parameters))));
   }
 
+  static boolean waitFor(final Supplier<CompletionStage<Boolean>> check) {
+    return net.pincette.util.Util.waitFor(waitForCondition(check), ofSeconds(1))
+        .toCompletableFuture()
+        .join();
+  }
+
+  static String version(final JsonObject specification) {
+    return specification.getString(VERSION_FIELD, null);
+  }
+
   private interface Expander extends Fn<JsonObject, Fn<File, Fn<JsonObject, JsonObject>>> {}
+
+  private static class Expansion {
+    private final File file;
+    private final JsonObject parameters;
+    private final JsonValue specification;
+
+    private Expansion(final JsonValue specification, final File file, final JsonObject parameters) {
+      this.specification = specification;
+      this.file = file;
+      this.parameters = parameters;
+    }
+  }
 }

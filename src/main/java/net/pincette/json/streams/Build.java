@@ -1,7 +1,7 @@
 package net.pincette.json.streams;
 
 import static java.time.Instant.now;
-import static net.pincette.jes.util.JsonFields.TIMESTAMP;
+import static net.pincette.jes.JsonFields.TIMESTAMP;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.streams.Application.APP_VERSION;
@@ -9,8 +9,8 @@ import static net.pincette.json.streams.Common.DOLLAR;
 import static net.pincette.json.streams.Common.DOT;
 import static net.pincette.json.streams.Common.SLASH;
 import static net.pincette.json.streams.Common.build;
-import static net.pincette.json.streams.Common.createTopologyContext;
-import static net.pincette.json.streams.Common.getTopologyCollection;
+import static net.pincette.json.streams.Common.createApplicationContext;
+import static net.pincette.json.streams.Common.getApplicationCollection;
 import static net.pincette.json.streams.Common.transformFieldNames;
 import static net.pincette.json.streams.Read.readTopologies;
 import static net.pincette.mongo.JsonClient.update;
@@ -42,7 +42,7 @@ class Build implements Runnable {
   @Option(
       names = {"-f", "--file"},
       required = true,
-      description = "A JSON file containing an array of applications.")
+      description = "A JSON or YAML file containing an array of applications.")
   private File file;
 
   Build(final Context context) {
@@ -59,12 +59,12 @@ class Build implements Runnable {
         .build();
   }
 
-  private JsonArray buildTopologies() {
+  private JsonArray buildApplications() {
     return readTopologies(file)
         .map(
             loaded ->
-                build(loaded.specification, false, createTopologyContext(loaded, file, context)))
-        .filter(Validate::validateTopology)
+                build(loaded.specification, false, createApplicationContext(loaded, file, context)))
+        .filter(Validate::validateApplication)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();
   }
@@ -72,13 +72,13 @@ class Build implements Runnable {
   @SuppressWarnings("java:S106") // Not logging.
   public void run() {
     final var col =
-        getTopologyCollection(
+        getApplicationCollection(
             collectionOrLocal == null ? null : collectionOrLocal.collection, context);
 
     if ((collectionOrLocal == null || !collectionOrLocal.local) && col != null) {
       final MongoCollection<Document> c = context.database.getCollection(col);
 
-      buildTopologies().stream()
+      buildApplications().stream()
           .filter(JsonUtil::isObject)
           .map(JsonValue::asJsonObject)
           .map(Build::toMongoDB)
@@ -89,7 +89,7 @@ class Build implements Runnable {
                       .toCompletableFuture()
                       .join());
     } else {
-      System.out.println(string(buildTopologies(), true));
+      System.out.println(string(buildApplications(), true));
     }
   }
 

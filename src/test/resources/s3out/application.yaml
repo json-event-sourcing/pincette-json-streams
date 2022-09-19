@@ -1,0 +1,12 @@
+---
+application: s3out
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out
+    pipeline:
+      - $s3Out:
+          bucket: "lars-tst-docs"
+          key: "jsonstreams-s3out-test.json"

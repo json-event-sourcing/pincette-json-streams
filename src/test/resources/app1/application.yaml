@@ -1,0 +1,12 @@
+---
+application: app1
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out
+    pipeline:
+      - $match:
+          value:
+            $exists: true

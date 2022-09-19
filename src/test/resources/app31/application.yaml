@@ -1,0 +1,8 @@
+---
+application: app31
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromCollection: in
+    toTopic: out

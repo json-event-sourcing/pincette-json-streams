@@ -10,10 +10,9 @@ import static java.lang.Boolean.TRUE;
 import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.concurrent.CompletableFuture.completedFuture;
-import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toSet;
-import static net.pincette.jes.util.JsonFields.ID;
-import static net.pincette.jes.util.JsonFields.TIMESTAMP;
+import static net.pincette.jes.JsonFields.ID;
+import static net.pincette.jes.JsonFields.TIMESTAMP;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
@@ -24,6 +23,7 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.aliveAtUpdate;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.instanceMessage;
+import static net.pincette.json.streams.Common.logException;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
@@ -46,7 +46,6 @@ import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
 import javax.json.JsonObject;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -121,7 +120,7 @@ class KeepAlive {
                         trace(instanceMessage("next interval", context), interval, KEEP_LOGGER)))
             .exceptionally(
                 e -> {
-                  Logger.getLogger(LOGGER).log(SEVERE, e.getMessage(), e);
+                  logException(e);
                   runAsyncAfter(
                       this::next,
                       trace(instanceMessage("next interval", context), interval, KEEP_LOGGER));

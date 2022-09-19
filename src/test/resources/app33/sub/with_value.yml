@@ -1,0 +1,4 @@
+---
+- $match:
+    value:
+      $exists: true

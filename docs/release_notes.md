@@ -1,5 +1,23 @@
 # Release Notes
 
+## 2.2
+
+* Replace Kafka Streams with a Reactive Streams implementation.
+* Add `fromCollection` and `toCollection` to streams and joins, which makes it possible to use MongoDB collections as sources and sinks.
+* Add `fromCollections` to the merge.
+* Add the `$throttle` aggregation stage, which limits the throughput of a pipeline.
+* Add the `$deduplicate` aggregation stage, which lets you filter away duplicate messages based on an expression.
+* Add the `$s3Csv` aggregation stage, which consumes CSV-files in an S3-bucket and emits the lines as JSON messages.
+* Add the `$s3Out` aggregation stage with which you can write JSON messages into an S3-bucket.
+* Add the `s3Attachments` aggregation stage, which lets you post S3-objects as a `multipart/mixed` body to an HTTP endpoint.
+* Add the `$per` aggregation stage, which creates batches of messages that can be processed together down stream.
+* Add the `$signJwt` aggregation stage, with which you can generate signed JSON Web Tokens.
+* The auto-scaler was changed to emit the desired number of running instances instead of a synthetic metric.
+* Add the `test` command to the CLI. This introduces a method to write unit tests for your applications.
+* Add the `include` object with which application or pipeline parts can be included with parameter overrides.
+* Support AWS Secrets Manager ARNs in configuration entries.
+* Add the `config-json:` prefix to the parameters syntax.
+
 ## 2.1.1
 
 * Fix the issue where multiple parameter references in the same string are not replaced correctly.

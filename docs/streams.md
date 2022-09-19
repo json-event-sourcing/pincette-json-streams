@@ -42,11 +42,13 @@ $match:
 
 |Field|Mandatory|Description|
 |---|---|---|
-|fromStream|Exclusive with `fromTopic`|The name of the stream to which this stream will be connected.|
-|fromTopic|Exclusive with `fromStream`|The name of the Kafka topic to which this stream will be connected as a consumer.|
+|fromCollection|Exclusive with `fromTopic` and `fromStream`|The name of a MongoDB collection. The `_id` fields in the documents will become the message ID. They are converted to strings if they aren't strings already.|
+|fromStream|Exclusive with `fromTopic` and `fromCollection`|The name of the stream to which this stream will be connected.|
+|fromTopic|Exclusive with `fromStream` and `fromCollection`|The name of the Kafka topic to which this stream will be connected as a consumer.|
 |name|Yes|The part name of the stream. Other parts can connect to this stream with that name. It should be unique within the application.|
 |pipeline|No|An array of pipeline stages. These are either objects or relative filenames, in which case the stage is loaded from there.|
-|toString|No|A boolean field that, when the `toTopic` field is present, will cause the JSON messages to be written as strings.| 
+|toCollection|No|The name of the MongoDB collection to which the messages are sent.|
+|toString|No|A boolean field that, when the `toTopic` field is present, will cause the JSON messages to be written as strings.|
 |toTopic|No|The name of the Kafka topic to which this stream will be connected as a producer.|
 |type|Yes|The value is always `stream`.|
 

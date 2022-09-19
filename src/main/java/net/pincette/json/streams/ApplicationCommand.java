@@ -5,10 +5,12 @@ import static com.mongodb.client.model.Filters.exists;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
+import static java.util.stream.Collectors.toSet;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
+import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
-import static net.pincette.json.streams.Common.createTopologyContext;
-import static net.pincette.json.streams.Validate.validateTopology;
+import static net.pincette.json.streams.Common.createApplicationContext;
+import static net.pincette.json.streams.Validate.validateApplication;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.tryToGetRethrow;
 
@@ -17,7 +19,9 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.io.DontCloseOutputStream;
@@ -28,6 +32,12 @@ import picocli.CommandLine.Option;
 
 class ApplicationCommand {
   protected final Context context;
+
+  @Option(
+      names = {"-e", "--exclude"},
+      arity = "1..*",
+      description = "Excluded applications")
+  private String[] excluded;
 
   @ArgGroup() private FileOrApplication fileOrApplication;
 
@@ -51,29 +61,33 @@ class ApplicationCommand {
     return Optional.ofNullable(fileOrApplication).map(f -> f.file).map(f -> f.file);
   }
 
-  private Stream<Loaded> getTopologies() {
+  private Stream<Loaded> getApplications() {
+    final Set<String> excludedApplications =
+        ofNullable(excluded).stream().flatMap(Arrays::stream).collect(toSet());
+
     return getFile()
         .map(Read::readTopologies)
         .orElseGet(
             () ->
-                Common.getTopologies(getTopologyCollection(), applicationFilter())
-                    .map(Loaded::new));
+                Common.getApplications(getApplicationCollection(), applicationFilter())
+                    .map(Loaded::new))
+        .filter(loaded -> !excludedApplications.contains(application(loaded.specification)));
   }
 
-  private MongoCollection<Document> getTopologyCollection() {
+  private MongoCollection<Document> getApplicationCollection() {
     return context.database.getCollection(
-        Common.getTopologyCollection(getCollection().orElse(null), context));
+        Common.getApplicationCollection(getCollection().orElse(null), context));
   }
 
-  protected Stream<JsonObject> getValidatedTopologies() {
-    return getTopologies()
+  protected Stream<JsonObject> getValidatedApplications() {
+    return getApplications()
         .map(
             loaded ->
                 pair(
                     loaded.specification,
-                    createTopologyContext(loaded, getFile().orElse(null), context)))
+                    createApplicationContext(loaded, getFile().orElse(null), context)))
         .map(pair -> pair(build(pair.first, false, pair.second), pair.second))
-        .filter(pair -> validateTopology(pair.first))
+        .filter(pair -> validateApplication(pair.first))
         .map(pair -> pair.first);
   }
 
@@ -124,7 +138,7 @@ class ApplicationCommand {
       @Option(
           names = {"-f", "--file"},
           required = true,
-          description = "A JSON file containing an application object.")
+          description = "A JSON or YAML file containing an application object.")
       private File file;
     }
   }

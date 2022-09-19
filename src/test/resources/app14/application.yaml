@@ -1,0 +1,28 @@
+---
+application: app14
+version: "1.0"
+parts:
+  - type: stream
+    name: stream1
+    fromCollection: in1
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: stream
+    name: stream2
+    fromCollection: in2
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: join
+    name: joined
+    toCollection: out
+    window: 5000
+    left:
+      fromStream: stream1
+      on: "$value"
+    right:
+      fromStream: stream2
+      on: "$value"

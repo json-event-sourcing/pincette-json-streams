@@ -1,7 +1,9 @@
 # Configuration
 
 The configuration is managed by the 
-[Lightbend Config package](https://github.com/lightbend/config). By default it will try to load `conf/application.conf`. An alternative configuration may be loaded by adding `-Dconfig.resource=myconfig.conf`, where the file is also supposed to be in the `conf` directory. Yet another alternative is referring to a file with `-Dconfig.file=myconfig.conf`, where the file is found in the working directory. The following entries are available.
+[Lightbend Config package](https://github.com/lightbend/config). By default it will try to load `conf/application.conf`. An alternative configuration may be loaded by adding `-Dconfig.resource=myconfig.conf`, where the file is also supposed to be in the `conf` directory. Yet another alternative is referring to a file with `-Dconfig.file=myconfig.conf`, where the file is found in the working directory. The following entries are available, but you can add your own as well and use them in the application parameters.
+
+If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as values of configuration entries. The secret string will become the real value. AWS secrets are actually JSON strings. You can extract just one field from a secret with an expression like `<ARN>[<field>]`.
 
 |Entry|Mandatory|Description|
 |---|---|---|
@@ -21,10 +23,10 @@ The configuration is managed by the
 |mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line.|
 |plugins|No|The directory from where the plugins are loaded.|
 |restartBackoff|No|The waiting time before a application that was in an error state will be restarted. The default value is `10s`.|
-|topologyTopic|No|When this entry is present topology life cycle events will be published to it.|
 |work|No|Configuration for the leader to divide the work amongst the instances.|
-|work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 50 milliseconds.|
-|work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `excessMessageLag`, `normalized` and `time`.|
+|work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 20 milliseconds. With this parameter you can tune the capacity of one instance.|
+|work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `desired`, `running` and `time`.|
 |work.instancesTopic|No|If this Kafka topic is provided, then a message with all the running instances and their work is published on it by the leader.|
-|work.maximumAppsPerInstance|No|The maximum number of applications a running instance is willing to pick up. The default value is 10.|
-|work.maximumInstances|Yes|The leader needs this to normalise the excess message lag.|
+|work.maximumAppsPerInstance|No|The maximum number of applications a running instance is willing to pick up. The default value is 50.|
+|work.interval|No|The time between two work sessions. The default is one minute. The precision is less than 10 seconds.|
+

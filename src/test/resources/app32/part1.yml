@@ -1,0 +1,17 @@
+---
+type: stream
+name: stream1
+fromTopic: in
+toTopic: out
+pipeline:
+  - "with_value.yml"
+  - "test1.yml"
+  - include:
+      parameters:
+        TEST2: "${TEST1}-test2"
+      file: "test2.yml"
+  - include:
+      parameters:
+        TEST3:
+          test: "test3"
+      file: "sub/test3.yml"

@@ -8,7 +8,7 @@ java --module-path target/modules -m application run -f <filename>
 
 The total number of threads across all the instances should not exceed the number of partitions for the Kafka topics. Additional threads will be idle.
 
-You can run the JVM with the option `-mx256m`.
+You can run the JVM with the option `-mx512m`.
 
 If you want to use another configuration in the `conf` directory, say `tst.conf`, then you can add `-Dconfig.resource=tst.conf` after `java`.
 

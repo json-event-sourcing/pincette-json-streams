@@ -250,7 +250,7 @@ validate_plus.yml:
 ---
 include:
   - "operator.yml"
-conditions
+conditions:
   - _command: "plus"
 ```
 
@@ -260,7 +260,7 @@ validate_minus.yml:
 ---
 include:
   - "operator.yml"
-conditions
+conditions:
   - _command: "minus"
 ```
 
@@ -279,15 +279,17 @@ conditions:
 type.yml:
 
 ```yaml
-conditions
+---
+conditions:
   - _type: "plusminus-counter"
 ```
 
 operator.yml:
 
 ```yaml
+---
 include:
-  - "type.json"
+  - "type.yml"
 conditions:
   - value:
       $exists: false

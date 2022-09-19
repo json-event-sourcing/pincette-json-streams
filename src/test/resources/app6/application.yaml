@@ -1,0 +1,28 @@
+---
+application: app6
+version: "1.0"
+parts:
+  - type: stream
+    name: stream1
+    fromTopic: in1
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: stream
+    name: stream2
+    fromTopic: in2
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: join
+    name: joined
+    toTopic: out
+    window: 5000
+    left:
+      fromStream: stream1
+      on: "$value"
+    right:
+      fromStream: stream2
+      on: "$value"

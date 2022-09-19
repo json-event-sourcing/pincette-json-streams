@@ -86,6 +86,31 @@ parts:
       - $count: "passing_scores"
 ```
 
+### $deduplicate
+
+With this extension stage you can filter away duplicate messages according to a given expression, which goes in the `expression` field. The `collection` field denotes the MongoDB collection that is used for the state. If you use Atlas Archiving you can keep the collection small. Use the `_timestamp` field for this. Its value is epoch millis. The optional field `cacheWindow` is the time in milliseconds that messages are kept in a cache for duplicate checking. An example:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-unique"
+    pipeline:
+      - $deduplicate:
+          expression:
+            $concat:
+              - "$_id"
+              _ "$_corr"              
+          collection: "deduplicate-state"
+          cacheWindow: 60000          
+```
+
+The commit to the collection happens when the next stage asks for more messages, which means it has successfully the previous ones. When the next stage is buffered and the previous stage hasn't yet sent as many messages as the buffer size when it completes, then those last messages won't be committed. They will be offered again when the application restarts.
+
 ### $delay
 
 With this extension stage you can send a messages to a Kafka topic with a delay. The order of the messages is not guaranteed. The stage is an object with two fields. The
@@ -231,6 +256,46 @@ parts:
       - $jslt: "my_script.jslt"
 ```
 
+### $lag
+
+This extension stage fetches the message lag for the Kafka cluster. It adds a JSON object to the message in the field that is defined in the `as` field of the specification. The keys of the generated object are the consumer groups. The values are objects where the keys are the topics and the values are again objects. In there each partition has a key with a number as the value. An example:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "message-lag"
+    fromTopic: "message-lag-trigger"
+    toTopic: "message-lag"
+    pipeline:
+      - $lag:
+          as: messageLag      
+```
+
+The generated messages look like this:
+
+```json
+{
+  "messageLag": {
+    "my-consumer": {
+      "topic1": {
+        "0": 0,
+        "1": 6,
+        "2": 10,
+        "3": 0
+      },
+      "topic2": {
+        "0": 0,
+        "1": 11,
+        "2": 0,
+        "3": 3
+      }
+    }
+  }
+}  
+```
 ### $log
 
 With this extension stage you can write something to a Java logger. The incoming message will come out unchanged. The expression of the stage is an object with at least the field `message`. The expression in this field will be converted to a string after evaluation. The optional field `application` should yield a string. It sets the name of the Java logger. When it is omitted the default `pincette-json-streams` logger is used. The optional field `level` can be used to set the Java log level. If its not there, the default log level will be used.
@@ -297,6 +362,27 @@ on: "_id"
 whenMatched: "replace"
 whenNotMatched: "insert"
 ```
+
+### $per
+
+This extension stage is an object with the mandatory fields `amount` and `as`. It accumulates the amount of messages and produces a message with only the field denoted by the `as` field. The field is an array of messages. With the optional `timeout` field, which is a number of milliseconds, a batch of messages can be emitted before it is full. In that case the length of the generated array will vary. An example
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-batch"
+    pipeline:
+      - $per:
+          amount: 100
+          as: "batch"
+          timeout: 500      
+```
+
 ### $probe
 
 With this extension stage you can monitor the throughput anywhere in a pipeline. The specification is an object with the fields `name` and `topic`, which is the name of a Kafka topic. It will write messages to that topic with the fields `name`, `minute` and `count`, which represents the number of messages it has seen in that minute. Note that if your pipeline is running on multiple topic partitions you should group the messages on the specified topic by the name and minute and sum the count. That is because every instance of the pipeline only sees the messages that pass on the partitions that are assigned to it.
@@ -389,14 +475,14 @@ parts:
     fromTopic: "my-messages"
     toTopic: "my-messages-redacted"
     pipeline:
-      $redact:
-        $cond:
-          if:
-            $gt:
-              - "$age"
-              - 17
-          then: "$$DESCEND"
-          else: "$$PRUNE"
+      - $redact:
+          $cond:
+            if:
+              $gt:
+                - "$age"
+                - 17
+            then: "$$DESCEND"
+            else: "$$PRUNE"
 ```
 
 ### [$replaceRoot](https://docs.mongodb.com/manual/reference/operator/aggregation/replaceRoot/)
@@ -413,8 +499,8 @@ parts:
     fromTopic: "my-messages"
     toTopic: "my-messages-replaced"
     pipeline:
-      $replaceRoot:
-        newRoot: "$subobject"
+      - $replaceRoot:
+          newRoot: "$subobject"
 ```
 
 ### [$replaceWith](https://docs.mongodb.com/manual/reference/operator/aggregation/replaceWith/)
@@ -431,7 +517,7 @@ parts:
     fromTopic: "my-messages"
     toTopic: "my-messages-replaced"
     pipeline:
-      $replaceWith: "$subobject"
+      - $replaceWith: "$subobject"
 ```
 
 ### $send
@@ -447,8 +533,8 @@ parts:
     name: "my-stream"
     fromTopic: "my-messages"
     pipeline:
-      $send:
-        topic: "$topic"
+      - $send:
+          topic: "$topic"
 ```
 
 ### [$set](https://docs.mongodb.com/manual/reference/operator/aggregation/set/)
@@ -469,10 +555,181 @@ parts:
     fromTopic: "my-messages"
     toTopic: "my-messages-key"
     pipeline:
-      setKey:
-        $concat:
-          - "$field1"
-          - "$field2"      
+      - $setKey:
+          $concat:
+            - "$field1"
+            - "$field2"      
+```
+
+### $signJwt
+
+A `$http` stage sometime needs a signed JSON Web Token for its request. With this extension stage you can generate and sign one and put it in a temporary field, which you remove after the `$http` stage. The following fields are ssupported:
+
+|Field|Mandatory|Description|
+|---|---|---|
+|as|Yes|The name of the field that will receive the JWT as a string.|
+|aud|No|The string expression that becomes the standard `aud` JWT claim.|
+|claims|No|The object expression that contains any non-standard JWT claims.|
+|iss|No|The string expression that becomes the standard `iss` JWT claim.|
+|kid|No|The string expression that becomes the standard `kid` JWT claim.|
+|privateKey|Yes|The string that represents the private key. You would pull that from the configuration. Don't put it the application directly.|
+|sub|No|The string expression that becomes the standard `sub` JWT claim.|
+|ttl|No|The time to live in seconds for the token. The default is five seconds. Making this longer reduces CPU usage.|
+
+An example:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-enriched"
+    pipeline:
+      - $signJwt:
+          privateKey: "${SECRET.larsPrivateKey}"
+          as: "_token"
+          ttl: 2592000
+          sub: "$_jwt.sub"
+          claims:
+            roles: "$_jwt.roles"
+      - $http:
+          url: "${END_POINT}"
+          method: "POST"
+          headers:
+            Authorization:
+              $concat:
+                - "Bearer "
+                - "$_jwt"
+          body:
+            traceId:
+              $jes-uuid: null
+            data: "my data"
+          as: "response"
+      - $unset: "_token"
+```
+
+### $s3Attachments
+
+This extension stage lets you post a number of S3-objects as attachments to an HTTP endpoint. The format is `multipart/mixed`. The object supports the following fields:
+
+|Field|Mandatory|Description|
+|---|---|---|
+|attachments|Yes|An array of objects with the mandatory fields `bucket` and `key`. The `multipart/mixed ` request body will be constructed in the order of the array.|
+|headers|No|The expression should yield an object. Its contents will be added as HTTP headers. Array values will result in multi-valued headers.|
+|sslContext|No|This object can be used for client-side authentication. Its `keyStore` field should refer to a PKCS#12 key store file. Its `password` field should provide the password for the keys in the key store file.|
+|url|Yes|The URL that will be called. The expression should yield a string.|
+
+HTTP errors are put in the `httpError` field, which contains the field integer `statusCode` and `body`, which can be any JSON value.
+
+The following is an example with an input message:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "stream"
+    fromTopic: "in"
+    toTopic: "out"
+    pipeline:
+      - $s3Attachments:
+          url: "http://localhost:9000"
+          attachments: "$attachments"
+```
+
+```json
+{
+  "_id": "87AF18F1-40FB-4C1E-9EE1-2A51927B5A4A",
+  "attachments": [
+    {
+      "bucket": "my-bucket",
+      "key": "com2012_0429nl01.pdf"
+    },
+    {
+      "bucket": "my-bucket",
+      "key": "com2012_0444nl01.pdf"
+    },
+    {
+      "bucket": "my-bucket",
+      "key": "com2012_0445nl01.pdf"
+    },
+    {
+      "bucket": "my-bucket",
+      "key": "com2012_0448nl01.pdf"
+    }
+  ]
+}
+```
+
+### $s3Csv
+
+With this extension stage you can consume a CSV-file that resides in an S3-bucket. The lines are emitted as individual JSON messages. The first line will be used for the field names of the messages. The mandatory fields are `bucket` and `key`, which are the name of the bucket and the object key respectively. The optional field `separator` has the default value "\t". You must ensure the proper credentials are available, either as an IAM-role or environment variables.
+
+The following example consumes a topic that receives all kinds of S3-events. It selects a bucket and the CSV-objects in it.
+
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-app"
+    fromTopic: "s3-events"
+    toTopic: "csv-messages"
+    pipeline:
+      - $match:
+          eventName:
+            $regex: "/^ObjectCreated:.*$/"
+          s3.bucket.name: "my-csv-bucket"
+          s3.object.key:
+            $regex: "/^.*.csv$/"
+      - $s3Csv:
+          bucket: "$s3.bucket.name"
+          key: "$s3.object.key"
+          separator: "\t"
+```
+
+### $s3Out
+
+This extension stage lets you write individual JSON messages to an S3-bucket. It has only the fields `bucket` and `key`, which are the name of the bucket and the object key respectively. You must ensure the proper credentials are available, either as an IAM-role or environment variables.
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    pipeline:
+      - $s3Out:
+          $bucket: "my-bucket"
+          $key:        
+            $concat:
+              - "$field1"
+              - "$field2"      
+```
+
+### $throttle
+
+With this extension stage you can limit the throughput in a pipeline by setting the `maxPerSecond` field. An example:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    pipeline:
+      - $throttle:
+          maxPerSecond: 1000
 ```
 
 ### $trace

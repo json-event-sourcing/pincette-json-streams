@@ -1,0 +1,20 @@
+---
+application: app18
+version: "1.0"
+parts:
+  - type: stream
+    name: stream1
+    fromCollection: in
+    toTopic: out1
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: stream
+    name: stream2
+    fromCollection: in
+    toTopic: out2
+    pipeline:
+      - $match:
+          value:
+            $exists: false

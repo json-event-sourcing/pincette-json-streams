@@ -1,0 +1,10 @@
+---
+application: app23
+version: "1.0"
+parts:
+  - type: merge
+    name: merged
+    toCollection: out
+    fromTopics:
+      - in1
+      - in2

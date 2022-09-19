@@ -1,0 +1,24 @@
+---
+application: app4
+version: "1.0"
+parts:
+  - type: stream
+    name: stream1
+    fromTopic: in1
+    pipeline:
+      - $match:
+          value:
+            $exists: true
+  - type: stream
+    name: stream2
+    fromTopic: in2
+    pipeline:
+      - $match:
+          value:
+            $exists: false
+  - type: merge
+    name: merged
+    toTopic: out
+    fromStreams:
+      - stream1
+      - stream2
