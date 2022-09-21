@@ -18,7 +18,7 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.2";
+  static final String APP_VERSION = "2.2.1";
   private static final String MONGODB_URI = "mongodb.uri";
 
   private Application() {}

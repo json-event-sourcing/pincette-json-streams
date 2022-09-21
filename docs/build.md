@@ -21,4 +21,4 @@ java.util.logging.ConsoleHandler.level=INFO
 java.util.logging.ConsoleHandler.formatter=java.util.logging.SimpleFormatter
 ```
 
-ALternatively you can use the configuration parameter `logLevel`.
+Alternatively you can use the configuration parameter `logLevel`.

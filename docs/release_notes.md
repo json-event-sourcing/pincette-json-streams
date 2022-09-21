@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.2.1
+
+* Fix missing MongoDB codecs.
+
 ## 2.2
 
 * Replace Kafka Streams with a Reactive Streams implementation.

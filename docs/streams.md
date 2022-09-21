@@ -1,6 +1,6 @@
 # Streams
 
-A stream is an aggregation pipeline with stages that transform JSON messages. They can consume messages from other streams of Kafka topics. They can produce messages to other streams that are connected to it or to Kafka topics. The transformations are [MongoDB aggregation pipeline stages](https://docs.mongodb.com/manual/reference/operator/aggregation-pipeline/). The following is a simple example that filters out messages based on a field in them.
+A stream is an aggregation pipeline with stages that transform JSON messages. They can consume messages from other streams or Kafka topics. They can produce messages to other streams that are connected to it or to Kafka topics. The transformations are [MongoDB aggregation pipeline stages](https://docs.mongodb.com/manual/reference/operator/aggregation-pipeline/). The following is a simple example that filters out messages based on a field in them.
 
 ```yaml
 ---
