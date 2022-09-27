@@ -20,7 +20,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |logTopic|No|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
 |mongodb.uri|Yes|The MongoDB connection URL.|
 |mongodb.database|Yes|The MongoDB database.|
-|mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line.|
+|mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line. Make sure to create a [TTL](https://www.mongodb.com/docs/manual/core/index-ttl/) index on the field `aliveAt`. Set the expiration period higher than the `keepAliveInterval` and `leaderInterval` configuration settings. This index is needed for cases where instances suddenly stop.|
 |plugins|No|The directory from where the plugins are loaded.|
 |restartBackoff|No|The waiting time before a application that was in an error state will be restarted. The default value is `10s`.|
 |work|No|Configuration for the leader to divide the work amongst the instances.|
