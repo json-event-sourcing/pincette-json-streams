@@ -14,7 +14,7 @@ It takes its only argument, which should be a string, and performs Base64 encodi
 
 This function has at least two arguments. The first one is a JSON object and the second a JSON pointer, which is used to extract a value from the object. The optional third argument is a default value in case the value was not found. Without a third argument the default result will be `null`.
 
-## parse-iso-instance
+## parse-iso-instant
 
 It has one argument, which is interpreted as an ISO 8601 timestamp. It returns an epoch seconds value.
 
