@@ -4,21 +4,21 @@ import static com.mongodb.client.model.Filters.eq;
 import static java.lang.Boolean.TRUE;
 import static java.lang.Runtime.getRuntime;
 import static java.util.Optional.ofNullable;
-import static java.util.UUID.randomUUID;
-import static java.util.logging.Logger.getLogger;
 import static net.pincette.jes.util.Href.setContextPath;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.BACKOFF;
+import static net.pincette.json.streams.Common.addKafkaLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
 import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.info;
 import static net.pincette.json.streams.Read.readTopologies;
-import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
@@ -42,8 +42,6 @@ import java.util.logging.Logger;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
-import net.pincette.jes.elastic.ElasticCommonSchema;
-import net.pincette.jes.elastic.LogHandler;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Features;
@@ -62,7 +60,7 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run<T, U, V, W> implements Runnable {
-  private static final String CONFIG_LOGGER = LOGGER + ".config";
+  private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
   private static final String CONTEXT_PATH = "contextPath";
   private static final String PLUGINS = "plugins";
   private final Supplier<Provider<T, U, V, W>> providerSupplier;
@@ -95,40 +93,20 @@ class Run<T, U, V, W> implements Runnable {
         .orElse(context);
   }
 
-  private static Context logging(final Context context) {
-    if (context.logTopic != null) {
-      getLogger(LOGGER)
-          .addHandler(
-              new LogHandler(
-                  new ElasticCommonSchema()
-                      .withApp(LOGGER)
-                      .withLogLevel(getLogger(LOGGER).getLevel())
-                      .withService(LOGGER)
-                      .withServiceVersion(APP_VERSION)
-                      .withEnvironment(context.environment),
-                  message ->
-                      context.producer.sendJson(
-                          context.logTopic, message(randomUUID().toString(), message))));
-    }
-
-    return context;
-  }
-
   private static Context prepareContext(final Context context) {
-    final Logger logger = getLogger(LOGGER);
-
     return context
-        .doTask(c -> logger.info("This is commit " + getGitCommit()))
-        .doTask(c -> logger.info("Connecting to Kafka ..."))
+        .doTask(c -> LOGGER.info("This is commit " + getGitCommit()))
+        .doTask(c -> LOGGER.info("Connecting to Kafka ..."))
+        .withLogger(() -> LOGGER)
         .withProducer(new Producer(context.config))
-        .with(Run::logging)
-        .doTask(c -> logger.info("Loading plugins ..."))
+        .doTask(c -> addKafkaLogger(LOGGER_NAME, APP_VERSION, c))
+        .doTask(c -> LOGGER.info("Loading plugins ..."))
         .with(Run::loadPlugins)
-        .doTask(c -> logger.info("Settings up metrics ..."))
+        .doTask(c -> LOGGER.info("Settings up metrics ..."))
         .doTask(
             c ->
                 setContextPath(tryToGetSilent(() -> c.config.getString(CONTEXT_PATH)).orElse(null)))
-        .doTask(c -> logger.info("Loading applications ..."));
+        .doTask(c -> LOGGER.info("Loading applications ..."));
   }
 
   private static Context withPlugins(final Plugins plugins, final Context context) {

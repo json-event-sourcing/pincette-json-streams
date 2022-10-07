@@ -72,11 +72,11 @@ import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
+import static net.pincette.json.streams.Common.addKafkaLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.findJson;
 import static net.pincette.json.streams.Common.getCommands;
-import static net.pincette.json.streams.Common.logException;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.saveMessage;
 import static net.pincette.json.streams.Common.tryToGetForever;
@@ -84,6 +84,8 @@ import static net.pincette.json.streams.Common.version;
 import static net.pincette.json.streams.LagStage.lagStage;
 import static net.pincette.json.streams.LogStage.logStage;
 import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.exception;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.S3AttachmentsStage.s3AttachmentsStage;
 import static net.pincette.json.streams.S3CsvStage.s3CsvStage;
 import static net.pincette.json.streams.S3OutStage.s3OutStage;
@@ -219,12 +221,14 @@ class App<T, U, V, W> {
       final Context context,
       final JsonObject specification,
       final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag) {
+    final var application = application(specification);
     final var features =
         context.features.withJsltResolver(
             new MapResolver(
                 ofNullable(specification.getJsonObject(JSLT_IMPORTS))
                     .map(App::convertJsltImports)
                     .orElseGet(Collections::emptyMap)));
+    final var logger = getLogger(application);
     final var withValidator =
         context
             .withFeatures(features)
@@ -235,7 +239,14 @@ class App<T, U, V, W> {
                         getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
                             .map(v -> new Resolved(v, id))));
 
-    return withValidator.withStageExtensions(stageExtensions(withValidator, messageLag));
+    final var result =
+        withValidator
+            .withStageExtensions(stageExtensions(withValidator, messageLag))
+            .withLogger(() -> logger);
+
+    addKafkaLogger(application, version(specification), result);
+
+    return result;
   }
 
   private static Set<String> consumedStreams(final JsonArray parts) {
@@ -487,7 +498,7 @@ class App<T, U, V, W> {
                 .get(),
         BACKOFF,
         e -> {
-          logException(e);
+          exception(e);
 
           if (e instanceof MongoCommandException) {
             // The command history was no longer in the oplog.
@@ -660,7 +671,7 @@ class App<T, U, V, W> {
   }
 
   private Logger logger() {
-    return Logger.getLogger(name());
+    return getLogger(name());
   }
 
   String name() {
@@ -711,9 +722,9 @@ class App<T, U, V, W> {
 
   void start() {
     final String application = name();
+    final String version = version(specification);
 
-    Logger.getLogger(LOGGER)
-        .log(INFO, "Starting {0} {1}", new Object[] {application, version(specification)});
+    LOGGER.log(INFO, "Starting {0} {1}", new Object[] {application, version});
 
     if (onError != null) {
       onError.clear();
@@ -742,8 +753,7 @@ class App<T, U, V, W> {
   }
 
   void stop() {
-    Logger.getLogger(LOGGER)
-        .log(INFO, "Stopping {0} {1}", new Object[] {name(), version(specification)});
+    LOGGER.log(INFO, "Stopping {0} {1}", new Object[] {name(), version(specification)});
     builder.stop();
 
     if (thread != null) {
@@ -772,13 +782,13 @@ class App<T, U, V, W> {
                     new Jslt.Context(tryReader(jslt))
                         .withResolver(context.features.jsltResolver)
                         .withFunctions(context.features.customJsltFunctions)),
-            Logger.getLogger(LOGGER),
+            LOGGER,
             () -> jslt);
 
     return json ->
         fatal(
             () -> op.apply(json),
-            Logger.getLogger(LOGGER),
+            LOGGER,
             () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
   }
 

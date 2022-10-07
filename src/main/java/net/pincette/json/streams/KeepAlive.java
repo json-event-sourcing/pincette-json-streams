@@ -23,8 +23,9 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.aliveAtUpdate;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.instanceMessage;
-import static net.pincette.json.streams.Common.logException;
-import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.exception;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.deleteOne;
@@ -46,6 +47,7 @@ import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import javax.json.JsonObject;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -55,7 +57,7 @@ class KeepAlive {
   private static final Duration DEFAULT_KEEP_ALIVE_INTERVAL = ofSeconds(10);
   private static final String DESIRED = "desired";
   private static final String KEEP_ALIVE_INTERVAL = "keepAliveInterval";
-  private static final String KEEP_LOGGER = LOGGER + ".keepalive";
+  private static final Logger KEEP_LOGGER = getLogger(LOGGER_NAME + ".keepalive");
 
   private final MongoCollection<Document> collection;
   private final Context context;
@@ -120,7 +122,7 @@ class KeepAlive {
                         trace(instanceMessage("next interval", context), interval, KEEP_LOGGER)))
             .exceptionally(
                 e -> {
-                  logException(e);
+                  exception(e);
                   runAsyncAfter(
                       this::next,
                       trace(instanceMessage("next interval", context), interval, KEEP_LOGGER));

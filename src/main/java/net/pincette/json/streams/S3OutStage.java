@@ -24,6 +24,8 @@ import static software.amazon.awssdk.services.s3.model.PutObjectRequest.builder;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.mongo.streams.Stage;
@@ -42,7 +44,7 @@ class S3OutStage {
   private static Function<JsonObject, CompletionStage<Optional<JsonObject>>> putObject(
       final Function<JsonObject, JsonValue> bucket,
       final Function<JsonObject, JsonValue> key,
-      final String app) {
+      final Supplier<Logger> logger) {
     return json ->
         Optional.of(pair(bucket.apply(json), key.apply(json)))
             .map(
@@ -52,7 +54,8 @@ class S3OutStage {
                         stringValue(pair.second).orElse(null)))
             .filter(pair -> pair.first != null && pair.second != null)
             .map(
-                pair -> toS3(json, s3Request(pair.first, pair.second), app).thenApply(Optional::of))
+                pair ->
+                    toS3(json, s3Request(pair.first, pair.second), logger).thenApply(Optional::of))
             .orElseGet(() -> completedFuture(empty()));
   }
 
@@ -76,14 +79,14 @@ class S3OutStage {
           putObject(
               function(expr.getValue("/" + BUCKET), context.features),
               function(expr.getValue("/" + KEY), context.features),
-              c.app);
+              context.logger);
 
       return mapAsync(m -> put.apply(m.value).thenApply(json -> json.map(m::withValue).orElse(m)));
     };
   }
 
   private static CompletionStage<JsonObject> toS3(
-      final JsonObject json, final PutObjectRequest request, final String app) {
+      final JsonObject json, final PutObjectRequest request, final Supplier<Logger> logger) {
     return tryToGetForever(
             () ->
                 client.putObject(
@@ -93,7 +96,7 @@ class S3OutStage {
                     fromPublisher(
                         toPublisher(with(Source.of((JsonValue) json)).map(writeObject()).get()))),
             () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
-            app)
+            logger)
         .thenApply(result -> json);
   }
 }

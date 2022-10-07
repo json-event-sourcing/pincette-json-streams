@@ -90,7 +90,7 @@ class S3CsvStage {
               getObject(
                   function(expr.getValue("/" + BUCKET), context.features),
                   function(expr.getValue("/" + KEY), context.features),
-                  c.app,
+                  context.logger,
                   S3CsvStage::isCsv);
       final Function<JsonObject, JsonValue> separator =
           getValue(expr, "/" + SEPARATOR)

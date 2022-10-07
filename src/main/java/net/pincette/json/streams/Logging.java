@@ -1,9 +1,9 @@
 package net.pincette.json.streams;
 
 import static java.lang.System.getProperty;
+import static java.util.Optional.ofNullable;
 import static java.util.logging.Level.SEVERE;
 import static java.util.logging.LogManager.getLogManager;
-import static java.util.logging.Logger.getLogger;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.util.Collections.flatten;
 import static net.pincette.util.Pair.pair;
@@ -14,6 +14,8 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigObject;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -21,7 +23,9 @@ import java.util.logging.Logger;
 import javax.json.JsonValue;
 
 class Logging {
-  static final String LOGGER = "net.pincette.json.streams";
+  static final String LOGGER_NAME = "net.pincette.json.streams";
+  private static final Map<String, Logger> LOGGERS = new HashMap<>();
+  static final Logger LOGGER = getLogger(LOGGER_NAME);
   private static final String LEVEL = ".level";
   private static final String LOG = "log";
   private static final String LOG_LEVEL = "logLevel";
@@ -40,20 +44,44 @@ class Logging {
                     .forEach(p -> logging.setProperty(p.first + LEVEL, (String) p.second)));
   }
 
+  static void exception(final Throwable e) {
+    LOGGER.log(SEVERE, e.getMessage(), e);
+  }
+
+  static void exception(final Throwable e, final Supplier<String> message) {
+    exception(e, message, () -> LOGGER);
+  }
+
+  static void exception(
+      final Throwable e, final Supplier<String> message, final Supplier<Logger> logger) {
+    logger
+        .get()
+        .log(
+            SEVERE,
+            e,
+            () ->
+                ofNullable(message).map(Supplier::get).map(m -> (m + "\n")).orElse("")
+                    + e.getMessage());
+  }
+
   static void finest(final String message) {
-    getLogger(LOGGER).finest(message);
+    LOGGER.finest(message);
   }
 
   static void finest(final Supplier<String> message) {
-    getLogger(LOGGER).finest(message);
+    LOGGER.finest(message);
+  }
+
+  static Logger getLogger(final String name) {
+    return LOGGERS.computeIfAbsent(name, Logger::getLogger);
   }
 
   static void info(final String message) {
-    getLogger(LOGGER).info(message);
+    LOGGER.info(message);
   }
 
   static void info(final Supplier<String> message) {
-    getLogger(LOGGER).info(message);
+    LOGGER.info(message);
   }
 
   static void init(final Config config) {
@@ -83,19 +111,18 @@ class Logging {
   }
 
   static void logStageObject(final String name, final JsonValue expression) {
-    Logger.getLogger(LOGGER)
-        .log(
-            SEVERE,
-            "The value of {0} should be an object, but {1} was given.",
-            new Object[] {name, string(expression)});
+    LOGGER.log(
+        SEVERE,
+        "The value of {0} should be an object, but {1} was given.",
+        new Object[] {name, string(expression)});
   }
 
   static void severe(final String message) {
-    getLogger(LOGGER).severe(message);
+    LOGGER.severe(message);
   }
 
   static void severe(final Supplier<String> message) {
-    getLogger(LOGGER).severe(message);
+    LOGGER.severe(message);
   }
 
   static <T> T trace(final T value) {
@@ -106,7 +133,7 @@ class Logging {
     return trace(message, value, LOGGER);
   }
 
-  static <T> T trace(final String message, final T value, final String logger) {
+  static <T> T trace(final String message, final T value, final Logger logger) {
     return trace(message, value, T::toString, logger);
   }
 
@@ -114,14 +141,10 @@ class Logging {
       final String message,
       final T value,
       final Function<T, String> createString,
-      final String logger) {
-    Logger.getLogger(logger)
-        .finest(
-            () ->
-                logger
-                    + ": "
-                    + (message != null ? (message + ": ") : "")
-                    + createString.apply(value));
+      final Logger logger) {
+    logger.finest(
+        () ->
+            logger + ": " + (message != null ? (message + ": ") : "") + createString.apply(value));
 
     return value;
   }

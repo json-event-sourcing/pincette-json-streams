@@ -298,7 +298,11 @@ The generated messages look like this:
 ```
 ### $log
 
-With this extension stage you can write something to a Java logger. The incoming message will come out unchanged. The expression of the stage is an object with at least the field `message`. The expression in this field will be converted to a string after evaluation. The optional field `application` should yield a string. It sets the name of the Java logger. When it is omitted the default `pincette-json-streams` logger is used. The optional field `level` can be used to set the Java log level. If its not there, the default log level will be used.
+With this extension stage you can write something to a Java logger. The incoming message will come out unchanged. The expression of the stage is an object with at least the field `message`. The expression in this field will be converted to a string after evaluation. The optional field `application` should yield a string. It sets the name of the Java logger. When it is omitted the default `net.pincette.json.streams` logger is used. The optional field `level` can be used to set the Java log level. If its not there, the default log level will be used.
+
+You can add all the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) fields to the stage object. They are merged with ECS fields that are already set. The fields on the stage object take precedence. You can construct JSON objects or use dot-separated field names.
+
+If `trace.id` is not set and if the incoming message has the `_corr` field, then it will be used as the value for `trace.id`.
 
 The following example logs the field `subobject.field` with the default logger at the level `INFO`.
 
@@ -312,8 +316,13 @@ parts:
     fromTopic: "my-messages"
     pipeline:
       - $log:
-        message: $subobject.field"
-        level: "INFO"    
+          message: $subobject.field"
+          level: "INFO"
+          event.dataset: "test"
+          event.original: "$value"
+          trace:
+            id:
+              jes-uuid: null          
 ```
 
 ### [$lookup](https://docs.mongodb.com/manual/reference/operator/aggregation/lookup/)

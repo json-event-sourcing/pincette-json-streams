@@ -53,6 +53,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import javax.json.JsonArray;
 import javax.json.JsonObject;
@@ -118,18 +120,20 @@ class S3AttachmentsStage {
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentsPublisher(
-      final List<Pair<String, String>> attachments, final String app, final String boundary) {
+      final List<Pair<String, String>> attachments,
+      final Supplier<Logger> logger,
+      final String boundary) {
     return composeAsyncStream(
             attachments.stream()
-                .map(pair -> attachmentPublisher(pair.first, pair.second, app, boundary)))
+                .map(pair -> attachmentPublisher(pair.first, pair.second, logger, boundary)))
         .thenApply(
             stream ->
                 Concat.of(concat(stream, Stream.of(trailerPublisher(boundary))).collect(toList())));
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentPublisher(
-      final String bucket, final String key, final String app, final String boundary) {
-    return getObject(bucket, key, app)
+      final String bucket, final String key, final Supplier<Logger> logger, final String boundary) {
+    return getObject(bucket, key, logger)
         .thenApply(
             o ->
                 o.map(
@@ -141,7 +145,10 @@ class S3AttachmentsStage {
   }
 
   private static Optional<CompletionStage<HttpRequest>> createRequest(
-      final String url, final JsonValue headers, final JsonValue attachments, final String app) {
+      final String url,
+      final JsonValue headers,
+      final JsonValue attachments,
+      final Supplier<Logger> logger) {
     final List<Pair<String, String>> atts = attachments(attachments);
     final String boundary = randomUUID().toString();
 
@@ -150,7 +157,7 @@ class S3AttachmentsStage {
         .map(h -> setHeaders(HttpRequest.newBuilder().uri(URI.create(url)).expectContinue(true), h))
         .map(
             request ->
-                attachmentsPublisher(atts, app, boundary)
+                attachmentsPublisher(atts, logger, boundary)
                     .thenApply(publisher -> request.POST(fromPublisher(publisher)).build()));
   }
 
@@ -176,10 +183,11 @@ class S3AttachmentsStage {
       final Function<JsonObject, JsonValue> url,
       final Function<JsonObject, JsonValue> headers,
       final Function<JsonObject, JsonValue> attachments,
-      final String app) {
+      final Supplier<Logger> logger) {
     return message ->
         stringValue(url.apply(message))
-            .flatMap(u -> createRequest(u, headers.apply(message), attachments.apply(message), app))
+            .flatMap(
+                u -> createRequest(u, headers.apply(message), attachments.apply(message), logger))
             .map(
                 request ->
                     request.thenComposeAsync(
@@ -299,7 +307,7 @@ class S3AttachmentsStage {
               getValue(expr, "/" + ATTACHMENTS)
                   .map(b -> function(b, context.features))
                   .orElse(json -> emptyArray()),
-              c.app);
+              context.logger);
 
       return mapAsync(m -> execute.apply(m.value).thenApply(m::withValue));
     };

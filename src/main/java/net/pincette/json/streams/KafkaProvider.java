@@ -184,6 +184,10 @@ class KafkaProvider
                     .collect(toSet()));
   }
 
+  public Producer getProducer() {
+    return producer;
+  }
+
   public CompletionStage<Map<String, Map<Partition, Long>>> messageLag(
       final Predicate<String> includeGroup) {
     return Kafka.messageLag(admin, includeGroup)

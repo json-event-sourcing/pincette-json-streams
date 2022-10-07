@@ -299,6 +299,11 @@ class Test<T, U, V, W> implements Callable<Integer> {
         .thenApply(results -> results.reduce(null, (v1, v2) -> v1));
   }
 
+  private Context completeContext(
+      final Context context, final TestContext testContext, final Producer producer) {
+    return addLoadCollection(context, testContext).withProducer(producer);
+  }
+
   private CompletionStage<Void> createCollection(final String collection) {
     return Collection.create(context.database, collection).thenAccept(c -> {});
   }
@@ -346,7 +351,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
       must(testContext.allSet());
 
       final Optional<App<T, U, V, W>> app =
-          new Run<>(() -> provider, addLoadCollection(context, testContext))
+          new Run<>(
+                  () -> provider, completeContext(context, testContext, testProvider.getProducer()))
               .createApp(application.toFile());
 
       allTopics = testContext.allTopics();

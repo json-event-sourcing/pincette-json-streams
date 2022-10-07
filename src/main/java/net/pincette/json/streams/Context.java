@@ -2,7 +2,6 @@ package net.pincette.json.streams;
 
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
-import static java.util.logging.Logger.getLogger;
 import static net.pincette.jes.util.MongoExpressions.operators;
 import static net.pincette.json.JsltCustom.customFunctions;
 import static net.pincette.json.JsltCustom.trace;
@@ -21,7 +20,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.logging.Logger;
 import net.pincette.mongo.Features;
 import net.pincette.mongo.Validator;
 import net.pincette.mongo.streams.Stage;
@@ -33,6 +34,7 @@ class Context {
   final String environment;
   final Features features;
   final String instance = randomUUID().toString();
+  final Supplier<Logger> logger;
   final String logTopic;
   final Producer producer;
   final Map<String, Stage> stageExtensions;
@@ -40,7 +42,7 @@ class Context {
   final Validator validator;
 
   Context() {
-    this(null, null, null, null, null, null, null, null, null, null);
+    this(null, null, null, null, null, null, null, null, null, null, null);
   }
 
   @SuppressWarnings("java:S107") // Internal constructor for immutable object.
@@ -50,6 +52,7 @@ class Context {
       final MongoDatabase database,
       final String environment,
       final Features features,
+      final Supplier<Logger> logger,
       final String logTopic,
       final Producer producer,
       final Map<String, Stage> stageExtensions,
@@ -62,8 +65,8 @@ class Context {
     this.features =
         features != null
             ? features
-            : new Features()
-                .withCustomJsltFunctions(union(customFunctions(), set(trace(getLogger(LOGGER)))));
+            : new Features().withCustomJsltFunctions(union(customFunctions(), set(trace(LOGGER))));
+    this.logger = logger;
     this.logTopic = logTopic;
     this.producer = producer;
     this.stageExtensions = stageExtensions;
@@ -119,6 +122,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -133,6 +137,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -148,6 +153,7 @@ class Context {
         environment,
         mergeFeatures(
             features, new Features().withExpressionExtensions(operators(database, environment))),
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -165,6 +171,7 @@ class Context {
             ? mergeFeatures(
                 features, new Features().withExpressionExtensions(operators(database, environment)))
             : features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -179,6 +186,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -194,6 +202,21 @@ class Context {
     return predicate.test(this) ? with.apply(this) : this;
   }
 
+  Context withLogger(final Supplier<Logger> logger) {
+    return new Context(
+        client,
+        config,
+        database,
+        environment,
+        features,
+        logger,
+        logTopic,
+        producer,
+        stageExtensions,
+        validator,
+        testLoadCollection);
+  }
+
   Context withLogTopic(final String logTopic) {
     return new Context(
         client,
@@ -201,6 +224,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -215,6 +239,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -229,6 +254,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -243,6 +269,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,
@@ -257,6 +284,7 @@ class Context {
         database,
         environment,
         features,
+        logger,
         logTopic,
         producer,
         stageExtensions,

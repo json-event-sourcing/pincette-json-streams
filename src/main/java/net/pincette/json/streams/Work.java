@@ -42,6 +42,8 @@ import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.updateOne;
@@ -105,7 +107,7 @@ class Work<T, U, V, W> {
   private static final String RUNNING_INSTANCES_WITH_APPLICATIONS =
       "runningInstancesWithApplications";
   private static final String TIME = "time";
-  private static final String WORK_LOGGER = LOGGER + ".work";
+  private static final Logger WORK_LOGGER = getLogger(LOGGER_NAME + ".work");
 
   private final MongoCollection<Document> collection;
   private final Context context;
@@ -467,10 +469,8 @@ class Work<T, U, V, W> {
   }
 
   private void log(final Level level, final Stream<String> messages) {
-    Logger.getLogger(LOGGER)
-        .log(
-            level,
-            () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
+    LOGGER.log(
+        level, () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
   }
 
   private Map<String, Set<String>> logWork(final Map<String, Set<String>> work) {

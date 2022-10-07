@@ -10,3 +10,13 @@ parts:
       - $match:
           value:
             $exists: true
+      - $log:
+          application: "app1"
+          level: "INFO"
+          message: "test"
+          event.dataset: "test"
+          service.version: "1.0"
+          event.original: "$value"
+          trace:
+            id:
+              $jes-uuid: null

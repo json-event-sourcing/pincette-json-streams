@@ -15,7 +15,6 @@ import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
-import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Logger.getLogger;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
@@ -43,6 +42,8 @@ import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.exception;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.json.streams.Parameters.replaceParameters;
 import static net.pincette.json.streams.Parameters.replaceParametersString;
@@ -78,6 +79,7 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -104,6 +106,8 @@ import javax.json.JsonStructure;
 import javax.json.JsonValue;
 import net.pincette.function.Fn;
 import net.pincette.function.SupplierWithException;
+import net.pincette.jes.elastic.ElasticCommonSchema;
+import net.pincette.jes.elastic.LogHandler;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
@@ -146,6 +150,7 @@ class Common {
   static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
   static final String LOG = "$log";
+  static final String LOG_TOPIC = "logTopic";
   static final String MERGE = "merge";
   static final String NAME = "name";
   static final String ON = "on";
@@ -171,7 +176,7 @@ class Common {
   static final String VERSION_FIELD = "version";
   static final String WINDOW = "window";
   static final String RESOURCE = "resource:";
-  private static final String BUILD_LOGGER = LOGGER + ".build";
+  private static final Logger BUILD_LOGGER = getLogger(LOGGER_NAME + ".build");
   private static final String DATABASE = "mongodb.database";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
@@ -179,7 +184,6 @@ class Common {
   private static final String INCLUDE = "include";
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
-  private static final String LOG_TOPIC = "logTopic";
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String PARAMETERS = "parameters";
   private static final String REF = "ref";
@@ -187,11 +191,32 @@ class Common {
 
   private Common() {}
 
+  static void addKafkaLogger(final String service, final String version, final Context context) {
+    if (context.logTopic != null
+        && context.producer != null
+        && !hasKafkaHandler(context.logger.get())) {
+      context
+          .logger
+          .get()
+          .addHandler(
+              new LogHandler(
+                  new ElasticCommonSchema()
+                      .withApp(service)
+                      .withLogLevel(context.logger.get().getLevel())
+                      .withService(service)
+                      .withServiceVersion(version)
+                      .withEnvironment(context.environment),
+                  message ->
+                      context.producer.sendJson(
+                          context.logTopic, message(randomUUID().toString(), message))));
+    }
+  }
+
   static <T> CompletionStage<Boolean> aliveAtUpdate(
       final Supplier<Bson> criterion,
       final Supplier<Field<T>> field,
       final MongoCollection<Document> collection,
-      final String logger) {
+      final Logger logger) {
     return updateOne(
             collection,
             criterion.get(),
@@ -570,6 +595,12 @@ class Common {
         .orElseGet(Stream::empty);
   }
 
+  private static boolean hasKafkaHandler(final Logger logger) {
+    return ofNullable(logger.getHandlers()).stream()
+        .flatMap(Arrays::stream)
+        .anyMatch(LogHandler.class::isInstance);
+  }
+
   private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
     return transform(
         parameters,
@@ -619,24 +650,6 @@ class Common {
             Optional.of(
                 new JsonEntry(
                     e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
-  }
-
-  static void logException(final Throwable e) {
-    getLogger(LOGGER).log(SEVERE, e.getMessage(), e);
-  }
-
-  static void logException(final Throwable e, final Supplier<String> message) {
-    logException(e, message, null);
-  }
-
-  static void logException(final Throwable e, final Supplier<String> message, final String app) {
-    getLogger(app != null ? app : LOGGER)
-        .log(
-            SEVERE,
-            e,
-            () ->
-                ofNullable(message).map(Supplier::get).map(m -> (m + "\n")).orElse("")
-                    + e.getMessage());
   }
 
   static String numberLines(final String s) {
@@ -859,8 +872,8 @@ class Common {
   static <T> CompletionStage<T> tryToGetForever(
       final SupplierWithException<CompletionStage<T>> fn,
       final Supplier<String> message,
-      final String app) {
-    return net.pincette.util.Util.tryToGetForever(fn, BACKOFF, e -> logException(e, message, app));
+      final Supplier<Logger> logger) {
+    return net.pincette.util.Util.tryToGetForever(fn, BACKOFF, e -> exception(e, message, logger));
   }
 
   private static String unescapeFieldName(final String name) {

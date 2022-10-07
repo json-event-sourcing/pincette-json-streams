@@ -13,8 +13,9 @@ import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.aliveAtUpdate;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.instanceMessage;
-import static net.pincette.json.streams.Common.logException;
-import static net.pincette.json.streams.Logging.LOGGER;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.exception;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.toDocument;
 import static net.pincette.mongo.Collection.deleteOne;
@@ -42,7 +43,7 @@ import org.bson.conversions.Bson;
 class Leader {
   private static final Duration DEFAULT_LEADER_INTERVAL = ofSeconds(10);
   private static final String LEADER_INTERVAL = "leaderInterval";
-  private static final String LEADER_LOGGER = LOGGER + ".leader";
+  private static final Logger LEADER_LOGGER = getLogger(LOGGER_NAME + ".leader");
 
   private final MongoCollection<Document> collection;
   private final Context context;
@@ -96,7 +97,7 @@ class Leader {
                         trace(instanceMessage("next interval", context), interval, LEADER_LOGGER)))
             .exceptionally(
                 e -> {
-                  logException(e);
+                  exception(e);
                   runAsyncAfter(
                       this::next,
                       trace(instanceMessage("next interval", context), interval, LEADER_LOGGER));
@@ -106,7 +107,7 @@ class Leader {
 
   private void notification(final boolean isLeader) {
     if (isLeader) {
-      Logger.getLogger(LEADER_LOGGER).info(() -> "Instance " + context.instance + " is the leader");
+      LEADER_LOGGER.info(() -> "Instance " + context.instance + " is the leader");
     }
 
     onResult.accept(isLeader);

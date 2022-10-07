@@ -16,6 +16,8 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.util.Pair;
@@ -35,8 +37,8 @@ class S3Util {
       getObject(
           final Function<JsonObject, JsonValue> bucket,
           final Function<JsonObject, JsonValue> key,
-          final String app) {
-    return getObject(bucket, key, app, (req, res) -> true);
+          final Supplier<Logger> logger) {
+    return getObject(bucket, key, logger, (req, res) -> true);
   }
 
   static Function<
@@ -44,7 +46,7 @@ class S3Util {
       getObject(
           final Function<JsonObject, JsonValue> bucket,
           final Function<JsonObject, JsonValue> key,
-          final String app,
+          final Supplier<Logger> logger,
           final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
     return json ->
         Optional.of(pair(bucket.apply(json), key.apply(json)))
@@ -54,32 +56,32 @@ class S3Util {
                         stringValue(pair.first).orElse(null),
                         stringValue(pair.second).orElse(null)))
             .filter(pair -> pair.first != null && pair.second != null)
-            .map(pair -> getObject(pair.first, pair.second, app, condition))
+            .map(pair -> getObject(pair.first, pair.second, logger, condition))
             .orElseGet(() -> completedFuture(empty()));
   }
 
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
-      final String bucket, final String key, final String app) {
-    return getObject(bucket, key, app, (req, res) -> true);
+      final String bucket, final String key, final Supplier<Logger> logger) {
+    return getObject(bucket, key, logger, (req, res) -> true);
   }
 
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
       final String bucket,
       final String key,
-      final String app,
+      final Supplier<Logger> logger,
       final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
-    return getStream(s3Request(bucket, key), app, condition);
+    return getStream(s3Request(bucket, key), logger, condition);
   }
 
   private static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>
       getStream(
           final GetObjectRequest request,
-          final String app,
+          final Supplier<Logger> logger,
           final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
     return tryToGetForever(
             () -> client.getObject(request, new Response()),
             () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
-            app)
+            logger)
         .thenApply(
             pair ->
                 Optional.of(pair.first)

@@ -3,7 +3,7 @@ package net.pincette.json.streams;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
 import static net.pincette.json.streams.Common.BACKOFF;
-import static net.pincette.json.streams.Common.logException;
+import static net.pincette.json.streams.Logging.exception;
 import static net.pincette.util.Util.tryToGetForever;
 
 import com.typesafe.config.Config;
@@ -69,7 +69,7 @@ class Producer implements AutoCloseable {
             Kafka.send(getJsonProducer(), new ProducerRecord<>(topic, message.key, message.value)),
         BACKOFF,
         e -> {
-          logException(e);
+          exception(e);
 
           if (jsonProducer != null) {
             jsonProducer.close();
@@ -85,7 +85,7 @@ class Producer implements AutoCloseable {
                 getStringProducer(), new ProducerRecord<>(topic, message.key, message.value)),
         BACKOFF,
         e -> {
-          logException(e);
+          exception(e);
 
           if (stringProducer != null) {
             stringProducer.close();

@@ -1,5 +1,13 @@
 # Release Notes
 
+## 2.2.2
+
+* Fix exception handling in response stream of the `$http` stage.
+* Fix concurrency issue with underlying `flatMap` reactive streams processor.
+* Fix branch completion issue with the underlying `Merge` reactive streams subscriber.
+* Fix logging to Kafka for applications.
+* Allow all Elastic Common Schema fields in the `$log` stage.
+
 ## 2.2.1
 
 * Fix missing MongoDB codecs.

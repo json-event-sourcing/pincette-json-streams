@@ -18,6 +18,7 @@ import static net.pincette.io.PathUtil.copy;
 import static net.pincette.io.PathUtil.delete;
 import static net.pincette.json.JsonUtil.createDiff;
 import static net.pincette.json.JsonUtil.createReader;
+import static net.pincette.json.streams.Common.LOG_TOPIC;
 import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.KafkaProvider.tester;
 import static net.pincette.json.streams.Logging.init;
@@ -134,6 +135,7 @@ class TestApp {
 
   private static Config createConfig() {
     return ConfigFactory.empty()
+        .withValue(LOG_TOPIC, fromAnyRef("log"))
         .withValue("kafka.bootstrap.servers", fromAnyRef(KAFKA))
         .withValue("plugins", fromAnyRef("plugins"));
   }
