@@ -9,16 +9,18 @@ import static net.pincette.json.JsonUtil.createValue;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.stringValue;
+import static net.pincette.json.streams.Common.BACKOFF;
 import static net.pincette.json.streams.Common.S3CSV;
+import static net.pincette.json.streams.Logging.exception;
 import static net.pincette.json.streams.Logging.logStageObject;
 import static net.pincette.json.streams.S3Util.getObject;
 import static net.pincette.mongo.Expression.function;
-import static net.pincette.rs.Async.mapAsync;
-import static net.pincette.rs.Box.box;
 import static net.pincette.rs.Chain.with;
 import static net.pincette.rs.Flatten.flatMap;
 import static net.pincette.rs.PassThrough.passThrough;
+import static net.pincette.rs.Util.completablePublisher;
 import static net.pincette.rs.Util.lines;
+import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.isDouble;
@@ -31,6 +33,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.mongo.streams.Stage;
@@ -72,6 +75,35 @@ class S3CsvStage {
         .get();
   }
 
+  private static Function<Message<String, JsonObject>, Publisher<Message<String, JsonObject>>>
+      retryGet(
+          final Function<
+                  JsonObject,
+                  CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>>
+              get,
+          final Function<JsonObject, JsonValue> separator,
+          final Supplier<Logger> logger) {
+    return message ->
+        retryPublisher(
+            () ->
+                completablePublisher(
+                    () ->
+                        stringValue(separator.apply(message.value))
+                            .map(
+                                s ->
+                                    get.apply(message.value)
+                                        .thenApply(
+                                            publisher ->
+                                                publisher
+                                                    .map(
+                                                        buffers ->
+                                                            records(message.key, buffers.second, s))
+                                                    .orElseGet(() -> Source.of(message))))
+                            .orElseGet(() -> completedFuture(Source.of(message)))),
+            BACKOFF,
+            e -> exception(e, () -> S3CSV, logger));
+  }
+
   static Stage s3CsvStage(final Context context) {
     return (expression, c) -> {
       if (!isObject(expression)) {
@@ -97,20 +129,7 @@ class S3CsvStage {
               .map(s -> function(s, context.features))
               .orElseGet(() -> (json -> createValue("\t")));
 
-      return box(
-          mapAsync(
-              m ->
-                  stringValue(separator.apply(m.value))
-                      .map(
-                          s ->
-                              get.apply(m.value)
-                                  .thenApply(
-                                      publisher ->
-                                          publisher
-                                              .map(buffers -> records(m.key, buffers.second, s))
-                                              .orElseGet(() -> Source.of(m))))
-                      .orElseGet(() -> completedFuture(Source.of(m)))),
-          flatMap(records -> records));
+      return flatMap(retryGet(get, separator, context.logger));
     };
   }
 

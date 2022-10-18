@@ -24,6 +24,7 @@ import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.objectValue;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.streams.Common.S3ATTACHMENTS;
+import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.logStageObject;
 import static net.pincette.json.streams.S3Util.getObject;
 import static net.pincette.mongo.Expression.function;
@@ -109,6 +110,11 @@ class S3AttachmentsStage {
         .build();
   }
 
+  private static JsonObject annotateMessage(
+      final JsonObject message, final HttpResponse<String> response) {
+    return ok(response) ? message : addError(message, response.statusCode(), response.body());
+  }
+
   private static List<Pair<String, String>> attachments(final JsonValue attachments) {
     return arrayValue(attachments).stream()
         .flatMap(JsonArray::stream)
@@ -185,22 +191,23 @@ class S3AttachmentsStage {
       final Function<JsonObject, JsonValue> attachments,
       final Supplier<Logger> logger) {
     return message ->
-        stringValue(url.apply(message))
-            .flatMap(
-                u -> createRequest(u, headers.apply(message), attachments.apply(message), logger))
-            .map(
-                request ->
-                    request.thenComposeAsync(
-                        r ->
-                            client
-                                .sendAsync(r, ofString())
-                                .thenApply(
-                                    response ->
-                                        ok(response)
-                                            ? message
-                                            : addError(
-                                                message, response.statusCode(), response.body()))))
-            .orElseGet(() -> completedFuture(addError(message, 400, null)));
+        tryToGetForever(
+            () ->
+                stringValue(url.apply(message))
+                    .flatMap(
+                        u ->
+                            createRequest(
+                                u, headers.apply(message), attachments.apply(message), logger))
+                    .map(
+                        request ->
+                            request.thenComposeAsync(
+                                r ->
+                                    client
+                                        .sendAsync(r, ofString())
+                                        .thenApply(response -> annotateMessage(message, response))))
+                    .orElseGet(() -> completedFuture(addError(message, 400, null))),
+            () -> S3ATTACHMENTS,
+            logger);
   }
 
   private static HttpClient getClient(final JsonObject expression) {

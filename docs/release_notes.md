@@ -1,5 +1,13 @@
 # Release Notes
 
+## 2.2.3
+
+* Fix retry in `$http` when the response stream fails.
+* Fix too deep exception nesting.
+* Fix blocking of merge when one of the branches sends nothing.
+* Add retry to `$s3Attachments` stage.
+* Fix retry in `$s3Csv` when the response stream fails.
+
 ## 2.2.2
 
 * Fix exception handling in response stream of the `$http` stage.
