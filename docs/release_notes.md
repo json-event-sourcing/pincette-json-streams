@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.2.4
+
+* Fix exception during leader election.
+* Add `restart` command to the CLI.
+* Load AWS secrets only when they are really needed.
+
 ## 2.2.3
 
 * Fix retry in `$http` when the response stream fails.

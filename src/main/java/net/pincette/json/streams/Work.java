@@ -524,7 +524,7 @@ class Work<T, U, V, W> {
             list(
                 Aggregates.set(
                     new Field<>(DESIRED, fromJson(from(applications.stream().sorted()))))))
-        .thenApply(result -> trace("saveWork", result, WORK_LOGGER))
+        .thenApply(result -> trace(() -> "saveWork", result, WORK_LOGGER))
         .thenApply(UpdateResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }

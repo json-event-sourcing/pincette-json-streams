@@ -39,6 +39,7 @@ import static net.pincette.util.Util.tryToDoWithRethrow;
 
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
@@ -55,8 +56,8 @@ class Doc extends ApplicationCommand implements Runnable {
   private static final String DESCRIPTION = "description";
   private static final String TITLE = "title";
 
-  Doc(final Context context) {
-    super(context);
+  Doc(final Supplier<Context> contextSupplier) {
+    super(contextSupplier);
   }
 
   private static Function<JsonObject, Stream<String>> aggregateAnchors() {
@@ -246,7 +247,7 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   public void run() {
-    getValidatedApplications()
+    getValidatedApplications(contextSupplier.get())
         .forEach(
             specification ->
                 tryToDoWithRethrow(

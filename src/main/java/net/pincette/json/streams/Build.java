@@ -18,6 +18,7 @@ import static net.pincette.util.Util.must;
 
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.io.File;
+import java.util.function.Supplier;
 import javax.json.JsonArray;
 import javax.json.JsonArrayBuilder;
 import javax.json.JsonObject;
@@ -36,7 +37,7 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Generates one inlined JSON per application and uploads them to MongoDB.")
 class Build implements Runnable {
-  private final Context context;
+  private final Supplier<Context> contextSupplier;
   @ArgGroup() private CollectionOrLocal collectionOrLocal;
 
   @Option(
@@ -45,8 +46,8 @@ class Build implements Runnable {
       description = "A JSON or YAML file containing an array of applications.")
   private File file;
 
-  Build(final Context context) {
-    this.context = context;
+  Build(final Supplier<Context> contextSupplier) {
+    this.contextSupplier = contextSupplier;
   }
 
   private static String escapeFieldName(final String name) {
@@ -59,7 +60,7 @@ class Build implements Runnable {
         .build();
   }
 
-  private JsonArray buildApplications() {
+  private JsonArray buildApplications(final Context context) {
     return readTopologies(file)
         .map(
             loaded ->
@@ -71,6 +72,7 @@ class Build implements Runnable {
 
   @SuppressWarnings("java:S106") // Not logging.
   public void run() {
+    final var context = contextSupplier.get();
     final var col =
         getApplicationCollection(
             collectionOrLocal == null ? null : collectionOrLocal.collection, context);
@@ -78,7 +80,7 @@ class Build implements Runnable {
     if ((collectionOrLocal == null || !collectionOrLocal.local) && col != null) {
       final MongoCollection<Document> c = context.database.getCollection(col);
 
-      buildApplications().stream()
+      buildApplications(context).stream()
           .filter(JsonUtil::isObject)
           .map(JsonValue::asJsonObject)
           .map(Build::toMongoDB)
@@ -89,7 +91,7 @@ class Build implements Runnable {
                       .toCompletableFuture()
                       .join());
     } else {
-      System.out.println(string(buildApplications(), true));
+      System.out.println(string(buildApplications(context), true));
     }
   }
 

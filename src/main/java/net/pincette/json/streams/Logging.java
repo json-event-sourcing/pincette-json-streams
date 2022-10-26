@@ -129,22 +129,22 @@ class Logging {
     return trace(null, value, LOGGER);
   }
 
-  static <T> T trace(final String message, final T value) {
+  static <T> T trace(final Supplier<String> message, final T value) {
     return trace(message, value, LOGGER);
   }
 
-  static <T> T trace(final String message, final T value, final Logger logger) {
+  static <T> T trace(final Supplier<String> message, final T value, final Logger logger) {
     return trace(message, value, T::toString, logger);
   }
 
   static <T> T trace(
-      final String message,
+      final Supplier<String> message,
       final T value,
       final Function<T, String> createString,
       final Logger logger) {
     logger.finest(
         () ->
-            logger + ": " + (message != null ? (message + ": ") : "") + createString.apply(value));
+            logger + ": " + (message != null ? (message.get() + ": ") : "") + createString.apply(value));
 
     return value;
   }

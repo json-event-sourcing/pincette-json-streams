@@ -22,6 +22,7 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.io.DontCloseOutputStream;
@@ -31,7 +32,7 @@ import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Option;
 
 class ApplicationCommand {
-  protected final Context context;
+  protected final Supplier<Context> contextSupplier;
 
   @Option(
       names = {"-e", "--exclude"},
@@ -41,8 +42,8 @@ class ApplicationCommand {
 
   @ArgGroup() private FileOrApplication fileOrApplication;
 
-  ApplicationCommand(final Context context) {
-    this.context = context;
+  ApplicationCommand(final Supplier<Context> contextSupplier) {
+    this.contextSupplier = contextSupplier;
   }
 
   private Bson applicationFilter() {
@@ -61,7 +62,7 @@ class ApplicationCommand {
     return Optional.ofNullable(fileOrApplication).map(f -> f.file).map(f -> f.file);
   }
 
-  private Stream<Loaded> getApplications() {
+  private Stream<Loaded> getApplications(final Context context) {
     final Set<String> excludedApplications =
         ofNullable(excluded).stream().flatMap(Arrays::stream).collect(toSet());
 
@@ -69,18 +70,18 @@ class ApplicationCommand {
         .map(Read::readTopologies)
         .orElseGet(
             () ->
-                Common.getApplications(getApplicationCollection(), applicationFilter())
+                Common.getApplications(getApplicationCollection(context), applicationFilter())
                     .map(Loaded::new))
         .filter(loaded -> !excludedApplications.contains(application(loaded.specification)));
   }
 
-  private MongoCollection<Document> getApplicationCollection() {
+  private MongoCollection<Document> getApplicationCollection(final Context context) {
     return context.database.getCollection(
         Common.getApplicationCollection(getCollection().orElse(null), context));
   }
 
-  protected Stream<JsonObject> getValidatedApplications() {
-    return getApplications()
+  protected Stream<JsonObject> getValidatedApplications(final Context context) {
+    return getApplications(context)
         .map(
             loaded ->
                 pair(

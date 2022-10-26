@@ -75,6 +75,7 @@ import com.mongodb.client.model.Field;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoClient;
+import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
@@ -185,6 +186,7 @@ class Common {
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
   private static final String MONGODB_COLLECTION = "mongodb.collection";
+  private static final String MONGODB_URI = "mongodb.uri";
   private static final String PARAMETERS = "parameters";
   private static final String REF = "ref";
   private static final String SCRIPT = "script";
@@ -224,9 +226,9 @@ class Common {
                 Aggregates.set(
                     new Field<>(ALIVE_AT, new BsonDateTime(now().toEpochMilli())), field.get())),
             new UpdateOptions().upsert(true))
-        .thenApply(result -> trace("aliveAtUpdate", result, logger))
+        .thenApply(result -> trace(() -> "aliveAtUpdate", result, logger))
         .thenApply(result -> result != null && result.wasAcknowledged())
-        .exceptionally(t -> trace(t.getMessage(), false, LOGGER));
+        .exceptionally(t -> trace(t::getMessage, false, LOGGER));
   }
 
   static String application(final JsonObject specification) {
@@ -249,7 +251,7 @@ class Common {
       final ApplicationContext applicationContext) {
     final Map<File, Pair<String, String>> jsltImports = new HashMap<>();
     final Map<File, Pair<String, JsonObject>> validatorImports = new HashMap<>();
-    final String message = instanceMessage("build", applicationContext.context);
+    final Supplier<String> message = () -> instanceMessage("build", applicationContext.context);
     final var parameters =
         trace(
             message,
@@ -313,7 +315,10 @@ class Common {
         .withContext(context);
   }
 
-  static Context createContext(final Config config, final MongoClient client) {
+  static Context createContext(final Config config) {
+    final MongoClient client =
+        tryToGetSilent(() -> config.getString(MONGODB_URI)).map(MongoClients::create).orElse(null);
+
     return new Context()
         .withConfig(config)
         .withEnvironment(tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))

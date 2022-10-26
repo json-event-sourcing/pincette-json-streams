@@ -105,7 +105,7 @@ class TestApp {
     init(config);
     test =
         new net.pincette.json.streams.Test<>(
-            () -> tester(config), () -> tester(config), createContext(config, null));
+            () -> tester(config), () -> tester(config), () -> createContext(config));
   }
 
   private static Stream<BodyPart> bodyParts(final MimeMultipart mmp) {

@@ -98,8 +98,9 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private static final Path TOPICS_FROM = Paths.get("test", "topics", "from");
   private static final Path TOPICS_TO = Paths.get("test", "topics", "to");
 
-  private final boolean keep;
-  private final Context context;
+  private Context context;
+  private boolean keep;
+  private final Supplier<Context> contextSupplier;
   private final Supplier<Provider<T, U, V, W>> providerSupplier;
   private final Supplier<TestProvider<T, U, V, W>> testProviderSupplier;
 
@@ -112,11 +113,10 @@ class Test<T, U, V, W> implements Callable<Integer> {
   Test(
       final Supplier<Provider<T, U, V, W>> providerSupplier,
       final Supplier<TestProvider<T, U, V, W>> testProviderSupplier,
-      final Context context) {
+      final Supplier<Context> contextSupplier) {
     this.providerSupplier = providerSupplier;
     this.testProviderSupplier = testProviderSupplier;
-    this.context = withTestDatabase(context);
-    this.keep = context.database != null;
+    this.contextSupplier = contextSupplier;
   }
 
   private static Context addLoadCollection(final Context context, final TestContext testContext) {
@@ -138,7 +138,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
             streams,
             (s, e) ->
                 s.to(
-                    trace("load messages for topic", e.getKey()),
+                    trace(() -> "load messages for topic", e.getKey()),
                     with(Source.of(inputMessages(e.getValue()))).map(Logging::trace).get()),
             (s1, s2) -> s1);
   }
@@ -244,7 +244,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
                 message -> {
                   results.add(
                       trace(
-                          "receive message for " + topicOrCollection,
+                          () -> "receive message for " + topicOrCollection,
                           removeTimestamps(message).value));
                   trace("still expecting " + (expected.size() - results.size()) + " messages");
 
@@ -272,6 +272,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
   public Integer call() {
     try {
+      init();
+
       if (!test(file.toPath())) {
         severe("Test failed.");
 
@@ -320,6 +322,13 @@ class Test<T, U, V, W> implements Callable<Integer> {
     return collectionTask(collections, this::dropCollection);
   }
 
+  private void init() {
+    if (context == null) {
+      context = withTestDatabase(contextSupplier.get());
+      keep = context.database != null;
+    }
+  }
+
   private void initCollections(final Set<String> collections) {
     dropCollections(collections)
         .thenComposeAsync(r -> createCollections(collections))
@@ -349,10 +358,12 @@ class Test<T, U, V, W> implements Callable<Integer> {
       final TestContext testContext = new TestContext(application);
 
       must(testContext.allSet());
+      init();
 
       final Optional<App<T, U, V, W>> app =
           new Run<>(
-                  () -> provider, completeContext(context, testContext, testProvider.getProducer()))
+                  () -> provider,
+                  () -> completeContext(context, testContext, testProvider.getProducer()))
               .createApp(application.toFile());
 
       allTopics = testContext.allTopics();

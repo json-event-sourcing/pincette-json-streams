@@ -32,6 +32,7 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
@@ -75,18 +76,19 @@ class Leader {
         eq(ID, LEADER),
         eq(
             INSTANCE,
-            trace(instanceMessage("criterion", context), context.instance, LEADER_LOGGER)));
+            trace(() -> instanceMessage("criterion", context), context.instance, LEADER_LOGGER)));
   }
 
   private CompletionStage<Boolean> deleteLeader() {
     return deleteOne(collection, criterion())
-        .thenApply(result -> trace(instanceMessage("deleteLeader", context), result, LEADER_LOGGER))
+        .thenApply(
+            result -> trace(() -> instanceMessage("deleteLeader", context), result, LEADER_LOGGER))
         .thenApply(DeleteResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }
 
   private CompletionStage<Boolean> next() {
-    return TRUE.equals(trace(instanceMessage("next stop", context), stop, LEADER_LOGGER))
+    return TRUE.equals(trace(() -> instanceMessage("next stop", context), stop, LEADER_LOGGER))
         ? deleteLeader()
         : becomeLeader()
             .thenAccept(this::notification)
@@ -94,13 +96,19 @@ class Leader {
                 result ->
                     composeAsyncAfter(
                         this::next,
-                        trace(instanceMessage("next interval", context), interval, LEADER_LOGGER)))
+                        trace(
+                            () -> instanceMessage("next interval", context),
+                            interval,
+                            LEADER_LOGGER)))
             .exceptionally(
                 e -> {
                   exception(e);
                   runAsyncAfter(
                       this::next,
-                      trace(instanceMessage("next interval", context), interval, LEADER_LOGGER));
+                      trace(
+                          () -> instanceMessage("next interval", context),
+                          interval,
+                          LEADER_LOGGER));
                   return false;
                 });
   }
@@ -127,7 +135,7 @@ class Leader {
   }
 
   private CompletionStage<Boolean> tryMyself() {
-    final String me = instanceMessage("tryMyself", context);
+    final Supplier<String> me = () -> instanceMessage("tryMyself", context);
 
     return findOne(collection, criterion())
         .thenComposeAsync(
@@ -144,7 +152,7 @@ class Leader {
   }
 
   private CompletionStage<Boolean> tryToBeFirst() {
-    final String me = instanceMessage("tryToBeFirst", context);
+    final Supplier<String> me = () -> instanceMessage("tryToBeFirst", context);
 
     return insertOne(
             collection,

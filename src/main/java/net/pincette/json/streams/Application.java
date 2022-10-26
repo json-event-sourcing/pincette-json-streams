@@ -1,14 +1,17 @@
 package net.pincette.json.streams;
 
-import static com.mongodb.reactivestreams.client.MongoClients.create;
 import static com.typesafe.config.ConfigFactory.defaultOverrides;
+import static java.lang.System.exit;
 import static net.pincette.jes.util.Configuration.loadDefault;
 import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.KafkaProvider.tester;
+import static net.pincette.json.streams.Logging.LOGGER_NAME;
+import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.init;
-import static net.pincette.util.Util.tryToDoWithRethrow;
 
-import java.util.Optional;
+import com.typesafe.config.Config;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
@@ -18,40 +21,38 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.2.3";
-  private static final String MONGODB_URI = "mongodb.uri";
+  static final String APP_VERSION = "2.2.4";
+  private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
 
   private Application() {}
 
+  private static Supplier<Context> awsContext(final Config config) {
+    return () -> createContext(AWSSecrets.load(config));
+  }
+
   public static void main(final String[] args) {
-    final var config = AWSSecrets.load(defaultOverrides().withFallback(loadDefault()));
+    final var config = defaultOverrides().withFallback(loadDefault());
 
     init(config);
+    Logging.trace(() -> "Loaded config: ", config, CONFIG_LOGGER);
 
-    tryToDoWithRethrow(
-        () -> create(config.getString(MONGODB_URI)),
-        client ->
-            Optional.of(createContext(config, client))
-                .map(
-                    context ->
-                        new CommandLine(new Application())
-                            .addSubcommand("build", new Build(context))
-                            .addSubcommand("delete", new Delete(context))
-                            .addSubcommand("doc", new Doc(context))
-                            .addSubcommand("dot", new Dot(context))
-                            .addSubcommand(new HelpCommand())
-                            .addSubcommand("list", new ListApps(context))
-                            .addSubcommand(
-                                "run", new Run<>(() -> new KafkaProvider(context.config), context))
-                            .addSubcommand(
-                                "test",
-                                new Test<>(
-                                    () -> new KafkaProvider(context.config),
-                                    () -> tester(config),
-                                    context))
-                            .addSubcommand("yaml", new Yaml())
-                            .execute(args))
-                .filter(code -> code != 0)
-                .ifPresent(System::exit));
+    exit(
+        new CommandLine(new Application())
+            .addSubcommand("build", new Build(awsContext(config)))
+            .addSubcommand("delete", new Delete(awsContext(config)))
+            .addSubcommand("doc", new Doc(awsContext(config)))
+            .addSubcommand("dot", new Dot(awsContext(config)))
+            .addSubcommand(new HelpCommand())
+            .addSubcommand("list", new ListApps(awsContext(config)))
+            .addSubcommand("restart", new Restart(awsContext(config)))
+            .addSubcommand("run", new Run<>(() -> new KafkaProvider(config), awsContext(config)))
+            .addSubcommand(
+                "test",
+                new Test<>(
+                    () -> new KafkaProvider(config),
+                    () -> tester(config),
+                    () -> createContext(config)))
+            .addSubcommand("yaml", new Yaml())
+            .execute(args));
   }
 }

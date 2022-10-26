@@ -12,11 +12,9 @@ import static net.pincette.json.streams.Common.addKafkaLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
-import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
-import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.info;
 import static net.pincette.json.streams.Read.readTopologies;
 import static net.pincette.util.Or.tryWith;
@@ -38,7 +36,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.logging.Logger;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
@@ -60,9 +57,9 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
 class Run<T, U, V, W> implements Runnable {
-  private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
   private static final String CONTEXT_PATH = "contextPath";
   private static final String PLUGINS = "plugins";
+  private final Supplier<Context> contextSupplier;
   private final Supplier<Provider<T, U, V, W>> providerSupplier;
   private final BlockingQueue<Runnable> runQueue = new LinkedBlockingQueue<>();
   private final Map<String, App<T, U, V, W>> running = new HashMap<>();
@@ -72,10 +69,11 @@ class Run<T, U, V, W> implements Runnable {
   private Leader leader;
   private Provider<T, U, V, W> provider;
 
-  Run(final Supplier<Provider<T, U, V, W>> providerSupplier, final Context context) {
-    Logging.trace(instanceMessage("config", context), context.config, CONFIG_LOGGER);
+  Run(
+      final Supplier<Provider<T, U, V, W>> providerSupplier,
+      final Supplier<Context> contextSupplier) {
     this.providerSupplier = providerSupplier;
-    this.context = context;
+    this.contextSupplier = contextSupplier;
   }
 
   private static String getGitCommit() {
@@ -144,8 +142,9 @@ class Run<T, U, V, W> implements Runnable {
 
   Optional<App<T, U, V, W>> createApp(final File file) {
     provider = providerSupplier.get();
+    context = prepareContext(contextSupplier.get());
 
-    return createApplications(readTopologies(file), file, prepareContext(context)).findFirst();
+    return createApplications(readTopologies(file), file, context).findFirst();
   }
 
   private App<T, U, V, W> createApplication(final JsonObject specification, final Context context) {
@@ -226,8 +225,9 @@ class Run<T, U, V, W> implements Runnable {
   public void run() {
     final Predicate<JsonObject> filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
 
+    info("Version " + APP_VERSION);
     provider = providerSupplier.get();
-    context = prepareContext(context);
+    context = prepareContext(contextSupplier.get());
 
     if (fromCollection() && filter == null) {
       startWork();

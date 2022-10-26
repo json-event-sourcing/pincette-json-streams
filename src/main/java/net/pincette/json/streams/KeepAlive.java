@@ -106,26 +106,31 @@ class KeepAlive {
 
   private CompletionStage<Boolean> deleteAlive() {
     return deleteOne(collection, criterion())
-        .thenApply(result -> trace(instanceMessage("deleteAlive", context), result, KEEP_LOGGER))
+        .thenApply(
+            result -> trace(() -> instanceMessage("deleteAlive", context), result, KEEP_LOGGER))
         .thenApply(result -> result != null && result.wasAcknowledged())
         .thenApply(result -> must(result, r -> r));
   }
 
   private CompletionStage<Boolean> next() {
-    return TRUE.equals(trace(instanceMessage("next stop", context), stop, KEEP_LOGGER))
+    return TRUE.equals(trace(() -> instanceMessage("next stop", context), stop, KEEP_LOGGER))
         ? deleteAlive()
         : setAlive()
             .thenComposeAsync(
                 result ->
                     composeAsyncAfter(
                         this::next,
-                        trace(instanceMessage("next interval", context), interval, KEEP_LOGGER)))
+                        trace(
+                            () -> instanceMessage("next interval", context),
+                            interval,
+                            KEEP_LOGGER)))
             .exceptionally(
                 e -> {
                   exception(e);
                   runAsyncAfter(
                       this::next,
-                      trace(instanceMessage("next interval", context), interval, KEEP_LOGGER));
+                      trace(
+                          () -> instanceMessage("next interval", context), interval, KEEP_LOGGER));
                   return false;
                 });
   }

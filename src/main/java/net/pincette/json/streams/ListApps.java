@@ -14,6 +14,7 @@ import static net.pincette.mongo.JsonClient.aggregate;
 import static net.pincette.util.Collections.list;
 
 import java.util.List;
+import java.util.function.Supplier;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
@@ -26,15 +27,15 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Lists the running applications.")
 class ListApps implements Runnable {
-  private final Context context;
+  private final Supplier<Context> contextSupplier;
 
   @Option(
       names = {"-c", "--collection"},
       description = "The MongoDB collection that contains the applications.")
   private String collection;
 
-  ListApps(final Context context) {
-    this.context = context;
+  ListApps(final Supplier<Context> contextSupplier) {
+    this.contextSupplier = contextSupplier;
   }
 
   @SuppressWarnings("java:S106") // Not logging.
@@ -48,6 +49,8 @@ class ListApps implements Runnable {
   }
 
   public void run() {
+    final var context = contextSupplier.get();
+
     aggregate(
             context.database.getCollection(getApplicationCollection(collection, context)),
             list(

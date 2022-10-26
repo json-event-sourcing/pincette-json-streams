@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
@@ -64,8 +65,8 @@ class Dot extends ApplicationCommand implements Runnable {
       description = "Create a graph with the applications.")
   private boolean global;
 
-  Dot(final Context context) {
-    super(context);
+  Dot(final Supplier<Context> contextSupplier) {
+    super(contextSupplier);
   }
 
   private static Stream<Link> aggregateLinks(final JsonObject json, final String environment) {
@@ -312,7 +313,7 @@ class Dot extends ApplicationCommand implements Runnable {
         .map(topic -> new Link(End.application(application), End.topic(topic)));
   }
 
-  private void manyApplications(final Stream<JsonObject> specifications) {
+  private void manyApplications(final Stream<JsonObject> specifications, final Context context) {
     tryToDoWithRethrow(
         () -> getWriter("applications.dot"),
         writer -> {
@@ -327,7 +328,7 @@ class Dot extends ApplicationCommand implements Runnable {
         });
   }
 
-  private void oneApplication(final JsonObject specification) {
+  private void oneApplication(final JsonObject specification, final Context context) {
     tryToDoWithRethrow(
         () -> getWriter(application(specification) + ".dot"),
         writer -> {
@@ -340,10 +341,12 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   public void run() {
+    final var context = contextSupplier.get();
+
     if (global) {
-      manyApplications(getValidatedApplications());
+      manyApplications(getValidatedApplications(context), context);
     } else {
-      getValidatedApplications().forEach(this::oneApplication);
+      getValidatedApplications(context).forEach(s -> oneApplication(s, context));
     }
   }
 
