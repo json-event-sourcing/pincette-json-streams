@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.5
+
+* Fix the exception in the `$log` stage when there are no parameters.
+* Call the Kafka consumer API less when doing pause and resume.
+
 ## 2.2.4
 
 * Fix exception during leader election.
