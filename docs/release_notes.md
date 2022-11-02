@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.2.6
+
+* Fix the stalling merge when a branch rarely emits something.
+
 ## 2.2.5
 
 * Fix the exception in the `$log` stage when there are no parameters.
