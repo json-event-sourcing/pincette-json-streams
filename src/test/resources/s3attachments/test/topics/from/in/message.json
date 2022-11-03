@@ -3,19 +3,23 @@
   "attachments": [
     {
       "bucket": "lars-tst-docs",
-      "key": "com2012_0429nl01.pdf"
+      "key": "com2012_0429nl01.pdf",
+      "content-type": "application/pdf"
     },
     {
       "bucket": "lars-tst-docs",
-      "key": "com2012_0444nl01.pdf"
+      "key": "com2012_0444nl01.pdf",
+      "content-Type": "application/pdf"
     },
     {
       "bucket": "lars-tst-docs",
-      "key": "com2012_0445nl01.pdf"
+      "key": "com2012_0445nl01.pdf",
+      "Content-Type": "application/pdf"
     },
     {
       "bucket": "lars-tst-docs",
-      "key": "com2012_0448nl01.pdf"
+      "key": "com2012_0448nl01.pdf",
+      "x-test": "test"
     }
   ]
 }

@@ -626,7 +626,7 @@ This extension stage lets you post a number of S3-objects as attachments to an H
 
 |Field|Mandatory|Description|
 |---|---|---|
-|attachments|Yes|An array of objects with the mandatory fields `bucket` and `key`. The `multipart/mixed ` request body will be constructed in the order of the array.|
+|attachments|Yes|An array of objects with the mandatory fields `bucket` and `key`. The `multipart/mixed ` request body will be constructed in the order of the array.  Extra fields will be used as MIME part headers. The headers `Content-Length` and `Content-Transfer-Encoding` can't be overridden.|
 |headers|No|The expression should yield an object. Its contents will be added as HTTP headers. Array values will result in multi-valued headers.|
 |sslContext|No|This object can be used for client-side authentication. Its `keyStore` field should refer to a PKCS#12 key store file. Its `password` field should provide the password for the keys in the key store file.|
 |url|Yes|The URL that will be called. The expression should yield a string.|
@@ -656,7 +656,8 @@ parts:
   "attachments": [
     {
       "bucket": "my-bucket",
-      "key": "com2012_0429nl01.pdf"
+      "key": "com2012_0429nl01.pdf",
+      "x-my-header": "value"      
     },
     {
       "bucket": "my-bucket",

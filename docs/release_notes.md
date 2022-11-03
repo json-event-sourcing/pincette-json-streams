@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.7
+
+* Report and discard messages that can't be written to Kafka because they are too large.
+* Add extra fields to attachment objects in the `$s3Attachments` stage, which are used as extra MIME part headers.
+
 ## 2.2.6
 
 * Fix the stalling merge when a branch rarely emits something.

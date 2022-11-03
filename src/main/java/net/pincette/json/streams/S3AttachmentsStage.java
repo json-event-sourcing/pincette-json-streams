@@ -8,6 +8,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Stream.concat;
 import static javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm;
@@ -37,6 +38,7 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.composeAsyncStream;
 import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
+import static net.pincette.util.Util.segments;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetRethrow;
 
@@ -49,7 +51,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.security.KeyStore;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
@@ -68,7 +72,6 @@ import net.pincette.json.JsonUtil;
 import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.Concat;
 import net.pincette.rs.Source;
-import net.pincette.util.Pair;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 class S3AttachmentsStage {
@@ -115,37 +118,46 @@ class S3AttachmentsStage {
     return ok(response) ? message : addError(message, response.statusCode(), response.body());
   }
 
-  private static List<Pair<String, String>> attachments(final JsonValue attachments) {
+  private static Attachment attachment(final JsonObject attachment) {
+    final Attachment att =
+        new Attachment(attachment.getString(BUCKET, null), attachment.getString(KEY, null));
+
+    attachment.entrySet().stream()
+        .filter(
+            e -> !e.getKey().equals(BUCKET) && !e.getKey().equals(KEY) && isString(e.getValue()))
+        .forEach(e -> att.setHeader(e.getKey(), asString(e.getValue()).getString()));
+
+    return att;
+  }
+
+  private static List<Attachment> attachments(final JsonValue attachments) {
     return arrayValue(attachments).stream()
         .flatMap(JsonArray::stream)
         .filter(JsonUtil::isObject)
         .map(JsonValue::asJsonObject)
-        .map(o -> pair(o.getString(BUCKET, null), o.getString(KEY, null)))
-        .filter(pair -> pair.first != null && pair.second != null)
+        .map(S3AttachmentsStage::attachment)
+        .filter(att -> att.bucket != null && att.key != null)
         .collect(toList());
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentsPublisher(
-      final List<Pair<String, String>> attachments,
-      final Supplier<Logger> logger,
-      final String boundary) {
+      final List<Attachment> attachments, final Supplier<Logger> logger, final String boundary) {
     return composeAsyncStream(
-            attachments.stream()
-                .map(pair -> attachmentPublisher(pair.first, pair.second, logger, boundary)))
+            attachments.stream().map(att -> attachmentPublisher(att, logger, boundary)))
         .thenApply(
             stream ->
                 Concat.of(concat(stream, Stream.of(trailerPublisher(boundary))).collect(toList())));
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentPublisher(
-      final String bucket, final String key, final Supplier<Logger> logger, final String boundary) {
-    return getObject(bucket, key, logger)
+      final Attachment attachment, final Supplier<Logger> logger, final String boundary) {
+    return getObject(attachment.bucket, attachment.key, logger)
         .thenApply(
             o ->
                 o.map(
                         pair ->
                             Concat.of(
-                                headerPublisher(pair.first, key, boundary),
+                                headerPublisher(pair.first, attachment, boundary),
                                 with(pair.second).map(base64Encoder()).get()))
                     .orElseGet(net.pincette.rs.Util::empty));
   }
@@ -155,7 +167,7 @@ class S3AttachmentsStage {
       final JsonValue headers,
       final JsonValue attachments,
       final Supplier<Logger> logger) {
-    final List<Pair<String, String>> atts = attachments(attachments);
+    final List<Attachment> atts = attachments(attachments);
     final String boundary = randomUUID().toString();
 
     return objectValue(headers)
@@ -210,6 +222,13 @@ class S3AttachmentsStage {
             logger);
   }
 
+  private static String extraAttachmentHeaders(final Attachment attachment) {
+    return attachment.headers.entrySet().stream()
+        .filter(e -> !e.getKey().equals(CONTENT_TYPE) && !e.getKey().equals(CONTENT_DISPOSITION))
+        .map(e -> e.getKey() + ":" + e.getValue() + "\r\n")
+        .collect(joining());
+  }
+
   private static HttpClient getClient(final JsonObject expression) {
     final HttpClient.Builder builder =
         newBuilder().version(Version.HTTP_1_1).followRedirects(Redirect.NORMAL);
@@ -249,7 +268,7 @@ class S3AttachmentsStage {
   }
 
   private static Publisher<ByteBuffer> headerPublisher(
-      final GetObjectResponse response, final String key, final String boundary) {
+      final GetObjectResponse response, final Attachment attachment, final String boundary) {
     return Source.of(
         wrap(
             ("\r\n--"
@@ -257,7 +276,8 @@ class S3AttachmentsStage {
                     + "\r\n"
                     + CONTENT_TYPE
                     + ":"
-                    + response.contentType()
+                    + ofNullable(attachment.headers.get(CONTENT_TYPE))
+                        .orElseGet(response::contentType)
                     + "\r\n"
                     + CONTENT_LENGTH
                     + ":"
@@ -266,9 +286,16 @@ class S3AttachmentsStage {
                     + CONTENT_TRANSFER_ENCODING
                     + ":base64\r\n"
                     + CONTENT_DISPOSITION
-                    + ":attachment;filename=\""
-                    + getLastSegment(key, "/").orElse(key)
-                    + "\"\r\n\r\n")
+                    + ":"
+                    + ofNullable(attachment.headers.get(CONTENT_DISPOSITION))
+                        .orElseGet(
+                            () ->
+                                "attachment;filename=\""
+                                    + getLastSegment(attachment.key, "/").orElse(attachment.key)
+                                    + "\"")
+                    + "\r\n"
+                    + extraAttachmentHeaders(attachment)
+                    + "\r\n")
                 .getBytes(UTF_8)));
   }
 
@@ -322,5 +349,31 @@ class S3AttachmentsStage {
 
   private static Publisher<ByteBuffer> trailerPublisher(final String boundary) {
     return Source.of(wrap(("\r\n--" + boundary + "--\r\n").getBytes(UTF_8)));
+  }
+
+  private static class Attachment {
+    private final String bucket;
+    private final Map<String, String> headers = new HashMap<>();
+    private final String key;
+
+    private Attachment(final String bucket, final String key) {
+      this.bucket = bucket;
+      this.key = key;
+    }
+
+    private static String normalize(final String s) {
+      return segments(s, "-")
+          .map(
+              segment ->
+                  segment.subSequence(0, 1).toString().toUpperCase()
+                      + segment.subSequence(1, segment.length()).toString().toLowerCase())
+          .collect(joining("-"));
+    }
+
+    private void setHeader(final String key, final String value) {
+      Optional.of(normalize(key))
+          .filter(k -> !k.equals(CONTENT_LENGTH) && !k.equals(CONTENT_TRANSFER_ENCODING))
+          .ifPresent(k -> headers.put(k, value));
+    }
   }
 }
