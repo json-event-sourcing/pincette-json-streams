@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.8
+
+* Fix out of memory issue.
+* Switch from the Jetty HTTP client to the JDK HTTP client in the `$http` stage.
+
 ## 2.2.7
 
 * Report and discard messages that can't be written to Kafka because they are too large.
