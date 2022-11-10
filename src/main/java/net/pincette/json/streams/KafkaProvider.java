@@ -18,6 +18,7 @@ import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
 import com.typesafe.config.Config;
@@ -49,6 +50,8 @@ class KafkaProvider
         ProducerRecord<String, JsonObject>,
         ConsumerRecord<String, String>,
         ProducerRecord<String, String>> {
+  private static final String BATCH_SIZE = "batchSize";
+  private static final int DEFAULT_BATCH_SIZE = 500;
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String KAFKA = "kafka";
   private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
@@ -62,6 +65,7 @@ class KafkaProvider
           pair(ENABLE_AUTO_COMMIT_CONFIG, false));
 
   private final Admin admin;
+  private final int batchSize;
   private final BiConsumer<ConsumerEvent, KafkaConsumer<String, JsonObject>> consumerEventHandler;
   private final String groupIdSuffix;
   private final Map<String, Object> kafkaConfig;
@@ -79,6 +83,7 @@ class KafkaProvider
     kafkaConfig = fromConfig(config, KAFKA);
     admin = Admin.create(toAdmin(kafkaConfig));
     groupIdSuffix = tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX)).orElse(null);
+    batchSize = tryToGetSilent(() -> config.getInt(BATCH_SIZE)).orElse(DEFAULT_BATCH_SIZE);
     consumerEventHandler = null;
     producerEventHandlerJsonObject = null;
     producerEventHandlerString = null;
@@ -94,6 +99,7 @@ class KafkaProvider
     groupIdSuffix = provider.groupIdSuffix;
     kafkaConfig = provider.kafkaConfig;
     producer = provider.producer;
+    batchSize = provider.batchSize;
     this.consumerEventHandler = consumerEventHandler;
     this.producerEventHandlerJsonObject = producerEventHandlerJsonObject;
     this.producerEventHandlerString = producerEventHandlerString;
@@ -142,6 +148,7 @@ class KafkaProvider
             publisher(() -> consumer(application)).withEventHandler(consumerEventHandler)),
         fromSubscriber(
             subscriber(producer::getNewJsonProducer)
+                .withBatchSize(batchSize)
                 .withEventHandler(producerEventHandlerJsonObject)));
   }
 
@@ -156,7 +163,8 @@ class KafkaProvider
             map(
                 pair(
                     GROUP_ID_CONFIG,
-                    groupId + (groupIdSuffix != null ? ("-" + groupIdSuffix) : "")))));
+                    groupId + (groupIdSuffix != null ? ("-" + groupIdSuffix) : "")),
+                pair(MAX_POLL_RECORDS_CONFIG, batchSize))));
   }
 
   public void createTopics(final Set<String> topics) {
@@ -203,6 +211,7 @@ class KafkaProvider
         null,
         fromSubscriber(
             subscriber(producer::getNewStringProducer)
+                .withBatchSize(batchSize)
                 .withEventHandler(producerEventHandlerString)));
   }
 

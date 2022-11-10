@@ -622,7 +622,7 @@ parts:
 
 ### $s3Attachments
 
-This extension stage lets you post a number of S3-objects as attachments to an HTTP endpoint. The format is `multipart/mixed`. The object supports the following fields:
+This extension stage lets you post a number of S3-objects as attachments to an HTTP endpoint. The default content type is `multipart/mixed`. You can change this in the headers. The object supports the following fields:
 
 |Field|Mandatory|Description|
 |---|---|---|

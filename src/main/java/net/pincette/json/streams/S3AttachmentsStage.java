@@ -96,7 +96,12 @@ class S3AttachmentsStage {
 
   private static JsonObject addMimeHeaders(final JsonObject headers, final String boundary) {
     return createObjectBuilder(headers)
-        .add(CONTENT_TYPE, "multipart/mixed; boundary=\"" + boundary + "\"")
+        .add(
+            CONTENT_TYPE,
+            ofNullable(headers.getString(CONTENT_TYPE, null)).orElse("multipart/mixed")
+                + "; boundary=\""
+                + boundary
+                + "\"")
         .add(MIME_VERSION, "1.0")
         .build();
   }

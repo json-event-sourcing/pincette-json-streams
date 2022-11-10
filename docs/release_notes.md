@@ -2,8 +2,12 @@
 
 ## 2.2.8
 
-* Fix out of memory issue.
+* Reduce memory usage.
 * Switch from the Jetty HTTP client to the JDK HTTP client in the `$http` stage.
+* Add `batchSize` configuration parameter.
+* Fix topic publisher.
+* Fix backpressure error in retry publisher.
+* Allow other content types than `multipart/mixed` in the `s3Attachments` stage.
 
 ## 2.2.7
 
