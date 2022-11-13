@@ -759,6 +759,8 @@ class App<T, U, V, W> {
     if (thread != null) {
       tryToDoRethrow(thread::join);
     }
+
+    LOGGER.log(INFO, "Stopped {0}", new Object[] {name()});
   }
 
   private Publisher<Message<String, JsonObject>> toStream(

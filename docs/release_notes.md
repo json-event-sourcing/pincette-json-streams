@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.9
+
+* Fix aggregate performance issue caused by the batch timeout when traffic is very low.
+* Improve validation error messages.
+
 ## 2.2.8
 
 * Reduce memory usage.

@@ -1,8 +1,6 @@
 package net.pincette.json.streams;
 
 import static java.util.Optional.ofNullable;
-import static java.util.logging.Level.SEVERE;
-import static java.util.logging.Logger.getGlobal;
 import static java.util.stream.Collectors.toSet;
 import static java.util.stream.Stream.concat;
 import static net.pincette.json.JsonUtil.getNumber;
@@ -35,10 +33,12 @@ import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.util.Pair.pair;
 
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.function.SideEffect;
@@ -48,15 +48,17 @@ import net.pincette.util.Pair;
 class Validate {
   private Validate() {}
 
+  private static String aggregateType(final JsonObject specification) {
+    return specification.getString(AGGREGATE_TYPE, null);
+  }
+
   private static Stream<Pair<String, String>> getStreamReferences(final JsonObject specification) {
     return concat(
             getObjects(specification, PARTS)
-                .map(part -> pair(part.getString(NAME, null), part.getString(FROM_STREAM, null))),
+                .map(part -> pair(name(part), part.getString(FROM_STREAM, null))),
             getObjects(specification, PARTS)
                 .flatMap(
-                    part ->
-                        getStrings(part, FROM_STREAMS)
-                            .map(stream -> pair(part.getString(NAME, null), stream))))
+                    part -> getStrings(part, FROM_STREAMS).map(stream -> pair(name(part), stream))))
         .filter(pair -> pair.first != null && pair.second != null);
   }
 
@@ -68,7 +70,7 @@ class Validate {
   private static Stream<String> getStreamsForAggregates(final JsonObject specification) {
     return getObjects(specification, PARTS)
         .filter(part -> AGGREGATE.equals(part.getString(TYPE, null)))
-        .map(part -> part.getString(AGGREGATE_TYPE, null))
+        .map(Validate::aggregateType)
         .filter(Objects::nonNull)
         .flatMap(
             type ->
@@ -79,8 +81,24 @@ class Validate {
   private static Stream<String> getStreamsForStreamParts(final JsonObject specification) {
     return getObjects(specification, PARTS)
         .filter(part -> STREAM_TYPES.contains(part.getString(TYPE, "")))
-        .map(part -> part.getString(NAME, null))
+        .map(Validate::name)
         .filter(Objects::nonNull);
+  }
+
+  private static String name(final JsonObject specification) {
+    return specification.getString(NAME, null);
+  }
+
+  private static void report(final JsonObject specification, final Supplier<String> message) {
+    severe(
+        ofNullable(application(specification))
+                .map(app -> "Application " + app + ": ")
+                .orElse("Unknown application: ")
+            + message.get());
+  }
+
+  private static String type(final JsonObject specification) {
+    return specification.getString(TYPE, null);
   }
 
   private static boolean validateStreamReferences(final JsonObject specification) {
@@ -92,30 +110,32 @@ class Validate {
             pair ->
                 SideEffect.<String>run(
                         () ->
-                            getGlobal()
-                                .log(
-                                    SEVERE,
-                                    "Part {0} refers to non-existing stream {1}",
-                                    new Object[] {pair.first, pair.second}))
+                            report(
+                                specification,
+                                () ->
+                                    "part "
+                                        + pair.first
+                                        + " refers to non-existing stream "
+                                        + pair.second))
                     .andThenGet(() -> pair.first))
         .findAny()
         .isEmpty();
   }
 
-  private static boolean validateAggregate(final JsonObject specification) {
+  private static boolean validateAggregate(final JsonObject application, final JsonObject part) {
     var result =
-        ofNullable(specification.getString(AGGREGATE_TYPE, null))
-            .filter(type -> type.indexOf('-') != -1)
-            .isPresent();
+        ofNullable(aggregateType(part)).filter(type -> type.indexOf('-') != -1).isPresent();
 
     if (!result) {
-      getGlobal()
-          .severe(
-              "An aggregate should have the \"aggregateType\" field with the form "
-                  + "<app>-<type>.");
+      report(
+          application,
+          () ->
+              "aggregate "
+                  + name(part)
+                  + " should have the \"aggregateType\" field with the form <app>-<type>.");
     }
 
-    result &= validateCommands(specification);
+    result &= validateCommands(application, part);
 
     return result;
   }
@@ -127,140 +147,150 @@ class Validate {
             && getValue(specification, "/" + PARTS).map(JsonUtil::isArray).orElse(false);
 
     if (!result) {
-      getGlobal()
-          .severe(
-              "A topology should have an \"application\" and a \"version\" field, both "
+      report(
+          specification,
+          () ->
+              "a topology should have an \"application\" and a \"version\" field, both "
                   + "strings, and an array called \"parts\".");
     } else {
       result =
           validateStreamReferences(specification)
-              && getObjects(specification, PARTS).allMatch(Validate::validatePart);
+              && getObjects(specification, PARTS)
+                  .allMatch(part -> validatePart(specification, part));
     }
 
     return result;
   }
 
   private static boolean validateCommand(
-      final String aggregateType, final String name, final JsonObject command) {
+      final JsonObject application,
+      final String aggregateType,
+      final String name,
+      final JsonObject command) {
     final var result =
         name != null
             && command.getString(REDUCER, null) != null
             && (!command.containsKey(VALIDATOR) || getObject(command, "/" + VALIDATOR).isPresent());
 
     if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "Command {0} of aggregate {1} should have a \"reducer\" field and "
-                  + "when the \"validator\" field is present it should be an object.",
-              new Object[] {name, aggregateType});
+      report(
+          application,
+          () ->
+              "command "
+                  + name
+                  + " of aggregate "
+                  + aggregateType
+                  + " should have a \"reducer\" field and when the \"validator\" field is present"
+                  + " it should be an object.");
     }
 
     return result;
   }
 
-  private static boolean validateCommands(final JsonObject specification) {
-    final var aggregateType = specification.getString(AGGREGATE_TYPE, null);
-
-    return getCommands(specification)
-        .allMatch(pair -> validateCommand(aggregateType, pair.first, pair.second));
+  private static boolean validateCommands(final JsonObject application, final JsonObject part) {
+    return getCommands(part)
+        .allMatch(
+            pair -> validateCommand(application, aggregateType(part), pair.first, pair.second));
   }
 
-  private static boolean validateJoin(final JsonObject specification) {
+  private static boolean validateJoin(final JsonObject application, final JsonObject part) {
     final var left = "/" + LEFT + "/";
     final var right = "/" + RIGHT + "/";
     final var result =
-        specification.getString(NAME, null) != null
-            && getNumber(specification, "/" + WINDOW).isPresent()
-            && getValue(specification, left + ON).isPresent()
-            && getValue(specification, right + ON).isPresent()
-            && (getString(specification, left + FROM_STREAM).isPresent()
-                || getString(specification, left + FROM_TOPIC).isPresent()
-                || getString(specification, left + FROM_COLLECTION).isPresent())
-            && (getString(specification, right + FROM_STREAM).isPresent()
-                || getString(specification, right + FROM_TOPIC).isPresent()
-                || getString(specification, right + FROM_COLLECTION).isPresent());
+        name(part) != null
+            && getNumber(part, "/" + WINDOW).isPresent()
+            && getValue(part, left + ON).isPresent()
+            && getValue(part, right + ON).isPresent()
+            && (getString(part, left + FROM_STREAM).isPresent()
+                || getString(part, left + FROM_TOPIC).isPresent()
+                || getString(part, left + FROM_COLLECTION).isPresent())
+            && (getString(part, right + FROM_STREAM).isPresent()
+                || getString(part, right + FROM_TOPIC).isPresent()
+                || getString(part, right + FROM_COLLECTION).isPresent());
 
     if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The join {0} should have the fields \"window\", \"left.on\", \"right.on\", either "
+      report(
+          application,
+          () ->
+              "the join "
+                  + name(part)
+                  + " should have the fields \"window\", \"left.on\", \"right.on\", either "
                   + "\"left.fromCollection\", \"left.fromStream\" or \"left.fromTopic\" and "
-                  + "either \"right.fromCollection\", \"right.fromStream\" or \"right.fromTopic\".",
-              new Object[] {specification.getString(NAME, null)});
+                  + "either \"right.fromCollection\", \"right.fromStream\" or \"right.fromTopic\""
+                  + ".");
     }
 
     return result;
   }
 
-  private static boolean validateMerge(final JsonObject specification) {
+  private static boolean validateMerge(final JsonObject application, final JsonObject part) {
     final var result =
-        specification.getString(NAME, null) != null
-            && (specification.getJsonArray(FROM_STREAMS) != null
-                || specification.getJsonArray(FROM_TOPICS) != null
-                || specification.getJsonArray(FROM_COLLECTIONS) != null);
+        name(part) != null
+            && (part.getJsonArray(FROM_STREAMS) != null
+                || part.getJsonArray(FROM_TOPICS) != null
+                || part.getJsonArray(FROM_COLLECTIONS) != null);
 
     if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The merge {0} should have the fields \"name\" and "
-                  + "\"fromCollections\", \"fromStreams\" or \"fromTopics\".",
-              new Object[] {specification.getString(NAME, null)});
+      report(
+          application,
+          () ->
+              "the merge "
+                  + name(part)
+                  + " should have the fields \"name\" and \"fromCollections\", \"fromStreams\""
+                  + " or \"fromTopics\".");
     }
 
     return result;
   }
 
-  private static boolean validatePart(final JsonObject specification) {
-    var result = specification.getString(TYPE, null) != null;
+  private static boolean validatePart(final JsonObject application, final JsonObject part) {
+    var result = type(part) != null;
 
     if (!result) {
-      getGlobal().severe("A part should have a \"type\" field.");
+      report(application, () -> "a part should have a \"type\" field.");
     }
 
-    result = specification.getString(NAME, null) != null;
+    result = name(part) != null;
 
     if (!result) {
-      getGlobal().severe("A part should have a \"name\" field.");
+      report(application, () -> "a part should have a \"name\" field.");
     }
 
     return result
-        && ofNullable(specification.getString(TYPE, null))
-            .filter(type -> validatePart(type, specification))
-            .isPresent();
+        && ofNullable(type(part)).filter(type -> validatePart(application, type, part)).isPresent();
   }
 
-  private static boolean validatePart(final String type, final JsonObject specification) {
+  private static boolean validatePart(
+      final JsonObject application, final String type, final JsonObject part) {
     switch (type) {
       case AGGREGATE:
-        return validateAggregate(specification);
+        return validateAggregate(application, part);
       case JOIN:
-        return validateJoin(specification);
+        return validateJoin(application, part);
       case MERGE:
-        return validateMerge(specification);
+        return validateMerge(application, part);
       case STREAM:
-        return validateStream(specification);
+        return validateStream(application, part);
       default:
         return false;
     }
   }
 
-  private static boolean validateStream(final JsonObject specification) {
+  private static boolean validateStream(final JsonObject application, final JsonObject part) {
     final var result =
-        specification.getString(NAME, null) != null
-            && (specification.getString(FROM_STREAM, null) != null
-                || specification.getString(FROM_TOPIC, null) != null
-                || specification.getString(FROM_COLLECTION, null) != null);
+        name(part) != null
+            && (part.getString(FROM_STREAM, null) != null
+                || part.getString(FROM_TOPIC, null) != null
+                || part.getString(FROM_COLLECTION, null) != null);
 
     if (!result) {
-      getGlobal()
-          .log(
-              SEVERE,
-              "The stream {0} should have the field \"name\" and either "
-                  + "\"fromCollection\", \"fromStream\" or \"fromTopic\".",
-              new Object[] {specification.getString(NAME, null)});
+      report(
+          application,
+          () ->
+              "the stream "
+                  + name(part)
+                  + " should have the field \"name\" and either \"fromCollection\","
+                  + " \"fromStream\" or \"fromTopic\".");
     }
 
     return result;
