@@ -37,7 +37,7 @@ class Producer implements AutoCloseable {
     }
   }
 
-  KafkaProducer<String, JsonObject> getJsonProducer() {
+  private KafkaProducer<String, JsonObject> getJsonProducer() {
     if (jsonProducer == null) {
       jsonProducer = getNewJsonProducer();
     }
@@ -55,7 +55,7 @@ class Producer implements AutoCloseable {
         fromConfig(config, KAFKA), new StringSerializer(), new StringSerializer());
   }
 
-  KafkaProducer<String, String> getStringProducer() {
+  private KafkaProducer<String, String> getStringProducer() {
     if (stringProducer == null) {
       stringProducer = getNewStringProducer();
     }
@@ -69,12 +69,8 @@ class Producer implements AutoCloseable {
             Kafka.send(getJsonProducer(), new ProducerRecord<>(topic, message.key, message.value)),
         BACKOFF,
         e -> {
+          jsonProducer = getNewJsonProducer();
           exception(e);
-
-          if (jsonProducer != null) {
-            jsonProducer.close();
-            jsonProducer = null;
-          }
         });
   }
 
@@ -85,12 +81,8 @@ class Producer implements AutoCloseable {
                 getStringProducer(), new ProducerRecord<>(topic, message.key, message.value)),
         BACKOFF,
         e -> {
+          stringProducer = getNewStringProducer();
           exception(e);
-
-          if (stringProducer != null) {
-            stringProducer.close();
-            stringProducer = null;
-          }
         });
   }
 }

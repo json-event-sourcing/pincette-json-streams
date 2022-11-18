@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.2.10
+
+* Fix the recovery from a Kafka producer error.
+
 ## 2.2.9
 
 * Fix aggregate performance issue caused by the batch timeout when traffic is very low.
