@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.11
+
+* Refix backpressure issue in retry publisher.
+* Add the `throttleTime` configuration parameter, with which you can throttle the Kafka poll loop.
+
 ## 2.2.10
 
 * Fix the recovery from a Kafka producer error.

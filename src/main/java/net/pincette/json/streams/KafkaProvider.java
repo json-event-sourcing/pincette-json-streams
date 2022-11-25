@@ -22,6 +22,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 
 import com.typesafe.config.Config;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -63,6 +64,7 @@ class KafkaProvider
           pair(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class),
           pair(VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class),
           pair(ENABLE_AUTO_COMMIT_CONFIG, false));
+  private static final String THROTTLE_TIME = "throttleTime";
 
   private final Admin admin;
   private final int batchSize;
@@ -73,6 +75,7 @@ class KafkaProvider
   private final BiConsumer<ProducerEvent, KafkaProducer<String, JsonObject>>
       producerEventHandlerJsonObject;
   private final BiConsumer<ProducerEvent, KafkaProducer<String, String>> producerEventHandlerString;
+  private final Duration throttleTime;
 
   KafkaProvider(final Config config) {
     this(config, new Producer(config));
@@ -84,6 +87,7 @@ class KafkaProvider
     admin = Admin.create(toAdmin(kafkaConfig));
     groupIdSuffix = tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX)).orElse(null);
     batchSize = tryToGetSilent(() -> config.getInt(BATCH_SIZE)).orElse(DEFAULT_BATCH_SIZE);
+    throttleTime = tryToGetSilent(() -> config.getDuration(THROTTLE_TIME)).orElse(null);
     consumerEventHandler = null;
     producerEventHandlerJsonObject = null;
     producerEventHandlerString = null;
@@ -100,6 +104,7 @@ class KafkaProvider
     kafkaConfig = provider.kafkaConfig;
     producer = provider.producer;
     batchSize = provider.batchSize;
+    throttleTime = provider.throttleTime;
     this.consumerEventHandler = consumerEventHandler;
     this.producerEventHandlerJsonObject = producerEventHandlerJsonObject;
     this.producerEventHandlerString = producerEventHandlerString;
@@ -145,7 +150,9 @@ class KafkaProvider
       builder(final String application) {
     return streams(
         fromPublisher(
-            publisher(() -> consumer(application)).withEventHandler(consumerEventHandler)),
+            publisher(() -> consumer(application))
+                .withEventHandler(consumerEventHandler)
+                .withThrottleTime(throttleTime)),
         fromSubscriber(
             subscriber(producer::getNewJsonProducer)
                 .withBatchSize(batchSize)
