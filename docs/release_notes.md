@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.2.12
+
+* Avoid duplication of `_jwt` field.
+
 ## 2.2.11
 
 * Refix backpressure issue in retry publisher.
@@ -80,6 +84,7 @@
 * Add the `include` object with which application or pipeline parts can be included with parameter overrides.
 * Support AWS Secrets Manager ARNs in configuration entries.
 * Add the `config-json:` prefix to the parameters syntax.
+* Add the `preprocessor` field to aggregates. It contains a pipeline to pre-process commands before they are reduced.
 
 ## 2.1.1
 

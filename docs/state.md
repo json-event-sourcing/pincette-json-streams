@@ -15,6 +15,7 @@ An aggregate application part has the following fields:
 |aggregateType|Yes|The name of the aggregate. Usually is it composed as `<app>-<type>`.|
 |commands|No|A JSON object where the keys are the command names. If no commands are given only the built-in commands `put`, `delete` and `patch` will be available.|
 |environment|No|The environment for the aggregate. This will be used for Kafka topic suffixes.|
+|preprocessor|No|A pipeline that pre-processes commands before they are reduced. With this you can avoid adding another public Kafka topic in front of the command topic.| 
 |type|Yes|The value is always `aggregate`.|
 |uniqueExpression|No|A MongoDB expression that is executed on aggregate instances. This expresses the uniqueness of aggregate instances based on some criterion. If you use this feature then you must make sure all commands also have the fields that constitute the unique expression.|
 

@@ -19,9 +19,6 @@
     "_type": "plusminus-counter",
     "_corr": "4ae4444b-8b49-4435-ae2f-018137f08bff",
     "_seq": 0,
-    "_jwt": {
-      "sub": "system"
-    },
     "value": 0
   },
   "_after": {
@@ -29,9 +26,6 @@
     "_type": "plusminus-counter",
     "_corr": "3afca3c9-49ec-4640-a997-1d48312f2a1b",
     "_seq": 1,
-    "_jwt": {
-      "sub": "system"
-    },
     "value": 1
   }
 }

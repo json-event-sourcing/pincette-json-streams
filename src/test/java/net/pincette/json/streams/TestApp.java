@@ -474,6 +474,7 @@ class TestApp {
     putResourceS3("/files/com2012_0444nl01.pdf", "lars-tst-docs", "com2012_0444nl01.pdf");
     putResourceS3("/files/com2012_0445nl01.pdf", "lars-tst-docs", "com2012_0445nl01.pdf");
     putResourceS3("/files/com2012_0448nl01.pdf", "lars-tst-docs", "com2012_0448nl01.pdf");
+    putResourceS3("/files/uivi2_4_9.jar", "lars-tst-docs", "uivi2_4_9.jar");
 
     tryToDoWithRethrow(
         autoClose(() -> createTempDirectory("jsonstreams"), PathUtil::delete),
@@ -491,6 +492,7 @@ class TestApp {
     deleteS3("lars-tst-docs", "com2012_0444nl01.pdf");
     deleteS3("lars-tst-docs", "com2012_0445nl01.pdf");
     deleteS3("lars-tst-docs", "com2012_0448nl01.pdf");
+    deleteS3("lars-tst-docs", "uivi2_4_9.jar");
   }
 
   @Test

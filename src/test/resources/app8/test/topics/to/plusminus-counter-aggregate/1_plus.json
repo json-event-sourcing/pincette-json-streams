@@ -3,8 +3,5 @@
   "_type": "plusminus-counter",
   "_corr": "3afca3c9-49ec-4640-a997-1d48312f2a1b",
   "_seq": 1,
-  "_jwt": {
-    "sub": "system"
-  },
   "value": 1
 }

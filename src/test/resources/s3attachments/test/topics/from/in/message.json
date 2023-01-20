@@ -20,6 +20,10 @@
       "bucket": "lars-tst-docs",
       "key": "com2012_0448nl01.pdf",
       "x-test": "test"
+    },
+    {
+      "bucket": "lars-tst-docs",
+      "key": "uivi2_4_9.jar"
     }
   ]
 }
