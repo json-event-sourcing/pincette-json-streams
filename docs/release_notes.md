@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.2.13
+
+* Fix missing `_jwt` in aggregate and reply messages.
+* Handle exceptions in reducers by generating an invalid command.
+
 ## 2.2.12
 
 * Avoid duplication of `_jwt` field.
