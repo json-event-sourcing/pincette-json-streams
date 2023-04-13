@@ -714,6 +714,28 @@ $regexMatch:
   regex: "/^test/"
 ```
 
+### [$replaceAll](https://www.mongodb.com/docs/manual/reference/operator/aggregation/replaceAll/)
+
+Example:
+
+```yaml
+$replaceAll:
+  input: "$myfield"
+  find: "abc"
+  replacement: "ABC"
+```
+
+### [$replaceOne](https://www.mongodb.com/docs/manual/reference/operator/aggregation/replaceOne/)
+
+Example:
+
+```yaml
+$replaceOne:
+  input: "$myfield"
+  find: "abc"
+  replacement: "ABC"
+```
+
 ### [$rtrim](https://docs.mongodb.com/manual/reference/operator/aggregation/rtrim/#mongodb-expression-exp.-rtrim)
 
 Example:

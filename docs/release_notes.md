@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3
+
+* Add `$replaceOne` and `$replaceAll` string operators.
+* Fix `$s3Attachments`.
+
 ## 2.2.13
 
 * Fix missing `_jwt` in aggregate and reply messages.
