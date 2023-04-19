@@ -1,0 +1,3 @@
+---
+conditions:
+  - _type: "plusminus2-counter"

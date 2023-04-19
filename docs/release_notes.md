@@ -3,7 +3,10 @@
 ## 2.3
 
 * Add `$replaceOne` and `$replaceAll` string operators.
+* Add `preprocessor` pipeline field for aggregate commands.
+* Allow an aggregate reducer to be a pipeline.
 * Fix `$s3Attachments`.
+* Fix the validation of stream joins, where the `window` field was still mandatory.
 
 ## 2.2.13
 

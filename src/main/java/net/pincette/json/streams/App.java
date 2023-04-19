@@ -16,6 +16,8 @@ import static java.util.stream.Collectors.toSet;
 import static net.pincette.jes.Aggregate.reducer;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.Util.compose;
+import static net.pincette.jes.util.Mongo.resolve;
+import static net.pincette.jes.util.Mongo.unresolve;
 import static net.pincette.jes.util.Mongo.withResolver;
 import static net.pincette.jes.util.Validation.validator;
 import static net.pincette.json.Factory.a;
@@ -30,6 +32,7 @@ import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.getValue;
+import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
@@ -96,13 +99,17 @@ import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.mongo.Collection.findOne;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.JsonClient.update;
+import static net.pincette.rs.Async.mapAsyncSequential;
 import static net.pincette.rs.Chain.with;
+import static net.pincette.rs.PassThrough.passThrough;
+import static net.pincette.rs.Pipe.pipe;
 import static net.pincette.rs.Probe.probe;
 import static net.pincette.rs.Util.devNull;
 import static net.pincette.rs.Util.duplicateFilter;
 import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
+import static net.pincette.util.Collections.list;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
@@ -149,6 +156,7 @@ import net.pincette.mongo.Validator.Resolved;
 import net.pincette.mongo.streams.Pipeline;
 import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.Fanout;
+import net.pincette.rs.Mapper;
 import net.pincette.rs.Merge;
 import net.pincette.rs.PassThrough;
 import net.pincette.rs.Util;
@@ -164,6 +172,7 @@ import org.bson.conversions.Bson;
 class App<T, U, V, W> {
   private static final String COLLECTION_PREFIX = "collection-";
   private static final String JOIN_TIMESTAMP = "_join_timestamp";
+  private static final String REDUCER_STATE = "state";
   private static final String TOKEN = "token";
   private static final String TO_STRING = "toString";
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
@@ -449,18 +458,26 @@ class App<T, U, V, W> {
             aggregateType -> {
               final var aggregate =
                   reducers(
-                      create(() -> createAggregate(aggregateType.first, aggregateType.second))
-                          .updateIf(
-                              () -> ofNullable(context.environment), Aggregate::withEnvironment)
-                          .updateIf(
-                              () -> getValue(specification, "/" + UNIQUE_EXPRESSION),
-                              Aggregate::withUniqueExpression)
-                          .updateIf(
-                              a -> specification.containsKey(PREPROCESSOR),
-                              a ->
-                                  a.withCommandProcessor(
-                                      createPipeline(specification, PREPROCESSOR)))
-                          .build(),
+                      reducerProcessors(
+                          preprocessors(
+                              create(
+                                      () ->
+                                          createAggregate(
+                                              aggregateType.first, aggregateType.second))
+                                  .updateIf(
+                                      () -> ofNullable(context.environment),
+                                      Aggregate::withEnvironment)
+                                  .updateIf(
+                                      () -> getValue(specification, "/" + UNIQUE_EXPRESSION),
+                                      Aggregate::withUniqueExpression)
+                                  .updateIf(
+                                      a -> specification.containsKey(PREPROCESSOR),
+                                      a ->
+                                          a.withCommandProcessor(
+                                              createPipeline(specification, PREPROCESSOR)))
+                                  .build(),
+                              specification),
+                          specification),
                       specification);
 
               aggregate.build();
@@ -588,16 +605,21 @@ class App<T, U, V, W> {
             .withTrace(FINEST.equals(logger().getLevel())));
   }
 
-  private Reducer createReducer(
-      final String jslt, final JsonObject validator, final String environment) {
+  private Reducer createReducer(final String jslt, final JsonObject validator) {
     final var reducer = reducer(transformer(jslt));
 
     return withResolver(
-        validator != null
-            ? compose(validator(context.validator.validator(validator)), reducer)
-            : reducer,
-        environment,
+        validator != null ? compose(validatorReducer(validator), reducer) : reducer,
+        context.environment,
         context.database);
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>>
+      createReducerProcessor(final JsonObject command, final JsonObject validator) {
+    return pipe(resolveProcessor())
+        .then(validatorProcessor(validator))
+        .then(createPipeline(command, REDUCER))
+        .then(unresolveProcessor());
   }
 
   private Publisher<Message<String, JsonObject>> createStream(final JsonObject specification) {
@@ -678,19 +700,55 @@ class App<T, U, V, W> {
     return application(specification);
   }
 
+  private Aggregate<T, U> preprocessors(
+      final Aggregate<T, U> aggregate, final JsonObject specification) {
+    return getCommands(specification)
+        .filter(pair -> pair.second.containsKey(PREPROCESSOR))
+        .reduce(
+            aggregate,
+            (a, p) -> a.withCommandProcessor(p.first, createPipeline(p.second, PREPROCESSOR)),
+            (a1, a2) -> a1);
+  }
+
+  private Aggregate<T, U> reducerProcessors(
+      final Aggregate<T, U> aggregate, final JsonObject specification) {
+    return getCommands(specification)
+        .filter(pair -> isArray(pair.second.get(REDUCER)))
+        .reduce(
+            aggregate,
+            (a, p) ->
+                a.withReducer(
+                    p.first, createReducerProcessor(p.second, p.second.getJsonObject(VALIDATOR))),
+            (a1, a2) -> a1);
+  }
+
   private Aggregate<T, U> reducers(
       final Aggregate<T, U> aggregate, final JsonObject specification) {
     return getCommands(specification)
+        .filter(pair -> isString(pair.second.get(REDUCER)))
         .reduce(
             aggregate,
             (a, p) ->
                 a.withReducer(
                     p.first,
-                    createReducer(
-                        p.second.getString(REDUCER),
-                        p.second.getJsonObject(VALIDATOR),
-                        context.environment)),
+                    createReducer(p.second.getString(REDUCER), p.second.getJsonObject(VALIDATOR))),
             (a1, a2) -> a1);
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> resolveProcessor() {
+    return mapAsyncSequential(
+        m ->
+            resolve(
+                    list(m.value.getJsonObject(COMMAND), m.value.getJsonObject(REDUCER_STATE)),
+                    context.environment,
+                    context.database)
+                .thenApply(
+                    list ->
+                        m.withValue(
+                            createObjectBuilder(m.value)
+                                .add(COMMAND, list.get(0))
+                                .add(REDUCER_STATE, list.get(1))
+                                .build())));
   }
 
   private String resumeTokenCollection() {
@@ -792,6 +850,27 @@ class App<T, U, V, W> {
             () -> op.apply(json),
             LOGGER,
             () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> unresolveProcessor() {
+    return Mapper.map(m -> m.withValue(unresolve(m.value)));
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> validatorProcessor(
+      final JsonObject validator) {
+    final var validatorFunction = validator != null ? validatorReducer(validator) : null;
+
+    return validatorFunction != null
+        ? mapAsyncSequential(
+            m ->
+                validatorFunction
+                    .apply(m.value.getJsonObject(COMMAND), m.value.getJsonObject(REDUCER_STATE))
+                    .thenApply(m::withValue))
+        : passThrough();
+  }
+
+  private Reducer validatorReducer(final JsonObject validator) {
+    return validator(context.validator.validator(validator));
   }
 
   App<T, U, V, W> withBuilder(final Function<String, Streams<String, JsonObject, T, U>> builder) {

@@ -23,7 +23,8 @@ Commands have the following fields:
 
 |Field|Mandatory|Description|
 |---|---|---|
-|reducer|Yes|The filename of a JSLT script, which may be relative. It receives a JSON object with the fields `command` and `state`. The generated object will be used as the new state.|
+|preprocessor|No|A pipeline that pre-processes commands with this name before they are reduced. With this you can avoid adding another public Kafka topic in front of the command topic.| 
+|reducer|Yes|It can be the filename of a JSLT script, which may be relative. It receives a JSON object with the fields `command` and `state`. The generated object will be used as the new state. It can also be a pipeline, which also receives JSON objects with the fields `command` and `state`. The output of the pipeline becomes the new state.|
 |validator|No|A command [validator](validator.md). The value of the field must be a filename, which may be relative. If an expression wants to refer to the current state of an aggregate instance it can use the field `_state`.|
 
 An aggregate creates the streams with the names `<app>-<type>-aggregate`, `<app>-<type>-command`, `<app>-<type>-event`, `<app>-<type>-event-full` and `<app>-<type>-reply`. They correspond to the Kafka topics of an aggregate. You can connect to those streams in other parts of the application.

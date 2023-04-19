@@ -3,7 +3,6 @@ package net.pincette.json.streams;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toSet;
 import static java.util.stream.Stream.concat;
-import static net.pincette.json.JsonUtil.getNumber;
 import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getString;
@@ -30,7 +29,6 @@ import static net.pincette.json.streams.Common.STREAM_TYPES;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VERSION_FIELD;
-import static net.pincette.json.streams.Common.WINDOW;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.json.streams.Logging.severe;
@@ -169,7 +167,7 @@ class Validate {
       final JsonObject command) {
     final var result =
         name != null
-            && command.getString(REDUCER, null) != null
+            && command.get(REDUCER) != null
             && (!command.containsKey(VALIDATOR) || getObject(command, "/" + VALIDATOR).isPresent());
 
     if (!result) {
@@ -198,7 +196,6 @@ class Validate {
     final var right = "/" + RIGHT + "/";
     final var result =
         name(part) != null
-            && getNumber(part, "/" + WINDOW).isPresent()
             && getValue(part, left + ON).isPresent()
             && getValue(part, right + ON).isPresent()
             && (getString(part, left + FROM_STREAM).isPresent()
@@ -214,7 +211,7 @@ class Validate {
           () ->
               "the join "
                   + name(part)
-                  + " should have the fields \"window\", \"left.on\", \"right.on\", either "
+                  + " should have the fields \"left.on\", \"right.on\", either "
                   + "\"left.fromCollection\", \"left.fromStream\" or \"left.fromTopic\" and "
                   + "either \"right.fromCollection\", \"right.fromStream\" or \"right.fromTopic\""
                   + ".");

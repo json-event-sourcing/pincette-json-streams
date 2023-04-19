@@ -377,7 +377,20 @@ class Common {
       final JsonObject command, final File baseDirectory, final JsonObject parameters) {
     return create(() -> createObjectBuilder(command))
         .updateIf(
-            () -> getString(command, "/" + REDUCER),
+            () -> ofNullable(command.get(PREPROCESSOR)),
+            (b, v) ->
+                b.add(
+                    PREPROCESSOR,
+                    expandStream(command, PREPROCESSOR, baseDirectory, parameters)
+                        .get(PREPROCESSOR)))
+        .updateIf(
+            () -> ofNullable(command.get(REDUCER)).filter(Common::isPipeline),
+            (b, v) ->
+                b.add(
+                    REDUCER,
+                    expandStream(command, REDUCER, baseDirectory, parameters).get(REDUCER)))
+        .updateIf(
+            () -> getString(command, "/" + REDUCER).filter(s -> s.endsWith(".jslt")),
             (b, v) -> b.add(REDUCER, resolveFile(baseDirectory, v, parameters)))
         .updateIf(
             () -> getString(command, "/" + VALIDATOR),
@@ -638,6 +651,11 @@ class Common {
         || path.endsWith(JSLT + "." + SCRIPT)
         || path.endsWith("." + REDUCER)
         || path.endsWith(EVENT_TO_COMMAND);
+  }
+
+  private static boolean isPipeline(final JsonValue json) {
+    return stringValue(json).filter(s -> s.endsWith(".yaml") || s.endsWith(".yml")).isPresent()
+        || isArray(json);
   }
 
   private static boolean isValidatorPath(final String path) {

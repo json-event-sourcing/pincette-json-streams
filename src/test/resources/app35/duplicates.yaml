@@ -5,5 +5,5 @@
         - "$_id"
         - "$_corr"
         - "$_command"
-    collection: "plusminus-duplicate-commands"
+    collection: "plusminus2-duplicate-commands"
     cacheWindow: 5000

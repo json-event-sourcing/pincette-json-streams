@@ -1,0 +1,10 @@
+{
+  "_id": "642ccccc-c2c0-4c79-8a53-96c82c5bb8f1",
+  "_type": "plusminus2-counter",
+  "_corr": "4ae4444b-8b49-4435-ae2f-018137f08bff",
+  "_command": "put",
+  "_jwt": {
+    "sub": "system"
+  },
+  "value": 0
+}

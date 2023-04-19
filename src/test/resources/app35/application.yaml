@@ -1,0 +1,21 @@
+---
+application: app35
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: "plusminus2-counter"
+    name: plusminus2
+    commands:
+      plus:
+        reducer: "reducers/plus.jslt"
+        validator: "validators/validate_plus.yaml"
+      minus:
+        reducer: "reducers/minus.jslt"
+        validator: "validators/validate_minus.yaml"
+      put:
+        preprocessor: "duplicates.yaml"
+        reducer:
+          - $replaceRoot:
+              newRoot: "$command"
+          - $unset: "_command"
+        validator: "validators/validate_put.yaml"

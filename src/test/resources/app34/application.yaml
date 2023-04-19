@@ -1,0 +1,13 @@
+---
+application: app34
+version: "1.0"
+parts:
+  - type: join
+    name: joined
+    toCollection: out
+    left:
+      fromCollection: in1
+      on: "$value"
+    right:
+      fromCollection: in2
+      on: "$value"

@@ -387,7 +387,6 @@ class Test<T, U, V, W> implements Callable<Integer> {
                 final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
                     expectedWithResultsCollections =
                         watchCollections(streams, testContext.collectionsToMessages, running);
-
                 final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
                     expectedWithResultsTopics =
                         start(

@@ -1,0 +1,5 @@
+
+
+def decr(value) $value - 1
+
+def incr(value) $value + 1
