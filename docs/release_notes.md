@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.1
+
+* Fix the expansion of "href objects" in aggregates when they are in an array.
+
 ## 2.3
 
 * Add `$replaceOne` and `$replaceAll` string operators.

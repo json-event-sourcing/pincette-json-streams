@@ -1,0 +1,14 @@
+---
+application: app36
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: "app36-resolve"
+    name: resolve
+    commands:
+      add:
+        reducer: "reducers/add.jslt"
+        validator: "validators/validate_add.yaml"
+      put:
+        reducer: "reducers/put.jslt"
+        validator: "validators/validate_put.yaml"

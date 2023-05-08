@@ -1,0 +1,28 @@
+{
+  "_id": "96558505-f5c5-47f2-a438-a1068870225d",
+  "_type": "app36-resolve",
+  "_corr": "a2ea1e24-2050-4503-84f5-a458912875b2",
+  "_command": "put",
+  "_seq": 0,
+  "_jwt": {
+    "sub": "system"
+  },
+  "_ops": [
+    {
+      "op": "add",
+      "path": "/value",
+      "value": 1
+    }
+  ],
+  "_before": {
+    "_id": "96558505-f5c5-47f2-a438-a1068870225d",
+    "_type": "app36-resolve"
+  },
+  "_after": {
+    "_id": "96558505-f5c5-47f2-a438-a1068870225d",
+    "_type": "app36-resolve",
+    "_corr": "a2ea1e24-2050-4503-84f5-a458912875b2",
+    "_seq": 0,
+    "value": 1
+  }
+}

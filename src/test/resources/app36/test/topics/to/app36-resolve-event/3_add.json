@@ -1,0 +1,17 @@
+{
+  "_id": "f13fe997-5143-4b71-a22a-afd126d13193",
+  "_type": "app36-resolve",
+  "_corr": "182ff7f9-e196-4b79-ab29-2874a6b308b0",
+  "_command": "add",
+  "_seq": 1,
+  "_jwt": {
+    "sub": "system"
+  },
+  "_ops": [
+    {
+      "op": "replace",
+      "path": "/value",
+      "value": 2
+    }
+  ]
+}

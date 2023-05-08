@@ -1,0 +1,33 @@
+{
+  "_id": "f13fe997-5143-4b71-a22a-afd126d13193",
+  "_type": "app36-resolve",
+  "_corr": "07e0f2bc-5732-4338-96f9-4c5031fea32f",
+  "_command": "put",
+  "_seq": 0,
+  "_jwt": {
+    "sub": "system"
+  },
+  "_ops": [
+    {
+      "op": "add",
+      "path": "/value",
+      "value": 0
+    },
+    {
+      "op": "add",
+      "path": "/other",
+      "value": {
+        "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+      }
+    },
+    {
+      "op": "add",
+      "path": "/others",
+      "value": [
+        {
+          "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
+        }
+      ]
+    }
+  ]
+}

@@ -480,6 +480,12 @@ class TestApp {
   }
 
   @Test
+  @DisplayName("app36")
+  void app36() {
+    runTest("app36");
+  }
+
+  @Test
   @DisplayName("s3attachments")
   void s3Attachments() {
     putResourceS3("/files/com2012_0429nl01.pdf", "lars-tst-docs", "com2012_0429nl01.pdf");

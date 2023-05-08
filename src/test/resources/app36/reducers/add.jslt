@@ -1,0 +1,4 @@
+.state | {
+             "value" : .other.value + .others[0].value,
+             * : .
+         }
