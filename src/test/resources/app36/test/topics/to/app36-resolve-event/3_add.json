@@ -11,7 +11,7 @@
     {
       "op": "replace",
       "path": "/value",
-      "value": 2
+      "value": 5
     }
   ]
 }

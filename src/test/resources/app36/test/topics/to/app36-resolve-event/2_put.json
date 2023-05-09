@@ -22,11 +22,36 @@
     },
     {
       "op": "add",
+      "path": "/other-nested",
+      "value": {
+        "other": {
+          "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+        },
+        "other-array": [
+          {
+            "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+          }
+        ]
+      }
+    },
+    {
+      "op": "add",
       "path": "/others",
       "value": [
         {
           "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
         }
+      ]
+    },
+    {
+      "op": "add",
+      "path": "/others-nested",
+      "value": [
+        [
+          {
+            "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
+          }
+        ]
       ]
     }
   ]

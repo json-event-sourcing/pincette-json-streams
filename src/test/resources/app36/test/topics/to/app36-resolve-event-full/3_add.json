@@ -11,7 +11,7 @@
     {
       "op": "replace",
       "path": "/value",
-      "value": 2
+      "value": 5
     }
   ],
   "_after": {
@@ -19,14 +19,31 @@
     "_type": "app36-resolve",
     "_corr": "182ff7f9-e196-4b79-ab29-2874a6b308b0",
     "_seq": 1,
-    "value": 2,
+    "value": 5,
     "other": {
       "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+    },
+    "other-nested": {
+      "other": {
+        "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+      },
+      "other-array": [
+        {
+          "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+        }
+      ]
     },
     "others": [
       {
         "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
       }
+    ],
+    "others-nested": [
+      [
+        {
+          "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
+        }
+      ]
     ]
   },
   "_before": {
@@ -38,10 +55,27 @@
     "other": {
       "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
     },
+    "other-nested": {
+      "other": {
+        "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+      },
+      "other-array": [
+        {
+          "href": "/app36/resolve/642ccccc-c2c0-4c79-8a53-96c82c5bb8f1"
+        }
+      ]
+    },
     "others": [
       {
         "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
       }
+    ],
+    "others-nested": [
+      [
+        {
+          "href": "/app36/resolve/96558505-f5c5-47f2-a438-a1068870225d"
+        }
+      ]
     ]
   }
 }

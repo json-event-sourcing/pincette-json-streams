@@ -1,4 +1,6 @@
 .state | {
-             "value" : .other.value + .others[0].value,
+             "value" : .other.value + .other-nested.other.value +
+                       .other-nested.other-array[0].value + .others[0].value +
+                       .others-nested[0][0].value,
              * : .
          }
