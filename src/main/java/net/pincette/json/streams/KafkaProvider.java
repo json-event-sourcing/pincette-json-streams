@@ -1,5 +1,6 @@
 package net.pincette.json.streams;
 
+import static java.time.Duration.ofMillis;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.jes.util.Kafka.fromConfig;
@@ -52,7 +53,9 @@ class KafkaProvider
         ConsumerRecord<String, String>,
         ProducerRecord<String, String>> {
   private static final String BATCH_SIZE = "batchSize";
+  private static final String BATCH_TIMEOUT = "batchTimeout";
   private static final int DEFAULT_BATCH_SIZE = 500;
+  private static final Duration DEFAULT_BATCH_TIMEOUT = ofMillis(50);
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String KAFKA = "kafka";
   private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
@@ -68,6 +71,7 @@ class KafkaProvider
 
   private final Admin admin;
   private final int batchSize;
+  private final Duration batchTimeout;
   private final BiConsumer<ConsumerEvent, KafkaConsumer<String, JsonObject>> consumerEventHandler;
   private final String groupIdSuffix;
   private final Map<String, Object> kafkaConfig;
@@ -87,6 +91,8 @@ class KafkaProvider
     admin = Admin.create(toAdmin(kafkaConfig));
     groupIdSuffix = tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX)).orElse(null);
     batchSize = tryToGetSilent(() -> config.getInt(BATCH_SIZE)).orElse(DEFAULT_BATCH_SIZE);
+    batchTimeout =
+        tryToGetSilent(() -> config.getDuration(BATCH_TIMEOUT)).orElse(DEFAULT_BATCH_TIMEOUT);
     throttleTime = tryToGetSilent(() -> config.getDuration(THROTTLE_TIME)).orElse(null);
     consumerEventHandler = null;
     producerEventHandlerJsonObject = null;
@@ -104,6 +110,7 @@ class KafkaProvider
     kafkaConfig = provider.kafkaConfig;
     producer = provider.producer;
     batchSize = provider.batchSize;
+    batchTimeout = provider.batchTimeout;
     throttleTime = provider.throttleTime;
     this.consumerEventHandler = consumerEventHandler;
     this.producerEventHandlerJsonObject = producerEventHandlerJsonObject;
@@ -156,6 +163,7 @@ class KafkaProvider
         fromSubscriber(
             subscriber(producer::getNewJsonProducer)
                 .withBatchSize(batchSize)
+                .withTimeout(batchTimeout)
                 .withEventHandler(producerEventHandlerJsonObject)));
   }
 
@@ -219,6 +227,7 @@ class KafkaProvider
         fromSubscriber(
             subscriber(producer::getNewStringProducer)
                 .withBatchSize(batchSize)
+                .withTimeout(batchTimeout)
                 .withEventHandler(producerEventHandlerString)));
   }
 

@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.2
+
+* Set the default batch flush timeout to 50ms.
+* Add the configuration parameter `batchTimeout`.
+
 ## 2.3.1
 
 * Fix the expansion of "href objects" in aggregates when they are in an array.
