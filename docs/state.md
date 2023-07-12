@@ -4,7 +4,9 @@ State is managed in an aggregate. An aggregate can define commands, which may ha
 
 You manage the state by writing reducers for commands. A reducer receives a command and the current state of an aggregate instance. Its task is to calculate the new state. Reducers are supposed to not have side effects. As such, reducers are merely JSON transformations.
 
-Reducers are written in [JSLT](https://github.com/schibsted/jslt). A script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
+Reducers are written in [JSLT](https://github.com/schibsted/jslt) or as an aggregation pipeline. A JSLT script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
+
+A pipeline receives the same object. Its output becomes the new state.
 
 ## Aggregate Parts
 

@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.3
+
+* Improve aggregate performance.
+* Fix topic offset commit, which could come before batches were sent to Kafka.
+
 ## 2.3.2
 
 * Set the default batch flush timeout to 50ms.
