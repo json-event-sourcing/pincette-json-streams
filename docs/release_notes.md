@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.4
+
+* Fix `$http` pipeline stage.
+* Fix the shutdown procedure to avoid unnecessary duplicate messages.
+
 ## 2.3.3
 
 * Improve aggregate performance.

@@ -17,7 +17,6 @@ module application {
   requires net.pincette.rs.streams;
   requires net.pincette.rs.kafka;
   requires net.pincette.kafka.json;
-  requires net.pincette.netty.http;
   requires kafka.clients;
   requires org.reactivestreams;
   requires typesafe.config;
