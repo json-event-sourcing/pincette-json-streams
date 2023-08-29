@@ -1,5 +1,12 @@
 # Release Notes
 
+## 2.3.5
+
+* Fix `$http` pipeline stage.
+* Fix `$lag` timeout.
+* Fix backpressure violations.
+* Improve backpressure towards Kafka topics.
+
 ## 2.3.4
 
 * Fix `$http` pipeline stage.

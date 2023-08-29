@@ -21,6 +21,7 @@ import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
+import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.loadProperties;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
@@ -74,6 +75,10 @@ class Run<T, U, V, W> implements Runnable {
       final Supplier<Context> contextSupplier) {
     this.providerSupplier = providerSupplier;
     this.contextSupplier = contextSupplier;
+  }
+
+  private static boolean excludeCLIGenerated(final String group) {
+    return !isUUID(group);
   }
 
   private static String getGitCommit() {
@@ -153,7 +158,7 @@ class Run<T, U, V, W> implements Runnable {
         .withContext(context)
         .withBuilder(provider::builder)
         .withStringBuilder(provider::stringBuilder)
-        .withMessageLag(() -> provider.messageLag(g -> true))
+        .withMessageLag(() -> provider.messageLag(Run::excludeCLIGenerated))
         .withOnError(t -> restart(application(specification)));
   }
 
