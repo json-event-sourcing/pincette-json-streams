@@ -10,6 +10,7 @@ import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
+import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
@@ -924,7 +925,7 @@ class App<T, U, V, W> {
     return new App<>(specification, getBuilder, stringBuilder, messageLag, onError, context);
   }
 
-  private static class OnError {
+  private class OnError {
     private Throwable error;
     private final Consumer<Throwable> onErrorFn;
 
@@ -939,6 +940,7 @@ class App<T, U, V, W> {
     private void setError(final Throwable t) {
       if (error == null) {
         error = t;
+        logger().log(SEVERE, t, t::getMessage);
         onErrorFn.accept(t);
       }
     }

@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.3.6
+
+* Log `onError` signals at the level of the applications.
+* Fix the propagation of exceptions as `onError` signals in some cases, which would inhibit the automatic restart of the application.
+* Fix exception in `$http` stage.
+
 ## 2.3.5
 
 * Fix `$http` pipeline stage.

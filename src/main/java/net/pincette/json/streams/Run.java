@@ -217,6 +217,7 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   private void restart(final String application) {
+    info(() -> "Restart " + application);
     ofNullable(running.get(application))
         .ifPresent(
             app ->
@@ -230,7 +231,7 @@ class Run<T, U, V, W> implements Runnable {
   public void run() {
     final Predicate<JsonObject> filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
 
-    info("Version " + APP_VERSION);
+    info(() -> "Version " + APP_VERSION);
     provider = providerSupplier.get();
     context = prepareContext(contextSupplier.get());
 
