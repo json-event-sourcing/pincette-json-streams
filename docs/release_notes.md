@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.7
+
+* Fix open stream termination bug.
+
 ## 2.3.6
 
 * Log `onError` signals at the level of the applications.

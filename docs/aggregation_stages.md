@@ -611,7 +611,7 @@ parts:
             Authorization:
               $concat:
                 - "Bearer "
-                - "$_jwt"
+                - "$_token"
           body:
             traceId:
               $jes-uuid: null

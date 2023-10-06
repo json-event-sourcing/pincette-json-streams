@@ -4,7 +4,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.changestream.FullDocument.UPDATE_LOOKUP;
 import static java.lang.Boolean.TRUE;
 import static java.lang.Integer.MAX_VALUE;
-import static java.time.Duration.ofMinutes;
+import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
@@ -185,7 +185,8 @@ class App<T, U, V, W> {
   private final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag;
   private final OnError onError;
   private final JsonObject specification;
-  private final Map<String, Publisher<Message<String, JsonObject>>> streams = new HashMap<>();
+  private final Map<String, SubscriptionMonitor<Message<String, JsonObject>>> streams =
+      new HashMap<>();
   private Streams<String, JsonObject, T, U> builder;
   private Set<String> consumedStreams;
   private Map<String, List<Subscriber<Message<String, JsonObject>>>> subscribers;
@@ -388,7 +389,7 @@ class App<T, U, V, W> {
     final String name = type + "-" + purpose;
 
     if (consumedStreams.contains(name)) {
-      streams.put(name, builder.from(aggregate.topic(purpose)));
+      streams.put(name, new SubscriptionMonitor<>(builder.from(aggregate.topic(purpose))));
       subscribers.put(name, new ArrayList<>());
     }
   }
@@ -547,7 +548,7 @@ class App<T, U, V, W> {
                 new OtherSide(LEFT, leftCollection, leftKeyExpression),
                 window)))
         .buffer(2) // Make sure the two branches get a request, otherwise it won't start.
-        .map(duplicateFilter(m -> m.value, ofMinutes(1)))
+        .map(duplicateFilter(m -> m.value, ofSeconds(1)))
         .get(); // When matching messages arrive at the same time there can be duplicates.
   }
 
@@ -585,11 +586,19 @@ class App<T, U, V, W> {
     consumedStreams = consumedStreams(parts);
     parts(parts, set(AGGREGATE)).forEach(this::createAggregate);
     parts(parts, STREAM_TYPES)
-        .forEach(part -> streams.put(part.getString(NAME), toStream(createPart(part), part)));
+        .forEach(
+            part ->
+                streams.put(
+                    part.getString(NAME),
+                    toStream(new SubscriptionMonitor<>(createPart(part)), part)));
     parts(parts, STREAM_TYPES)
         .flatMap(App::collectionNames)
-        .forEach(name -> streams.put(collectionKey(name), createCollectionStream(name)));
+        .forEach(
+            name ->
+                streams.put(
+                    collectionKey(name), new SubscriptionMonitor<>(createCollectionStream(name))));
     connectStreams();
+    terminateOpenStreams();
   }
 
   private Processor<Message<String, JsonObject>, Message<String, JsonObject>> createPipeline(
@@ -822,14 +831,17 @@ class App<T, U, V, W> {
     LOGGER.log(INFO, "Stopped {0}", new Object[] {name()});
   }
 
-  private Publisher<Message<String, JsonObject>> toStream(
-      final Publisher<Message<String, JsonObject>> stream, final JsonObject specification) {
+  private void terminateOpenStreams() {
+    streams.values().stream().filter(v -> v.subscriber == null).forEach(App::pullForever);
+  }
+
+  private SubscriptionMonitor<Message<String, JsonObject>> toStream(
+      final SubscriptionMonitor<Message<String, JsonObject>> stream,
+      final JsonObject specification) {
     if (specification.containsKey(TO_TOPIC)) {
       connectToTopic(specification.getString(TO_TOPIC), specification);
     } else if (specification.containsKey(TO_COLLECTION)) {
       connectToCollection(stream, specification.getString(TO_COLLECTION));
-    } else {
-      pullForever(stream);
     }
 
     return stream;
@@ -956,6 +968,21 @@ class App<T, U, V, W> {
       this.name = name;
       this.collection = collection;
       this.criterion = criterion;
+    }
+  }
+
+  private static class SubscriptionMonitor<T> implements Publisher<T> {
+    private final Publisher<T> publisher;
+    private Subscriber<? super T> subscriber;
+
+    private SubscriptionMonitor(final Publisher<T> publisher) {
+      this.publisher = publisher;
+    }
+
+    @Override
+    public void subscribe(Subscriber<? super T> subscriber) {
+      publisher.subscribe(subscriber);
+      this.subscriber = subscriber;
     }
   }
 
