@@ -541,6 +541,9 @@ class Common {
                         .updateIf(
                             () -> getString(command, "/" + DESCRIPTION),
                             (b, v) -> b.add(DESCRIPTION, v))
+                        .updateIf(
+                            () -> getArray(command, "/" + PREPROCESSOR),
+                            (b, v) -> b.add(PREPROCESSOR, v))
                         .build()
                         .build()));
   }

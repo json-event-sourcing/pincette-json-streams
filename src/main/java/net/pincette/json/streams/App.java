@@ -29,6 +29,7 @@ import static net.pincette.json.Jslt.transformerObject;
 import static net.pincette.json.Jslt.tryReader;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
+import static net.pincette.json.JsonUtil.getArray;
 import static net.pincette.json.JsonUtil.getObject;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getStrings;
@@ -308,9 +309,7 @@ class App<T, U, V, W> {
   }
 
   private static JsonArray getPipeline(final JsonObject specification, final String field) {
-    return getValue(specification, "/" + field)
-        .map(JsonValue::asJsonArray)
-        .orElseGet(JsonUtil::emptyArray);
+    return getArray(specification, "/" + field).orElseGet(JsonUtil::emptyArray);
   }
 
   private static Bson joinFilter(
@@ -451,6 +450,7 @@ class App<T, U, V, W> {
         .withType(type)
         .withBuilder(builder)
         .withMongoDatabase(context.database)
+        .withMongoClient(context.client)
         .withLogger(logger());
   }
 

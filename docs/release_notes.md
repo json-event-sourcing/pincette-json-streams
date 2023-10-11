@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.3.8
+
+* Reduce memory consumption.
+* Fix setting empty headers in `$http`.
+* Fix aggregate command preprocessor being ignored when the commands are written as an array instead of an object.
+
 ## 2.3.7
 
 * Fix open stream termination bug.

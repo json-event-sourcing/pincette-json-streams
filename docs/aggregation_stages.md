@@ -88,7 +88,7 @@ parts:
 
 ### $deduplicate
 
-With this extension stage you can filter away duplicate messages according to a given expression, which goes in the `expression` field. The `collection` field denotes the MongoDB collection that is used for the state. If you use Atlas Archiving you can keep the collection small. Use the `_timestamp` field for this. Its value is epoch millis. The optional field `cacheWindow` is the time in milliseconds that messages are kept in a cache for duplicate checking. An example:
+With this extension stage you can filter away duplicate messages according to a given expression, which goes in the `expression` field. The `collection` field denotes the MongoDB collection that is used for the state. If you use Atlas Archiving you can keep the collection small. Use the `_timestamp` field for this. Its value is epoch millis. The optional field `cacheWindow` is the time in milliseconds that messages are kept in a cache for duplicate checking. The default value is 1000. An example:
 
 ```yaml
 ---
