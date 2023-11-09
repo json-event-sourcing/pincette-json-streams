@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.9
+
+* Fix the overwriting of the `Content-Type` header in the `$http` stage.
+
 ## 2.3.8
 
 * Reduce memory consumption.

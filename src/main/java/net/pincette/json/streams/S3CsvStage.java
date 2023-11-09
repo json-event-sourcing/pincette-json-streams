@@ -53,7 +53,7 @@ class S3CsvStage {
 
   private static JsonObject createMessage(final String[] header, final String[] row) {
     return zip(stream(header), stream(row))
-        .filter(pair -> pair.first.length() > 0 && pair.second.length() > 0)
+        .filter(pair -> !pair.first.isEmpty() && !pair.second.isEmpty())
         .reduce(createObjectBuilder(), (b, p) -> b.add(p.first, value(p.second)), (b1, b2) -> b1)
         .build();
   }
