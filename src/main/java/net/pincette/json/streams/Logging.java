@@ -7,6 +7,7 @@ import static java.util.logging.LogManager.getLogManager;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.util.Collections.flatten;
 import static net.pincette.util.Pair.pair;
+import static net.pincette.util.Util.getStackTrace;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 
@@ -61,7 +62,9 @@ class Logging {
             e,
             () ->
                 ofNullable(message).map(Supplier::get).map(m -> (m + "\n")).orElse("")
-                    + e.getMessage());
+                    + e.getMessage()
+                    + "\n"
+                    + getStackTrace(e));
   }
 
   static void finest(final String message) {
@@ -144,7 +147,10 @@ class Logging {
       final Logger logger) {
     logger.finest(
         () ->
-            logger + ": " + (message != null ? (message.get() + ": ") : "") + createString.apply(value));
+            logger
+                + ": "
+                + (message != null ? (message.get() + ": ") : "")
+                + createString.apply(value));
 
     return value;
   }

@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.10
+
+* Restart an application when a Kafka offset commit fails.
+* Fix aggregate href resolution.
+
 ## 2.3.9
 
 * Fix the overwriting of the `Content-Type` header in the `$http` stage.

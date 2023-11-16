@@ -11,7 +11,6 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
-import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.jes.Aggregate.reducer;
@@ -119,6 +118,7 @@ import static net.pincette.util.Do.withValue;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.must;
+import static net.pincette.util.Util.tryToDo;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 
@@ -563,7 +563,7 @@ class App<T, U, V, W> {
             s -> s.containsKey(FROM_COLLECTIONS),
             s -> getStrings(s, FROM_COLLECTIONS).map(App::collectionKey).map(this::addSubscriber))
         .get()
-        .map(stream -> stream.collect(toList()))
+        .map(Stream::toList)
         .map(Merge::of)
         .orElseGet(Util::empty);
   }
@@ -802,7 +802,17 @@ class App<T, U, V, W> {
     stringBuilder = getStringBuilder.apply(application);
     createApplication();
     stringBuilder.start(); // String builders don't have a topic source.
-    thread = new Thread(builder::start, application);
+    thread =
+        new Thread(
+            () ->
+                tryToDo(
+                    () -> builder.start(),
+                    e -> {
+                      if (onError != null) {
+                        onError.setError(e);
+                      }
+                    }),
+            application);
     thread.start();
   }
 
