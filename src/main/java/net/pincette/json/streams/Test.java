@@ -11,7 +11,6 @@ import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static java.util.stream.Stream.concat;
@@ -198,14 +197,14 @@ class Test<T, U, V, W> implements Callable<Integer> {
             m ->
                 message(
                     ofNullable(m.getString(ID, null)).orElseGet(() -> randomUUID().toString()), m))
-        .collect(toList());
+        .toList();
   }
 
   private static CompletionStage<Boolean> loadCollection(
       final MongoCollection<Document> collection, final List<JsonObject> messages) {
     return insertMany(
             collection,
-            messages.stream().map(BsonUtil::fromJson).map(BsonUtil::toDocument).collect(toList()))
+            messages.stream().map(BsonUtil::fromJson).map(BsonUtil::toDocument).toList())
         .thenApply(InsertManyResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
   }
@@ -225,7 +224,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
   }
 
   private static List<JsonObject> sorted(final List<JsonObject> list) {
-    return list.stream().sorted(comparing(Test::compareKey)).collect(toList());
+    return list.stream().sorted(comparing(Test::compareKey)).toList();
   }
 
   private static String stringOf(final List<JsonObject> messages) {
@@ -465,7 +464,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
     private static Optional<List<JsonObject>> loadMessages(final Path directory) {
       return tryToGetWithRethrow(
           () -> listDirectory(directory),
-          list -> list.sorted().flatMap(path -> parse(path).stream()).collect(toList()));
+          list -> list.sorted().flatMap(path -> parse(path).stream()).toList());
     }
 
     private static Optional<Map<String, List<JsonObject>>> loadMessagesPerDirectory(

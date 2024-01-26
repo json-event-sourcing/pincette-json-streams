@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.11
+
+* Set the default message batch size to 100 instead of 500.
+* Don't beautify the output of the `$trace` stage.
+
 ## 2.3.10
 
 * Restart an application when a Kafka offset commit fails.

@@ -18,7 +18,6 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Logger.getLogger;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
@@ -771,7 +770,7 @@ class Common {
       final Map<File, Pair<String, String>> jsltImports) {
     return validatorImports.stream()
         .map(pair -> pair(pair.first, transform(pair.second, jsltResolver(jsltImports))))
-        .collect(toList());
+        .toList();
   }
 
   private static JsonObject resolveValidator(

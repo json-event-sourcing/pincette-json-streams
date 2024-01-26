@@ -86,16 +86,11 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   private static Function<JsonObject, Stream<String>> anchors(final JsonObject json) {
-    switch (json.getString(TYPE)) {
-      case AGGREGATE:
-        return aggregateAnchors();
-      case JOIN:
-      case MERGE:
-      case STREAM:
-        return streamAnchor();
-      default:
-        return noAnchor();
-    }
+    return switch (json.getString(TYPE)) {
+      case AGGREGATE -> aggregateAnchors();
+      case JOIN, MERGE, STREAM -> streamAnchor();
+      default -> noAnchor();
+    };
   }
 
   private static Stream<String> applicationMetadata(final JsonObject json) {

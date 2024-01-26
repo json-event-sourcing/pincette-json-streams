@@ -4,7 +4,6 @@ import static java.util.Objects.hash;
 import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.mapping;
-import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.json.JsonUtil.getObjects;
 import static net.pincette.json.JsonUtil.getString;
@@ -115,7 +114,7 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<Link> applicationLinks(final Stream<Link> links) {
-    final List<Link> collected = links.collect(toList());
+    final List<Link> collected = links.toList();
 
     return applicationLinks(
         collected.stream()

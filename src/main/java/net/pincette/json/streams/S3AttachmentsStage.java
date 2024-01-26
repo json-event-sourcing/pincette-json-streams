@@ -9,7 +9,6 @@ import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
 import static java.util.stream.Stream.concat;
 import static javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm;
 import static net.pincette.json.JsonUtil.arrayValue;
@@ -142,7 +141,7 @@ class S3AttachmentsStage {
         .map(JsonValue::asJsonObject)
         .map(S3AttachmentsStage::attachment)
         .filter(att -> att.bucket != null && att.key != null)
-        .collect(toList());
+        .toList();
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentsPublisher(
@@ -150,8 +149,7 @@ class S3AttachmentsStage {
     return composeAsyncStream(
             attachments.stream().map(att -> attachmentPublisher(att, logger, boundary)))
         .thenApply(
-            stream ->
-                Concat.of(concat(stream, Stream.of(trailerPublisher(boundary))).collect(toList())));
+            stream -> Concat.of(concat(stream, Stream.of(trailerPublisher(boundary))).toList()));
   }
 
   private static CompletionStage<Publisher<ByteBuffer>> attachmentPublisher(

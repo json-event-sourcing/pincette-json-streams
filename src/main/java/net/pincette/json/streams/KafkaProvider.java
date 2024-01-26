@@ -54,7 +54,7 @@ class KafkaProvider
         ProducerRecord<String, String>> {
   private static final String BATCH_SIZE = "batchSize";
   private static final String BATCH_TIMEOUT = "batchTimeout";
-  private static final int DEFAULT_BATCH_SIZE = 500;
+  private static final int DEFAULT_BATCH_SIZE = 100;
   private static final Duration DEFAULT_BATCH_TIMEOUT = ofMillis(50);
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String KAFKA = "kafka";
