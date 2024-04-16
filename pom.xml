@@ -255,7 +255,7 @@
               <entry>--module-path</entry>
               <entry>app:app/libs</entry>
               <entry>--module</entry>
-              <entry>application</entry>
+              <entry>application/net.pincette.json.streams.Application</entry>
               <entry>run</entry>
             </entrypoint>
             <workingDirectory>/</workingDirectory>
@@ -308,7 +308,6 @@
               <overWriteReleases>false</overWriteReleases>
               <overWriteSnapshots>false</overWriteSnapshots>
               <overWriteIfNewer>true</overWriteIfNewer>
-              <includeScope>compile</includeScope>
             </configuration>
           </execution>
         </executions>
