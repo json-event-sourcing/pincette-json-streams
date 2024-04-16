@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.12
+
+* Fix the `$s3Csv` stage, which could be overwhelmed with large files, resulting in timeouts.
+ 
 ## 2.3.11
 
 * Set the default message batch size to 100 instead of 500.
