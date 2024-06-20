@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.13
+
+* Fix the generation of links in markdown for array fields.
+
 ## 2.3.12
 
 * Fix the `$s3Csv` stage, which could be overwhelmed with large files, resulting in timeouts.

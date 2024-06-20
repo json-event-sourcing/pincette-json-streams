@@ -174,7 +174,6 @@ class Common {
   static final String VALIDATOR = "validator";
   static final String VALIDATOR_IMPORTS = "validatorImports";
   static final String VERSION_FIELD = "version";
-  static final String WINDOW = "window";
   static final String RESOURCE = "resource:";
   private static final Logger BUILD_LOGGER = getLogger(LOGGER_NAME + ".build");
   private static final String DATABASE = "mongodb.database";
@@ -408,16 +407,12 @@ class Common {
   private static Expander expandPart() {
     return part ->
         baseDirectory ->
-            parameters -> {
-              switch (part.getString(TYPE)) {
-                case AGGREGATE:
-                  return expandAggregate(part, baseDirectory, parameters);
-                case STREAM:
-                  return expandStream(part, PIPELINE, baseDirectory, parameters);
-                default:
-                  return part;
-              }
-            };
+            parameters ->
+                switch (part.getString(TYPE)) {
+                  case AGGREGATE -> expandAggregate(part, baseDirectory, parameters);
+                  case STREAM -> expandStream(part, PIPELINE, baseDirectory, parameters);
+                  default -> part;
+                };
   }
 
   private static JsonArray expandSequence(
@@ -601,9 +596,8 @@ class Common {
 
   private static Stream<Expansion> getSequenceFromFile(
       final File file, final JsonObject parameters) {
-    return read(file)
-        .map(Common::asStream)
-        .map(
+    return read(file).map(Common::asStream).stream()
+        .flatMap(
             s ->
                 s.map(v -> new Expansion(v, file.getParentFile(), parameters))
                     .flatMap(
@@ -611,8 +605,7 @@ class Common {
                             isInclude(e.specification) || isString(e.specification)
                                 ? expandSequenceEntry(
                                     e.specification, file.getParentFile(), parameters)
-                                : Stream.of(e)))
-        .orElseGet(Stream::empty);
+                                : Stream.of(e)));
   }
 
   private static boolean hasKafkaHandler(final Logger logger) {
@@ -874,14 +867,11 @@ class Common {
   }
 
   static JsonValue transformFieldNames(final JsonValue json, final UnaryOperator<String> op) {
-    switch (json.getValueType()) {
-      case OBJECT:
-        return transformFieldNames(json.asJsonObject(), op).build();
-      case ARRAY:
-        return transformFieldNames(json.asJsonArray(), op).build();
-      default:
-        return json;
-    }
+    return switch (json.getValueType()) {
+      case OBJECT -> transformFieldNames(json.asJsonObject(), op).build();
+      case ARRAY -> transformFieldNames(json.asJsonArray(), op).build();
+      default -> json;
+    };
   }
 
   static <T> CompletionStage<T> tryToGetForever(

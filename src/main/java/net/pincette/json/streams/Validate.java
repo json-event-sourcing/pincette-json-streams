@@ -259,18 +259,13 @@ class Validate {
 
   private static boolean validatePart(
       final JsonObject application, final String type, final JsonObject part) {
-    switch (type) {
-      case AGGREGATE:
-        return validateAggregate(application, part);
-      case JOIN:
-        return validateJoin(application, part);
-      case MERGE:
-        return validateMerge(application, part);
-      case STREAM:
-        return validateStream(application, part);
-      default:
-        return false;
-    }
+    return switch (type) {
+      case AGGREGATE -> validateAggregate(application, part);
+      case JOIN -> validateJoin(application, part);
+      case MERGE -> validateMerge(application, part);
+      case STREAM -> validateStream(application, part);
+      default -> false;
+    };
   }
 
   private static boolean validateStream(final JsonObject application, final JsonObject part) {

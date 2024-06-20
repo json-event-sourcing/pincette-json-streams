@@ -197,34 +197,24 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   private static Stream<Link> partLinks(final JsonObject json, final String environment) {
-    switch (json.getString(TYPE)) {
-      case AGGREGATE:
-        return aggregateLinks(json, environment);
-      case JOIN:
-        return joinLinks(json);
-      case MERGE:
-        return mergeLinks(json);
-      case STREAM:
-        return streamLinks(json);
-      default:
-        return Stream.empty();
-    }
+    return switch (json.getString(TYPE)) {
+      case AGGREGATE -> aggregateLinks(json, environment);
+      case JOIN -> joinLinks(json);
+      case MERGE -> mergeLinks(json);
+      case STREAM -> streamLinks(json);
+      default -> Stream.empty();
+    };
   }
 
   private static Stream<Link> partLinksGlobal(
       final String application, final JsonObject json, final String environment) {
-    switch (json.getString(TYPE)) {
-      case AGGREGATE:
-        return aggregateLinks(application, json, environment);
-      case JOIN:
-        return joinLinks(application, json);
-      case MERGE:
-        return mergeLinks(application, json);
-      case STREAM:
-        return streamLinks(application, json);
-      default:
-        return Stream.empty();
-    }
+    return switch (json.getString(TYPE)) {
+      case AGGREGATE -> aggregateLinks(application, json, environment);
+      case JOIN -> joinLinks(application, json);
+      case MERGE -> mergeLinks(application, json);
+      case STREAM -> streamLinks(application, json);
+      default -> Stream.empty();
+    };
   }
 
   private static void printApplication(final String name, final PrintWriter writer) {

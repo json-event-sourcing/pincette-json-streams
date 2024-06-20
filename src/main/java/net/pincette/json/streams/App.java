@@ -569,16 +569,12 @@ class App<T, U, V, W> {
   }
 
   private Publisher<Message<String, JsonObject>> createPart(final JsonObject specification) {
-    switch (specification.getString(TYPE)) {
-      case JOIN:
-        return createJoin(specification);
-      case MERGE:
-        return createMerge(specification);
-      case STREAM:
-        return createStream(specification);
-      default:
-        return null;
-    }
+    return switch (specification.getString(TYPE)) {
+      case JOIN -> createJoin(specification);
+      case MERGE -> createMerge(specification);
+      case STREAM -> createStream(specification);
+      default -> null;
+    };
   }
 
   private void createParts(final JsonArray parts) {

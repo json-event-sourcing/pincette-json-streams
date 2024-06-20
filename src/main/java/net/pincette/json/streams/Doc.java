@@ -112,7 +112,7 @@ class Doc extends ApplicationCommand implements Runnable {
 
   private static Stream<String> description(final JsonObject json) {
     return ofNullable(json.getString(DESCRIPTION, null)).stream()
-        .filter(s -> s.length() > 0)
+        .filter(s -> !s.isEmpty())
         .map(s -> s.charAt(s.length() - 1) == '\n' ? s.substring(0, s.length() - 1) : s);
   }
 
@@ -144,10 +144,10 @@ class Doc extends ApplicationCommand implements Runnable {
       final String field,
       final String label,
       final UnaryOperator<String> decorator) {
-    return Optional.of(getStrings(json, field).collect(joining(", ")))
-        .filter(value -> value.length() > 0)
+    return Optional.of(getStrings(json, field).map(decorator).collect(joining(", ")))
+        .filter(value -> !value.isEmpty())
         .stream()
-        .map(value -> field(label, decorator.apply(value)));
+        .map(value -> field(label, value));
   }
 
   private static Stream<String> from(final JsonObject json) {
@@ -181,18 +181,13 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   private static Function<JsonObject, Stream<String>> metadata(final JsonObject json) {
-    switch (json.getString(TYPE)) {
-      case AGGREGATE:
-        return Doc::aggregateMetadata;
-      case JOIN:
-        return Doc::joinMetadata;
-      case MERGE:
-        return Doc::mergeMetadata;
-      case STREAM:
-        return Doc::streamMetadata;
-      default:
-        return j -> Stream.empty();
-    }
+    return switch (json.getString(TYPE)) {
+      case AGGREGATE -> Doc::aggregateMetadata;
+      case JOIN -> Doc::joinMetadata;
+      case MERGE -> Doc::mergeMetadata;
+      case STREAM -> Doc::streamMetadata;
+      default -> j -> Stream.empty();
+    };
   }
 
   private static Function<JsonObject, Stream<String>> noAnchor() {
