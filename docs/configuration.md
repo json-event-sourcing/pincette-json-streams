@@ -7,7 +7,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 
 |Entry|Mandatory|Description|
 |---|---|---|
-|batchSize|No|The size of the batches that are written to Kafka. This determines the overall batch size throughout the system. The default value is 500. Reduce it if your messages are rather large, which saves memory.|
+|batchSize|No|The size of the batches that are written to Kafka. This determines the overall batch size throughout the system. The default value is 100. Reduce it if your messages are rather large, which saves memory.|
 |batchTimeout|No|The time after which a message batch is flushed if it is not yet full and when additional messages are requested. The default is 50ms.|
 |contextPath|No|The context path used in generated URLs.|
 |environment|No|The name of the environment, e.g. "tst", "prd". When it is present it will be used for the applications as a replacement for occurrences of `${ENV}`.|

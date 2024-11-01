@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.14
+
+* Reload the client certificate key store file when it has changed.
+
 ## 2.3.13
 
 * Fix the generation of links in markdown for array fields.

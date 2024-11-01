@@ -22,7 +22,6 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
 import static net.pincette.util.Util.isUUID;
-import static net.pincette.util.Util.loadProperties;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 
@@ -81,13 +80,6 @@ class Run<T, U, V, W> implements Runnable {
     return !isUUID(group);
   }
 
-  private static String getGitCommit() {
-    return ofNullable(Run.class.getResourceAsStream("/git.properties"))
-        .map(in -> loadProperties(() -> in))
-        .map(properties -> properties.get("git.commit.id.full"))
-        .orElse(null);
-  }
-
   private static Context loadPlugins(final Context context) {
     return tryToGetSilent(() -> context.config.getString(PLUGINS))
         .map(Paths::get)
@@ -98,7 +90,6 @@ class Run<T, U, V, W> implements Runnable {
 
   private static Context prepareContext(final Context context) {
     return context
-        .doTask(c -> LOGGER.info("This is commit " + getGitCommit()))
         .doTask(c -> LOGGER.info("Connecting to Kafka ..."))
         .withLogger(() -> LOGGER)
         .withProducer(new Producer(context.config))

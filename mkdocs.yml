@@ -16,6 +16,7 @@ nav:
 - 'query.md'
 - 'aggregation_operators.md'
 - 'aggregation_stages.md'
+- 'design.md'
 - 'system_variables.md'
 - 'parameters.md'
 - 'custom_jslt.md'

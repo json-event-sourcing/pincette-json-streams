@@ -48,7 +48,6 @@ import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 import static org.reactivestreams.FlowAdapters.toSubscriber;
 
 import com.mongodb.client.result.InsertManyResult;
-import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.io.File;
@@ -260,13 +259,12 @@ class Test<T, U, V, W> implements Callable<Integer> {
   }
 
   private static Context withTestDatabase(final Context context) {
-    if (context.database == null) {
-      final MongoClient client = MongoClients.create(MONGODB);
+    final Context ctx =
+        context.client == null ? context.withClient(MongoClients.create(MONGODB)) : context;
 
-      return context.withClient(client).withDatabase(client.getDatabase(randomUUID().toString()));
-    }
-
-    return context;
+    return ctx.database == null
+        ? ctx.withDatabase(ctx.client.getDatabase(randomUUID().toString()))
+        : context;
   }
 
   public Integer call() {
