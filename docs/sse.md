@@ -1,0 +1,3 @@
+# Server-Sent Events
+
+If you extend the event-driven architecture up to the UI, you need something to send events from the server-side to the UI. [Server-sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events) is a technique to achieve that. However, applications are not aware of this. They only see Kafka. Therefore, it would be nice if events that are sent to the UI could come off Kafka topics. The project [pincette-kafka-sse](https://github.com/wdonne/pincette-kafka-sse) is an example of how this can be done.

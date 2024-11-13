@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.15
+
+* Fix duplicate command issue.
+
 ## 2.3.14
 
 * Reload the client certificate key store file when it has changed.

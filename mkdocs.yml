@@ -20,6 +20,7 @@ nav:
 - 'system_variables.md'
 - 'parameters.md'
 - 'custom_jslt.md'
+- 'sse.md'
 - 'testing.md'
 - 'documentation.md'
 - 'logging.md'
