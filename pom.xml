@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.3.15</version>
+  <version>2.3.16</version>
   <name>pincette-json-streams</name>
   <description>JSON Streams</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -54,7 +54,7 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.29.10</version>
+        <version>2.29.22</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>

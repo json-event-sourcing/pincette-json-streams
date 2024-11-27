@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.16
+
+* Fix substitution of `ENV` when there are no other parameters in an application.
+
 ## 2.3.15
 
 * Fix duplicate command issue.

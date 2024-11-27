@@ -82,7 +82,6 @@ class Parameters {
 
   static Transformer replaceParameters(final JsonObject parameters) {
     return Optional.of(resolve(parameters))
-        .filter(pars -> !pars.isEmpty())
         .map(Parameters::replaceParametersTransformer)
         .orElseGet(Transform::nopTransformer);
   }
