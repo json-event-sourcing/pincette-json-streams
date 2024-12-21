@@ -35,6 +35,7 @@ import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.merge;
 import static net.pincette.json.JsonUtil.objectValue;
 import static net.pincette.json.JsonUtil.objects;
+import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.JsonUtil.toNative;
@@ -563,7 +564,15 @@ class Common {
                 CONFIG_PREFIX.equals(pair.first)
                     ? Optional.of(createValue(config.getValue(pair.second).unwrapped()))
                     : from(config.getString(pair.second)))
-        .orElse(value);
+        .orElseGet(
+            () -> {
+              LOGGER.severe(
+                  () ->
+                      "The value "
+                          + string(value)
+                          + " could not be substituted by the configuration");
+              return value;
+            });
   }
 
   private static Optional<String> getImport(final String line) {

@@ -3,3 +3,7 @@
 /.run/
 /plugins/
 /*.iml
+/site/
+/conf/
+!/conf/application.conf
+!/conf/test.conf

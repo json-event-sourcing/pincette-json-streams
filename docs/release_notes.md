@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.3.17
+
+* Log warning when parameter substitution from a configuration value fails.
+* Optimise producer batch timeout handling.
+ 
 ## 2.3.16
 
 * Fix substitution of `ENV` when there are no other parameters in an application.

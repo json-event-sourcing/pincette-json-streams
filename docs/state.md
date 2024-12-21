@@ -95,7 +95,8 @@ The number of topic partitions should be the same for all topics. This is the up
 
 ## Storing the State
 
-The state is always stored in MongoDB in the collection with the name `<application>-<type>[-<environment>]`. For better observability you can also store the events, command, etc. by adding a few parts to your application as in the following example. It assumes you use the `environment` configuration setting. If that is not the case then you should remove the `-${ENV}` suffixes. The `AGGREGATE_TYPE` parameter would be the full aggregate type. You can also see that the parts use the predefined aggregate streams.
+The state is always stored in MongoDB in the collection with the name `<application>-<type>
+[-<environment>]`. For better observability you can also store the events, commands, etc. by adding a few parts to your application as in the following example. It assumes you use the `environment` configuration setting. If that is not the case then you should remove the `-${ENV}` suffixes. The `AGGREGATE_TYPE` parameter would be the full aggregate type. You can also see that the parts use the predefined aggregate streams.
 
 ```yaml
 ---

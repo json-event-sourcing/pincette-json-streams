@@ -30,6 +30,7 @@ module application {
   requires software.amazon.awssdk.core;
   requires software.amazon.awssdk.services.secretsmanager;
   requires com.auth0.jwt;
+  requires org.slf4j;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;
