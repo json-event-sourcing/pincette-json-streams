@@ -6,7 +6,7 @@ When a user is making changes or creating an item, their work should be captured
 
 It is not necessary to let the user wait for the result of the submission. As soon as the confirmation of delivery is received, the screen can be closed. If there are validation errors, the part of the UI that deals with the incoming events can reopen the screen with the original data and the error annotations. If the screen was still open, it can be annotated there. If the screen was closed and should not be reopened automatically, a light notification can make the user aware of the problem. This could be something like a badge with the number of errors, which, when clicked, opens a list of error reports. Clicking on one can then reopen the original screen. A refinement could be to reopen the screen automatically anyway if the user has not yet opened a new context. 
 
-The point is that a power user should never be waiting for something. They can work through a list of tasks very quickly, knowing that in the vast majority of cases there will be no validation errors. It would be a pity to let them wait always because of exceptional cases.
+The point is that a power user should never be waiting for something. They can work through a list of tasks very quickly, knowing that in the vast majority of cases there will be no validation errors. It would be a pity to let them always wait because there can be exceptional cases.
 
 Users normally work on different items. So, there would always be some kind of list to start with. This could be the result of a search, a recent items list, a task list, a browse, etc. Such lists should come from simple queries that project everything away that is not needed to present the list.
 

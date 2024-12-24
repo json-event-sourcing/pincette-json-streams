@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.3.17</version>
+  <version>2.3.18</version>
   <name>pincette-json-streams</name>
   <description>JSON Streams</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -54,7 +54,7 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.29.38</version>
+        <version>2.29.40</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -102,12 +102,12 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes</artifactId>
-      <version>3.2.5</version>
+      <version>3.2.6</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes-util</artifactId>
-      <version>3.2.3</version>
+      <version>3.2.4</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>

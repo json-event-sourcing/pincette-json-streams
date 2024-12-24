@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.3.18
+
+* Fix backpressure issue when command results in access denied error.
+
 ## 2.3.17
 
 * Log warning when parameter substitution from a configuration value fails.
