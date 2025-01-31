@@ -2,6 +2,7 @@
 
 This page lists the supported [MongoDB aggregation pipeline stages](https://docs.mongodb.com/manual/reference/operator/aggregation-pipeline/), with possible deviations. Inside the stages the [aggregation pipeline operators](aggregation_operators.md) can be used.
 
+<a id="addFields"></a>
 ### [$addFields](https://docs.mongodb.com/manual/reference/operator/aggregation/addFields/)
 
 The following example pulls three fields from the incoming message and adds them up to form the new field `totalScore`.
@@ -24,11 +25,12 @@ parts:
               - "$extraCredit"
 ```
 
+<a id="bucket"></a>
 ### [$bucket](https://docs.mongodb.com/manual/reference/operator/aggregation/bucket/)
 
 A bucket is a grouping aggregation over a message stream. The state of the aggregation is kept in a MongoDB collection. The extension field `_collection` can be used to specify that collection. If the field is not present a collection name will be generated from a digest of the bucket expression. This means that if you change the expression the collection will change too. This effectively resets the aggregation.
 
-The accumulator expressions [`$addToSet`](https://docs.mongodb.com/manual/reference/operator/aggregation/addToSet/#mongodb-group-grp.-addToSet), [`$avg`](https://docs.mongodb.com/manual/reference/operator/aggregation/avg/#mongodb-group-grp.-avg), [`$max`](https://docs.mongodb.com/manual/reference/operator/aggregation/max/#mongodb-group-grp.-max), [`$mergeObjects`](https://docs.mongodb.com/manual/reference/operator/aggregation/mergeObjects/#mongodb-expression-exp.-mergeObjects), [`$min`](https://docs.mongodb.com/manual/reference/operator/aggregation/min/#mongodb-group-grp.-min), [`$push`](https://docs.mongodb.com/manual/reference/operator/aggregation/push/#mongodb-group-grp.-push), [`$stdDevPop`](https://docs.mongodb.com/manual/reference/operator/aggregation/stdDevPop/#mongodb-group-grp.-stdDevPop) and [`$sum`](https://docs.mongodb.com/manual/reference/operator/aggregation/sum/#mongodb-group-grp.-sum) are supported.
+The accumulator expressions [`$addToSet`](https://docs.mongodb.com/manual/reference/operator/aggregation/addToSet/#mongodb-group-grp.-addToSet), [`$avg`](https://docs.mongodb.com/manual/reference/operator/aggregation/avg/#mongodb-group-grp.-avg), [`$count`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/count-accumulator/#mongodb-group-grp.-count), [`$last`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/last/#mongodb-group-grp.-last), [`$max`](https://docs.mongodb.com/manual/reference/operator/aggregation/max/#mongodb-group-grp.-max), [`$mergeObjects`](https://docs.mongodb.com/manual/reference/operator/aggregation/mergeObjects/#mongodb-expression-exp.-mergeObjects), [`$min`](https://docs.mongodb.com/manual/reference/operator/aggregation/min/#mongodb-group-grp.-min), [`$push`](https://docs.mongodb.com/manual/reference/operator/aggregation/push/#mongodb-group-grp.-push), [`$stdDevPop`](https://docs.mongodb.com/manual/reference/operator/aggregation/stdDevPop/#mongodb-group-grp.-stdDevPop) and [`$sum`](https://docs.mongodb.com/manual/reference/operator/aggregation/sum/#mongodb-group-grp.-sum) are supported.
 
 Note that this is a streaming implementation. So, instead of receiving one message with the final result as you would with a MongoDB collection, you get all incremental changes to the aggregation.
 
@@ -175,7 +177,7 @@ parts:
 
 ### [$group](https://docs.mongodb.com/manual/reference/operator/aggregation/group/)
 
-The same remarks apply as for the `$bucket` stage. The following example groups the messages by the `item` field, which becomes the `_id` of the output messages. The `totalSaleAmount` output field is the sum of the multiplications of the `price` and `quantity` fields. The second stage then selects those for which the field is greater than or equal to 100.
+The same remarks apply as for the [`$bucket`](#bucket) stage. The following example groups the messages by the `item` field, which becomes the `_id` of the output messages. The `totalSaleAmount` output field is the sum of the multiplications of the `price` and `quantity` fields. The second stage then selects those for which the field is greater than or equal to 100.
 
 ```yaml
 ---
@@ -298,18 +300,18 @@ The generated messages look like this:
 ```
 ### $log
 
-With this extension stage you can write something to a Java logger. The incoming message will come out unchanged. The expression of the stage is an object with at least the field `message`. The expression in this field will be converted to a string after evaluation. The optional field `application` should yield a string. It sets the name of the Java logger. When it is omitted the default `net.pincette.json.streams` logger is used. The optional field `level` can be used to set the Java log level. If its not there, the default log level will be used.
+With this extension stage you can write something to a Java logger. The incoming message will come out unchanged. The expression of the stage is an object with at least the field `message`. The expression in this field will be converted to a string after evaluation. The logger to which the entries are sent has the same name as the application. The optional field `level` can be used to set the Java log level. If its not there, the default log level will be used.
 
-You can add all the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) fields to the stage object. They are merged with ECS fields that are already set. The fields on the stage object take precedence. You can construct JSON objects or use dot-separated field names.
+You can extra fields in the optional `attributes` field. They will be added to the emitted OpenTelemtry attributes.
 
-If `trace.id` is not set and if the incoming message has the `_corr` field, then it will be used as the value for `trace.id`.
+If the incoming message has the `_corr` field, then the log entry will have a trace ID that is derived from it by removing the dashes from the UUID. A span ID will also be added. Its value will be the first half of the trace ID, because that is how JSON Streams defines the root span ID.
 
-The following example logs the field `subobject.field` with the default logger at the level `INFO`.
+The following example logs the field `subobject.field` with the log level `INFO`.
 
 ```yaml
 ---
 application: "my-app"
-version: "1.0"
+version: "1.0.0"
 parts:
   - type: "stream"
     name: " my-stream"
@@ -318,11 +320,9 @@ parts:
       - $log:
           message: $subobject.field"
           level: "INFO"
-          event.dataset: "test"
-          event.original: "$value"
-          trace:
-            id:
-              jes-uuid: null          
+          attributes:          
+            dataset: "test"
+            original: "$value"
 ```
 
 ### [$lookup](https://docs.mongodb.com/manual/reference/operator/aggregation/lookup/)
@@ -548,7 +548,7 @@ parts:
 
 ### [$set](https://docs.mongodb.com/manual/reference/operator/aggregation/set/)
 
-This is a synonym for the `$addFields` stage.
+This is a synonym for the [`$addFields`](#addFields) stage.
 
 ### $setKey
 

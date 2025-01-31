@@ -26,6 +26,10 @@ The function has at least one argument, but it can have any number above that. A
 
 This function requires exactly three arguments. The first one is a JSON object. The second one is a JSON pointer and the last one is the value that is set in the object at the given location. The result is a new JSON object.
 
+## substr
+
+This function requires two or three arguments: a string, a start index and optionally an end index. The default of the latter is the length of the string. The function returns the substring of the given string.
+
 ## trace
 
 It requires one argument, which is returned unmodified. As a side-effect the argument is traced in the Java logger `pincette-json-streams`.

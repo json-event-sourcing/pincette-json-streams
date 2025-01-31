@@ -18,7 +18,10 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Logger.getLogger;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
+import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.JsonFields.ID;
+import static net.pincette.jes.tel.OtelUtil.addOtelLogHandler;
+import static net.pincette.jes.tel.OtelUtil.logRecordProcessor;
 import static net.pincette.json.JsonOrYaml.read;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
@@ -39,6 +42,7 @@ import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.JsonUtil.strings;
 import static net.pincette.json.JsonUtil.toNative;
+import static net.pincette.json.JsonUtil.transformFieldNames;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
 import static net.pincette.json.streams.Logging.LOGGER;
@@ -80,7 +84,6 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
 import java.io.File;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -93,7 +96,6 @@ import java.util.concurrent.Flow.Publisher;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.function.UnaryOperator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -107,8 +109,7 @@ import javax.json.JsonStructure;
 import javax.json.JsonValue;
 import net.pincette.function.Fn;
 import net.pincette.function.SupplierWithException;
-import net.pincette.jes.elastic.ElasticCommonSchema;
-import net.pincette.jes.elastic.LogHandler;
+import net.pincette.jes.tel.OtelUtil;
 import net.pincette.json.JsonUtil;
 import net.pincette.json.Transform.JsonEntry;
 import net.pincette.json.Transform.Transformer;
@@ -147,11 +148,11 @@ class Common {
   static final String INSTANCE = "instance";
   static final String JOIN = "join";
   static final String JSLT_IMPORTS = "jsltImports";
+  static final String JSON_STREAMS = "json-streams";
   static final String LAG = "$lag";
   static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
   static final String LOG = "$log";
-  static final String LOG_TOPIC = "logTopic";
   static final String MERGE = "merge";
   static final String NAME = "name";
   static final String ON = "on";
@@ -178,6 +179,7 @@ class Common {
   static final String RESOURCE = "resource:";
   private static final Logger BUILD_LOGGER = getLogger(LOGGER_NAME + ".build");
   private static final String DATABASE = "mongodb.database";
+  private static final String DEFAULT_NAMESPACE = "json-streams";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
   private static final String FILE = "file";
@@ -186,31 +188,16 @@ class Common {
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String MONGODB_URI = "mongodb.uri";
+  private static final String NAMESPACE = "namespace";
   private static final String PARAMETERS = "parameters";
   private static final String REF = "ref";
   private static final String SCRIPT = "script";
 
   private Common() {}
 
-  static void addKafkaLogger(final String service, final String version, final Context context) {
-    if (context.logTopic != null
-        && context.producer != null
-        && !hasKafkaHandler(context.logger.get())) {
-      context
-          .logger
-          .get()
-          .addHandler(
-              new LogHandler(
-                  new ElasticCommonSchema()
-                      .withApp(service)
-                      .withLogLevel(context.logger.get().getLevel())
-                      .withService(service)
-                      .withServiceVersion(version)
-                      .withEnvironment(context.environment),
-                  message ->
-                      context.producer.sendJson(
-                          context.logTopic, message(randomUUID().toString(), message))));
-    }
+  static void addOtelLogger(final String service, final String version, final Context context) {
+    OtelUtil.otelLogHandler(namespace(context.config), service, version, context.logRecordProcessor)
+        .ifPresent(h -> addOtelLogHandler(context.logger.get(), h));
   }
 
   static <T> CompletionStage<Boolean> aliveAtUpdate(
@@ -306,28 +293,25 @@ class Common {
         .orElse(defaultValue);
   }
 
-  static ApplicationContext createApplicationContext(
-      final Loaded loaded, final File topFile, final Context context) {
+  static ApplicationContext createApplicationContext(final Loaded loaded, final Context context) {
     return new ApplicationContext()
         .withApplication(application(loaded.specification))
-        .withBaseDirectory(topFile != null ? baseDirectory(topFile, loaded.path) : null)
+        .withBaseDirectory(loaded.baseDirectory)
         .withContext(context);
   }
 
   static Context createContext(final Config config) {
     final MongoClient client =
-        tryToGetSilent(() -> config.getString(MONGODB_URI)).map(MongoClients::create).orElse(null);
+        configValue(config::getString, MONGODB_URI).map(MongoClients::create).orElse(null);
 
     return new Context()
         .withConfig(config)
-        .withEnvironment(tryToGetSilent(() -> config.getString(ENVIRONMENT)).orElse(null))
-        .withLogTopic(tryToGetSilent(() -> config.getString(LOG_TOPIC)).orElse(null))
+        .withEnvironment(configValue(config::getString, ENVIRONMENT).orElse(null))
+        .withLogRecordProcessor(logRecordProcessor(config).orElse(null))
         .withClient(client)
         .withDatabase(
             client != null
-                ? tryToGetSilent(() -> config.getString(DATABASE))
-                    .map(client::getDatabase)
-                    .orElse(null)
+                ? configValue(config::getString, DATABASE).map(client::getDatabase).orElse(null)
                 : null);
   }
 
@@ -617,12 +601,6 @@ class Common {
                                 : Stream.of(e)));
   }
 
-  private static boolean hasKafkaHandler(final Logger logger) {
-    return ofNullable(logger.getHandlers()).stream()
-        .flatMap(Arrays::stream)
-        .anyMatch(LogHandler.class::isInstance);
-  }
-
   private static JsonObject injectConfiguration(final JsonObject parameters, final Config config) {
     return transform(
         parameters,
@@ -677,6 +655,10 @@ class Common {
             Optional.of(
                 new JsonEntry(
                     e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
+  }
+
+  static String namespace(final Config config) {
+    return configValue(config::getString, NAMESPACE).orElse(DEFAULT_NAMESPACE);
   }
 
   static String numberLines(final String s) {
@@ -859,28 +841,6 @@ class Common {
 
   static Message<String, JsonObject> toMessage(final JsonObject json) {
     return message(toNative(json.get(ID)).toString(), json);
-  }
-
-  static JsonObjectBuilder transformFieldNames(
-      final JsonObject json, final UnaryOperator<String> op) {
-    return json.entrySet().stream()
-        .map(e -> pair(op.apply(e.getKey()), transformFieldNames(e.getValue(), op)))
-        .reduce(createObjectBuilder(), (b, pair) -> b.add(pair.first, pair.second), (b1, b2) -> b1);
-  }
-
-  static JsonArrayBuilder transformFieldNames(
-      final JsonArray json, final UnaryOperator<String> op) {
-    return json.stream()
-        .map(v -> transformFieldNames(v, op))
-        .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1);
-  }
-
-  static JsonValue transformFieldNames(final JsonValue json, final UnaryOperator<String> op) {
-    return switch (json.getValueType()) {
-      case OBJECT -> transformFieldNames(json.asJsonObject(), op).build();
-      case ARRAY -> transformFieldNames(json.asJsonArray(), op).build();
-      default -> json;
-    };
   }
 
   static <T> CompletionStage<T> tryToGetForever(

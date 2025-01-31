@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.3.18</version>
+  <version>2.4.0</version>
   <name>pincette-json-streams</name>
   <description>JSON Streams</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -54,14 +54,21 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.29.40</version>
+        <version>2.30.10</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>io.netty</groupId>
         <artifactId>netty-bom</artifactId>
-        <version>4.1.116.Final</version>
+        <version>4.1.117.Final</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-bom</artifactId>
+        <version>1.46.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -82,12 +89,12 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-json</artifactId>
-      <version>2.1.3</version>
+      <version>2.2.0</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-mongo-streams</artifactId>
-      <version>3.1.22</version>
+      <version>3.2.0</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
@@ -97,47 +104,52 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-mongo</artifactId>
-      <version>4.1.11</version>
+      <version>4.1.12</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes</artifactId>
-      <version>3.2.6</version>
+      <version>3.2.7</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes-util</artifactId>
-      <version>3.2.4</version>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-jes-elastic</artifactId>
-      <version>3.0.16</version>
+      <version>3.2.5</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-rs</artifactId>
-      <version>3.7.1</version>
+      <version>3.8.0</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-rs-streams</artifactId>
-      <version>1.2.6</version>
+      <version>1.2.7</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-rs-kafka</artifactId>
-      <version>1.2.4</version>
+      <version>1.2.5</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-kafka-json</artifactId>
-      <version>1.0.11</version>
+      <version>1.0.12</version>
+    </dependency>
+    <dependency>
+      <groupId>net.pincette</groupId>
+      <artifactId>pincette-config-util</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>net.pincette</groupId>
+      <artifactId>pincette-jes-tel</artifactId>
+      <version>1.0.0</version>
     </dependency>
     <dependency>
       <groupId>com.auth0</groupId>
       <artifactId>java-jwt</artifactId>
-      <version>4.4.0</version>
+      <version>4.5.0</version>
     </dependency>
     <dependency>
       <groupId>org.glassfish</groupId>
@@ -159,6 +171,16 @@
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
       <version>4.7.6</version>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>com.squareup.okio</groupId>
+          <artifactId>okio</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>io.netty</groupId>
@@ -185,25 +207,20 @@
       <artifactId>s3</artifactId>
     </dependency>
     <dependency>
-      <groupId>software.amazon.awssdk</groupId>
-      <artifactId>secretsmanager</artifactId>
+      <groupId>net.pincette</groupId>
+      <artifactId>okio</artifactId>
+      <version>3.10.2</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>5.11.0</version>
+      <version>5.11.4</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.sun.mail</groupId>
       <artifactId>javax.mail</artifactId>
       <version>1.6.2</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-netty-http</artifactId>
-      <version>3.2.4</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -226,7 +243,7 @@
       <plugin>
         <groupId>com.google.cloud.tools</groupId>
         <artifactId>jib-maven-plugin</artifactId>
-        <version>3.4.3</version>
+        <version>3.4.4</version>
         <configuration>
           <from>
             <image>gcr.io/distroless/java17-debian12</image>
@@ -251,9 +268,10 @@
           <container>
             <entrypoint>
               <entry>java</entry>
+              <entry>-XX:+ExitOnOutOfMemoryError</entry>
               <entry>--module-path</entry>
               <entry>app:app/libs</entry>
-              <entry>--module</entry>
+              <entry>-module</entry>
               <entry>application/net.pincette.json.streams.Application</entry>
               <entry>run</entry>
             </entrypoint>
@@ -294,7 +312,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
-        <version>3.7.0</version>
+        <version>3.8.1</version>
         <executions>
           <execution>
             <id>copy-dependencies-modules</id>
@@ -304,9 +322,6 @@
             </goals>
             <configuration>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
-              <overWriteReleases>false</overWriteReleases>
-              <overWriteSnapshots>false</overWriteSnapshots>
-              <overWriteIfNewer>true</overWriteIfNewer>
             </configuration>
           </execution>
         </executions>

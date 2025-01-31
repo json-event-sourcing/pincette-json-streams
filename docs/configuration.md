@@ -17,15 +17,17 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |kafka.replication.factor|No|Check your Kafka cluster settings for this.|
 |keepAliveInterval|No|The interval between keep-alive signals from a running instance. These are saved in the same collection as in `mongodb.collection`. The default value is `10s`.|
 |leaderInterval|No|The interval between attempts to become or stay the leader of a group of instances. The leader record is saved in the same collection as in `mongodb.collection`. The leader distributes the work among all instances. The default value is `10s`.|
-|log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Logging](logging.md).|
+|log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Telemetry](telemetry.md).|
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
-|logTopic|No|The Kafka topic where the errors will be logged in the [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html).|
 |mongodb.uri|Yes|The MongoDB connection URL.|
 |mongodb.database|Yes|The MongoDB database.|
 |mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line. Make sure to create a [TTL](https://www.mongodb.com/docs/manual/core/index-ttl/) index on the field `aliveAt`. Set the expiration period higher than the `keepAliveInterval` and `leaderInterval` configuration settings. This index is needed for cases where instances suddenly stop.|
+|namespace|No|A name to make a distinction between several JSON Streams clusters in the same environment. The default value is `json-streams`.|
+|otlp.grpc|No|The OpenTelemetry endpoint for logs and metrics. It should be a URL like `http://localhost:4317`.|
+|otlp.http|No|The OpenTelemetry endpoint for traces. It should be a URL like `http://localhost:4318`. You only need it if you run the [`traces` application](https://github.com/json-event-sourcing/pincette-json-streams/tree/master/apps/traces).|
 |plugins|No|The directory from where the plugins are loaded.|
-|restartBackoff|No|The waiting time before a application that was in an error state will be restarted. The default value is `10s`.|
 |throttleTime|No|Since the Kafka poller has to run in its own thread, backpressure co-ordination may be too slow, which can cause topic publisher batch queues to grow too large. If the messages are large as well, then you may have memory issues. With this configuration entry you can throttle the poller. This has to stay under the value of the Kafka parameter `max.poll.interval.ms`. Note that this causes latency spikes.|
+|tracesTopic|No|The Kafka topic to which the event traces are sent. If it is not set, then no tracing will happen.|
 |work|No|Configuration for the leader to divide the work amongst the instances.|
 |work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 20 milliseconds. With this parameter you can tune the capacity of one instance.|
 |work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `desired`, `running` and `time`.|

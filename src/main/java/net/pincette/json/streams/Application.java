@@ -9,8 +9,6 @@ import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.init;
 
-import com.typesafe.config.Config;
-import java.util.function.Supplier;
 import java.util.logging.Logger;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -21,14 +19,10 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.3.18";
+  static final String APP_VERSION = "2.4.0";
   private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
 
   private Application() {}
-
-  private static Supplier<Context> awsContext(final Config config) {
-    return () -> createContext(AWSSecrets.load(config));
-  }
 
   public static void main(final String[] args) {
     final var config = defaultOverrides().withFallback(loadDefault());
@@ -38,14 +32,15 @@ public class Application {
 
     exit(
         new CommandLine(new Application())
-            .addSubcommand("build", new Build(awsContext(config)))
-            .addSubcommand("delete", new Delete(awsContext(config)))
-            .addSubcommand("doc", new Doc(awsContext(config)))
-            .addSubcommand("dot", new Dot(awsContext(config)))
+            .addSubcommand("build", new Build(() -> createContext(config)))
+            .addSubcommand("delete", new Delete(() -> createContext(config)))
+            .addSubcommand("doc", new Doc(() -> createContext(config)))
+            .addSubcommand("dot", new Dot(() -> createContext(config)))
             .addSubcommand(new HelpCommand())
-            .addSubcommand("list", new ListApps(awsContext(config)))
-            .addSubcommand("restart", new Restart(awsContext(config)))
-            .addSubcommand("run", new Run<>(() -> new KafkaProvider(config), awsContext(config)))
+            .addSubcommand("list", new ListApps(() -> createContext(config)))
+            .addSubcommand("restart", new Restart(() -> createContext(config)))
+            .addSubcommand(
+                "run", new Run<>(() -> new KafkaProvider(config), () -> createContext(config)))
             .addSubcommand(
                 "test",
                 new Test<>(

@@ -55,12 +55,14 @@ class Read {
                     .map(
                         value ->
                             isObject(value)
-                                ? new Loaded(value.asJsonObject())
+                                ? new Loaded(value.asJsonObject(), baseDirectory(file, null))
                                 : readTopology(asString(value).getString(), file)))
         .orElseGet(Stream::empty);
   }
 
   private static Loaded readTopology(final String path, final File file) {
-    return new Loaded(readObject(path, baseDirectory(file, null)), path);
+    return new Loaded(
+        readObject(path, baseDirectory(file, null)),
+        !path.startsWith(RESOURCE) ? baseDirectory(file, path) : null);
   }
 }

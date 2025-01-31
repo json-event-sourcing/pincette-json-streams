@@ -1,0 +1,48 @@
+application: plusminus
+version: 1.0.0
+title: plusminus
+description: A toy application to play with JSON Streams.
+parts:
+  - name: stream-test
+    type: stream
+    fromStream: plusminus-counter-event
+    pipeline:
+      - $trace: null
+      - $match:
+          _command: plus
+      - $log:
+          message: Seen plus
+          level: INFO
+          attributes:
+            part: stream-test
+            command: $$ROOT
+      - $trace: plus
+  - name: plusminus-counter
+    type: aggregate
+    aggregateType: plusminus-counter
+    commands:
+      plus:
+        description: plus
+        reducer: reducers/plus.jslt
+        validator:
+          include:
+            - validators/operator.yaml
+          conditions:
+            - _command: plus
+      minus:
+        description: minus
+        reducer: reducers/minus.jslt
+        validator:
+          include:
+            - validators/operator.yaml
+          conditions:
+            - _command: minus
+      put:
+        reducer: reducers/put.jslt
+        validator:
+          include:
+            - validators/type.yaml
+          conditions:
+            - _command: put
+            - value: 0
+              $code: INIT

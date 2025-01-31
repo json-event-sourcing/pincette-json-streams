@@ -1,0 +1,86 @@
+def attributes(attributes)
+  [for (array($attributes)) {"key": .key, "value": {"stringValue": .value}}]
+
+def payload(trace)
+  if ($trace.payload)
+    [
+      {
+        "key": "payload",
+        "value": {
+          "stringValue": to-json($trace.payload)
+        }
+      }
+    ]
+  else
+    []
+
+def resource(trace)
+  {
+    "attributes": [
+      {
+        "key": "service.namespace",
+        "value": {
+          "stringValue": if ($trace.serviceNamespace) $trace.serviceNamespace else "unknown"
+        }
+      },
+      {
+        "key": "service.name",
+        "value": {
+          "stringValue": if ($trace.serviceName) $trace.serviceName else "unknown"
+        }
+      },
+      {
+        "key": "service.version",
+        "value": {
+          "stringValue": if ($trace.serviceVersion) $trace.serviceVersion else "unknown"
+        }
+      }
+    ]
+  }
+
+def scope(trace)
+  {
+    "name": if ($trace.moduleName) $trace.moduleName else "unknown",
+    "version": if ($trace.moduleVersion) $trace.moduleVersion else "unknown"
+  }
+
+def span-id(uuid)
+  substr(replace($uuid, "-", ""), 0, 16)
+
+def user-id(trace)
+  if ($trace.username)
+    [
+      {
+        "key": "user.id",
+        "value": {
+          "stringValue": $trace.username
+        }
+      }
+    ]
+  else
+    []
+
+{
+  "resourceSpans": [
+    {
+      "resource": resource(.),
+      "scopeSpans": [
+        {
+          "scope": scope(.),
+          "spans": [
+            {
+              "traceId": replace(.traceId, "-", ""),
+              "spanId": span-id(if (.root) .traceId else uuid()),
+              "parentSpanId": if (.root) null else span-id(.traceId),
+              "name": .name,
+              "startTimeUnixNano": .timestampNanos,
+              "endTimeUnixNano": .timestampNanos + 1000,
+              "kind": 2,
+              "attributes": attributes(.attributes) + payload(.) + user-id(.)
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

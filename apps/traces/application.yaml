@@ -1,0 +1,47 @@
+application: traces
+version: 1.0.0
+title: Create OTEL traces from JSON Streams traces
+description: |
+  JSON Streams and its auxiliary tools produce traces that represent the moment an event occurred
+  . This will lead to OTEL spans with a very short duration.
+parameters:
+  OTLP_HTTP: config:otlp.http
+  TOPIC: config:tracesTopic
+trace: false
+parts:
+  - name: otel
+    type: stream
+    fromTopic: ${TOPIC}
+    pipeline:
+      - $group:
+          _id: $traceId
+          count:
+            $count: { }
+          last:
+            $last: $$ROOT
+      - $replaceWith:
+          $mergeObjects:
+            - $$ROOT
+            - $last
+      - $set:
+          root:
+            $eq:
+              - $count
+              - 1
+      - $unset:
+          - count
+          - last
+      - $jslt: otel.jslt
+      - $http:
+          url:
+            $concat:
+              - ${OTLP_HTTP}
+              - /v1/traces
+          method: POST
+          body: $$ROOT
+      - $match:
+          httpError:
+            $exists: true
+      - $log:
+          level: SEVERE
+          message: $$ROOT

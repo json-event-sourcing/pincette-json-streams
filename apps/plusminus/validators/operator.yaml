@@ -1,0 +1,6 @@
+include:
+  - type.json
+conditions:
+  - value:
+      $exists: false
+    $code: OPERATOR

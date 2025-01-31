@@ -86,7 +86,7 @@ class ApplicationCommand {
             loaded ->
                 pair(
                     loaded.specification,
-                    createApplicationContext(loaded, getFile().orElse(null), context)))
+                    createApplicationContext(loaded, context)))
         .map(pair -> pair(build(pair.first, false, pair.second), pair.second))
         .filter(pair -> validateApplication(pair.first))
         .map(pair -> pair.first);

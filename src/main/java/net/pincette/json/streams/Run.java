@@ -3,12 +3,15 @@ package net.pincette.json.streams;
 import static com.mongodb.client.model.Filters.eq;
 import static java.lang.Boolean.TRUE;
 import static java.lang.Runtime.getRuntime;
+import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
+import static net.pincette.jes.tel.OtelUtil.metrics;
 import static net.pincette.jes.util.Href.setContextPath;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.BACKOFF;
-import static net.pincette.json.streams.Common.addKafkaLogger;
+import static net.pincette.json.streams.Common.JSON_STREAMS;
+import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
@@ -34,7 +37,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
@@ -42,7 +44,6 @@ import javax.json.JsonValue;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Features;
-import net.pincette.mongo.Match;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import picocli.CommandLine.ArgGroup;
@@ -55,7 +56,7 @@ import picocli.CommandLine.Option;
     version = APP_VERSION,
     mixinStandardHelpOptions = true,
     subcommands = {HelpCommand.class},
-    description = "Runs applications from a file containing a JSON array or a MongoDB collection.")
+    description = "Runs applications from files containing applications or a MongoDB collection.")
 class Run<T, U, V, W> implements Runnable {
   private static final String CONTEXT_PATH = "contextPath";
   private static final String PLUGINS = "plugins";
@@ -89,11 +90,14 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   private static Context prepareContext(final Context context) {
+    final var namespace = Common.namespace(context.config);
+
     return context
         .doTask(c -> LOGGER.info("Connecting to Kafka ..."))
         .withLogger(() -> LOGGER)
         .withProducer(new Producer(context.config))
-        .doTask(c -> addKafkaLogger(LOGGER_NAME, APP_VERSION, c))
+        .doTask(c -> addOtelLogger(LOGGER_NAME, APP_VERSION, c))
+        .withMetrics(metrics(namespace, JSON_STREAMS, APP_VERSION, context.config).orElse(null))
         .doTask(c -> LOGGER.info("Loading plugins ..."))
         .with(Run::loadPlugins)
         .doTask(c -> LOGGER.info("Settings up metrics ..."))
@@ -140,7 +144,7 @@ class Run<T, U, V, W> implements Runnable {
     provider = providerSupplier.get();
     context = prepareContext(contextSupplier.get());
 
-    return createApplications(readTopologies(file), file, context).findFirst();
+    return createApplications(readTopologies(file), context).findFirst();
   }
 
   private App<T, U, V, W> createApplication(final JsonObject specification, final Context context) {
@@ -154,16 +158,12 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   private Stream<App<T, U, V, W>> createApplications(
-      final Stream<Loaded> loaded, final File topFile, final Context context) {
+      final Stream<Loaded> loaded, final Context context) {
     return loaded
-        .map(l -> pair(l.specification, createApplicationContext(l, topFile, context)))
+        .map(l -> pair(l.specification, createApplicationContext(l, context)))
         .map(pair -> build(pair.first, true, pair.second))
         .filter(Validate::validateApplication)
         .map(specification -> createApplication(specification, context));
-  }
-
-  private boolean fromCollection() {
-    return getFile().isEmpty();
   }
 
   private MongoCollection<Document> getApplicationCollection() {
@@ -173,8 +173,8 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   private Stream<Loaded> getApplications() {
-    return getFile()
-        .map(Read::readTopologies)
+    return getFiles()
+        .map(files -> stream(files).flatMap(Read::readTopologies))
         .orElseGet(
             () -> Common.getApplications(getApplicationCollection(), getFilter()).map(Loaded::new));
   }
@@ -183,8 +183,8 @@ class Run<T, U, V, W> implements Runnable {
     return ofNullable(fileOrCollection).map(f -> f.collection);
   }
 
-  private Optional<File> getFile() {
-    return ofNullable(fileOrCollection).map(f -> f.file).map(o -> o.file);
+  private Optional<File[]> getFiles() {
+    return ofNullable(fileOrCollection).map(f -> f.file).map(o -> o.files);
   }
 
   private Bson getFilter() {
@@ -220,17 +220,14 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   public void run() {
-    final Predicate<JsonObject> filter = ofNullable(getFilter()).map(Match::predicate).orElse(null);
-
     info(() -> "Version " + APP_VERSION);
     provider = providerSupplier.get();
     context = prepareContext(contextSupplier.get());
 
-    if (fromCollection() && filter == null) {
+    if (fileOrCollection == null) {
       startWork();
     } else {
-      final Stream<App<T, U, V, W>> applications =
-          createApplications(getApplications(), getFile().orElse(null), context);
+      final Stream<App<T, U, V, W>> applications = createApplications(getApplications(), context);
 
       runQueue.add(
           () ->
@@ -259,7 +256,6 @@ class Run<T, U, V, W> implements Runnable {
                     Common.getApplications(
                             getApplicationCollection(), eq(APPLICATION_FIELD, application))
                         .map(Loaded::new),
-                    null,
                     context)
                 .forEach(this::start));
   }
@@ -274,7 +270,7 @@ class Run<T, U, V, W> implements Runnable {
     final var collection = getApplicationCollection();
     final var work = new Work<>(collection, provider, context);
 
-    keepAlive = new KeepAlive(getApplicationCollection(), this::start, this::stop, context).start();
+    keepAlive = new KeepAlive(collection, this::start, this::stop, context).start();
     leader =
         new Leader(
                 isLeader -> {
@@ -309,8 +305,9 @@ class Run<T, U, V, W> implements Runnable {
       @Option(
           names = {"-f", "--file"},
           required = true,
-          description = "A JSON or YAML file containing an array of applications.")
-      private File file;
+          arity = "1..*",
+          description = "JSON or YAML files containing an array of applications.")
+      private File[] files;
     }
 
     private static class CollectionOptions {

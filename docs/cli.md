@@ -23,7 +23,7 @@ Use `help`, `-h`, `command help` or `command -h` to get a short overview. The `-
 |list|-c \| --collection|No|A MongoDB collection from which the application list is taken. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
 |restart|-a \| --application|Yes|The name of the application that should be restarted.|
 ||-c \| --collection|No|A MongoDB collection in which the application will be restarted. When no collection is given the tool will try to take the MongoDB collection from the configuration.|
-|run|-f \| --file|No|A file with an array of applications. It builds and then runs all the applications.|
+|run|-f \| --file|No|One or more files with an array of applications. It builds and then runs all the applications.|
 ||-c \| --collection|No|A MongoDB collection with applications. If neither a collection nor a file is given the tool will try to take the MongoDB collection from the configuration. This and the previous option can't be used together.|
 ||-q \| --query|No|A MongoDB query to select the applications to run.|
 ||-a \| --application|No|The name of the application that should be run off the MongoDB collection. This is a shorthand for the query `{"application": "<name>"}`.|

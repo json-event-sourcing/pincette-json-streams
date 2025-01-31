@@ -4,6 +4,7 @@ import static java.time.Instant.now;
 import static net.pincette.jes.JsonFields.TIMESTAMP;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.string;
+import static net.pincette.json.JsonUtil.transformFieldNames;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.DOLLAR;
 import static net.pincette.json.streams.Common.DOT;
@@ -11,7 +12,6 @@ import static net.pincette.json.streams.Common.SLASH;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
 import static net.pincette.json.streams.Common.getApplicationCollection;
-import static net.pincette.json.streams.Common.transformFieldNames;
 import static net.pincette.json.streams.Read.readTopologies;
 import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.util.Util.must;
@@ -63,8 +63,7 @@ class Build implements Runnable {
   private JsonArray buildApplications(final Context context) {
     return readTopologies(file)
         .map(
-            loaded ->
-                build(loaded.specification, false, createApplicationContext(loaded, file, context)))
+            loaded -> build(loaded.specification, false, createApplicationContext(loaded, context)))
         .filter(Validate::validateApplication)
         .reduce(createArrayBuilder(), JsonArrayBuilder::add, (b1, b2) -> b1)
         .build();

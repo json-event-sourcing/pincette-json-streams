@@ -1,5 +1,14 @@
 # Release Notes
 
+## 2.4.0
+
+* Switch to OpenTelemetry.
+* Add event tracing.
+* Add the JSLT custom function `substr`.
+* Allow multiple files for the `--file` option of the `run` command.
+* Add the aggregation expressions `$count` and `$last`.
+* Adapt the `$log` stage to OpenTelemetry.
+
 ## 2.3.18
 
 * Fix backpressure issue when command results in access denied error.

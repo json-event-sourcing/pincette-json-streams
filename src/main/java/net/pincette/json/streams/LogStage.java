@@ -2,12 +2,20 @@ package net.pincette.json.streams;
 
 import static java.util.Optional.ofNullable;
 import static java.util.logging.Level.INFO;
-import static java.util.stream.Collectors.toMap;
-import static java.util.stream.Stream.concat;
 import static net.pincette.jes.JsonFields.CORR;
+import static net.pincette.jes.tel.OtelLogger.log;
+import static net.pincette.json.JsonUtil.asBoolean;
+import static net.pincette.json.JsonUtil.asDouble;
+import static net.pincette.json.JsonUtil.asLong;
+import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
+import static net.pincette.json.JsonUtil.isBoolean;
+import static net.pincette.json.JsonUtil.isDouble;
+import static net.pincette.json.JsonUtil.isLong;
 import static net.pincette.json.JsonUtil.isObject;
+import static net.pincette.json.JsonUtil.isString;
+import static net.pincette.json.JsonUtil.isStructure;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.streams.Common.LOG;
@@ -15,18 +23,13 @@ import static net.pincette.json.streams.Logging.logStageObject;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.rs.Mapper.map;
 import static net.pincette.rs.PassThrough.passThrough;
-import static net.pincette.util.Collections.expand;
-import static net.pincette.util.Collections.set;
-import static net.pincette.util.Pair.pair;
+import static net.pincette.util.ImmutableBuilder.create;
 
-import java.util.Map;
-import java.util.Map.Entry;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributesBuilder;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonString;
 import javax.json.JsonValue;
@@ -34,16 +37,12 @@ import net.pincette.function.SideEffect;
 import net.pincette.json.JsonUtil;
 import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.streams.Message;
-import net.pincette.util.Collections;
+import net.pincette.util.ImmutableBuilder;
 
 class LogStage {
-  private static final String APPLICATION = "application";
-  private static final String ID = "id";
+  private static final String ATTRIBUTES = "attributes";
   private static final String LEVEL = "level";
   private static final String MESSAGE = "message";
-  private static final Set<String> STANDARD = set(APPLICATION, LEVEL, MESSAGE);
-  private static final String TRACE = "trace";
-  private static final String TRACE_ID = TRACE + "." + ID;
 
   private LogStage() {}
 
@@ -60,29 +59,14 @@ class LogStage {
     return "'" + s + "'";
   }
 
+  private static Attributes getAttributes(
+      final JsonObject json, final Function<JsonObject, JsonValue> attributes) {
+    return attributes != null ? toAttributes(attributes.apply(json)) : null;
+  }
+
   private static Level getLogLevel(
       final JsonObject json, final Function<JsonObject, JsonValue> level) {
     return callAsString(json, level).map(Level::parse).orElse(INFO);
-  }
-
-  private static Logger getLogger(
-      final JsonObject json,
-      final Function<JsonObject, JsonValue> application,
-      final Context context) {
-    return callAsString(json, application).map(Logging::getLogger).orElseGet(context.logger);
-  }
-
-  private static Object[] getParameters(
-      final JsonObject json, final Map<String, Function<JsonObject, JsonValue>> functions) {
-    return concat(
-            functions.containsKey(TRACE) || functions.containsKey(TRACE_ID)
-                ? Stream.empty()
-                : traceId(json).stream(),
-            functions.entrySet().stream()
-                .map(e -> Collections.map(pair(e.getKey(), e.getValue().apply(json))))
-                .map(map -> expand(map, "."))
-                .map(JsonUtil::from))
-        .toArray(Object[]::new);
   }
 
   static Stage logStage(final Context context) {
@@ -94,24 +78,26 @@ class LogStage {
       }
 
       final var expr = expression.asJsonObject();
-      final var application =
-          getValue(expr, "/" + APPLICATION).map(a -> function(a, context.features)).orElse(null);
+      final var attributes =
+          getValue(expr, "/" + ATTRIBUTES).map(a -> function(a, context.features)).orElse(null);
       final var level =
           getValue(expr, "/" + LEVEL).map(l -> function(l, context.features)).orElse(null);
       final var message =
           getValue(expr, "/" + MESSAGE).map(m -> function(m, context.features)).orElse(null);
-      final var parameters = parameterFunctions(expr, context);
 
       return message != null
           ? map(
               (Message<String, JsonObject> m) ->
                   SideEffect.<Message<String, JsonObject>>run(
                           () ->
-                              getLogger(m.value, application, context)
-                                  .log(
-                                      getLogLevel(m.value, level),
-                                      messageValue(message.apply(m.value)),
-                                      getParameters(m.value, parameters)))
+                              log(
+                                  context.logger.get(),
+                                  getLogLevel(m.value, level),
+                                  null,
+                                  () -> messageValue(message.apply(m.value)),
+                                  () -> getAttributes(m.value, attributes),
+                                  traceId(m.value).orElse(null),
+                                  rootSpanId(m.value).orElse(null)))
                       .andThenGet(() -> m))
           : passThrough();
     };
@@ -121,15 +107,37 @@ class LogStage {
     return escapeFormatting(stringValue(value).orElseGet(() -> string(value)));
   }
 
-  private static Map<String, Function<JsonObject, JsonValue>> parameterFunctions(
-      final JsonObject expression, final Context context) {
-    return expression.entrySet().stream()
-        .filter(e -> !STANDARD.contains(e.getKey()))
-        .collect(toMap(Entry::getKey, e -> function(e.getValue(), context.features)));
+  private static Optional<String> rootSpanId(final JsonObject json) {
+    return traceId(json).map(s -> s.substring(0, 16));
   }
 
-  private static Optional<Map<String, Object>> traceId(final JsonObject json) {
-    return getString(json, "/" + CORR)
-        .map(corr -> Collections.map(pair(TRACE, Collections.map(pair(ID, corr.toLowerCase())))));
+  private static ImmutableBuilder<AttributesBuilder> setAttribute(
+      final ImmutableBuilder<AttributesBuilder> builder, final String key, final JsonValue value) {
+    return builder
+        .updateIf(b -> isStructure(value), b -> b.put(key, string(value)))
+        .updateIf(b -> isBoolean(value), b -> b.put(key, asBoolean(value)))
+        .updateIf(b -> isDouble(value), b -> b.put(key, asDouble(value)))
+        .updateIf(b -> isString(value), b -> b.put(key, asString(value).getString()))
+        .updateIf(b -> isLong(value), b -> b.put(key, asLong(value)));
+  }
+
+  private static Attributes toAttributes(final JsonValue value) {
+    return ofNullable(value)
+        .filter(JsonUtil::isObject)
+        .map(JsonValue::asJsonObject)
+        .map(
+            o ->
+                o.entrySet().stream()
+                    .reduce(
+                        create(Attributes::builder),
+                        (b, e) -> setAttribute(b, e.getKey(), e.getValue()),
+                        (b1, b2) -> b1)
+                    .build()
+                    .build())
+        .orElse(null);
+  }
+
+  private static Optional<String> traceId(final JsonObject json) {
+    return getString(json, "/" + CORR).map(s -> s.replace("-", ""));
   }
 }

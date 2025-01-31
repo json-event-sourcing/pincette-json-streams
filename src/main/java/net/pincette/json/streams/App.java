@@ -13,9 +13,15 @@ import static java.util.logging.Level.INFO;
 import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
+import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.Aggregate.reducer;
+import static net.pincette.jes.Command.hasError;
+import static net.pincette.jes.JsonFields.CORR;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.Util.compose;
+import static net.pincette.jes.Util.getUsername;
+import static net.pincette.jes.tel.OtelUtil.addLabels;
+import static net.pincette.jes.tel.OtelUtil.resettingCounter;
 import static net.pincette.jes.util.Mongo.resolve;
 import static net.pincette.jes.util.Mongo.unresolve;
 import static net.pincette.jes.util.Mongo.withResolver;
@@ -37,6 +43,7 @@ import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
+import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.BACKOFF;
@@ -52,6 +59,7 @@ import static net.pincette.json.streams.Common.FROM_TOPIC;
 import static net.pincette.json.streams.Common.FROM_TOPICS;
 import static net.pincette.json.streams.Common.JOIN;
 import static net.pincette.json.streams.Common.JSLT_IMPORTS;
+import static net.pincette.json.streams.Common.JSON_STREAMS;
 import static net.pincette.json.streams.Common.LAG;
 import static net.pincette.json.streams.Common.LEFT;
 import static net.pincette.json.streams.Common.LOG;
@@ -76,11 +84,12 @@ import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VALIDATE;
 import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
-import static net.pincette.json.streams.Common.addKafkaLogger;
+import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.findJson;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Common.namespace;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.saveMessage;
 import static net.pincette.json.streams.Common.tryToGetForever;
@@ -101,12 +110,14 @@ import static net.pincette.mongo.Collection.findOne;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.rs.Async.mapAsyncSequential;
+import static net.pincette.rs.Box.box;
 import static net.pincette.rs.Chain.with;
 import static net.pincette.rs.PassThrough.passThrough;
 import static net.pincette.rs.Pipe.pipe;
 import static net.pincette.rs.Probe.probe;
-import static net.pincette.rs.Util.devNull;
+import static net.pincette.rs.Probe.probeValue;
 import static net.pincette.rs.Util.duplicateFilter;
+import static net.pincette.rs.Util.pullForever;
 import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
@@ -120,16 +131,20 @@ import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.tryToDo;
 import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.Util.tryToDoSilent;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.ChangeStreamPublisher;
 import com.mongodb.reactivestreams.client.MongoCollection;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -149,7 +164,9 @@ import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.jes.Aggregate;
+import net.pincette.jes.JsonFields;
 import net.pincette.jes.Reducer;
+import net.pincette.jes.tel.EventTrace;
 import net.pincette.json.Jslt;
 import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
@@ -172,15 +189,31 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class App<T, U, V, W> {
+  private static final String APPLICATION = "application";
   private static final String COLLECTION_PREFIX = "collection-";
+  private static final String IN = "in";
+  private static final String INSTANCE = "instance";
+  private static final String INVALID_COMMAND = "invalid-command";
   private static final String JOIN_TIMESTAMP = "_join_timestamp";
+  private static final String MERGED = "merged";
+  private static final String METRIC = "json_streams.messages";
+  private static final String OUT = "out";
+  private static final String PART = "part";
+  private static final String PROFILE_FRAME_TYPE = "profile.frame.type";
+  private static final String PROFILE_FRAME_VERSION = "profile.frame.version";
   private static final String REDUCER_STATE = "state";
   private static final String TOKEN = "token";
   private static final String TO_STRING = "toString";
+  private static final String TRACE = "trace";
+  private static final String TRACE_ID = "traceId";
+  private static final String TRACES_TOPIC = "tracesTopic";
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
   private static final String WINDOW = "window";
 
+  private final Attributes attributes;
   private final Context context;
+  private final Set<AutoCloseable> counters = new HashSet<>();
+  private final EventTrace eventTrace;
   private final Function<String, Streams<String, JsonObject, T, U>> getBuilder;
   private final Function<String, Streams<String, String, V, W>> getStringBuilder;
   private final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag;
@@ -211,6 +244,21 @@ class App<T, U, V, W> {
     this.messageLag = messageLag;
     this.onError = onError;
     this.context = context;
+    this.attributes =
+        specification != null
+            ? Attributes.builder()
+                .put(APPLICATION, name())
+                .put(PROFILE_FRAME_TYPE, JSON_STREAMS)
+                .put(PROFILE_FRAME_VERSION, APP_VERSION)
+                .build()
+            : null;
+    this.eventTrace =
+        context != null && specification != null && shouldTrace(specification)
+            ? new EventTrace()
+                .withServiceNamespace(namespace(context.config))
+                .withServiceName(name())
+                .withServiceVersion(version(specification))
+            : null;
   }
 
   private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
@@ -221,12 +269,26 @@ class App<T, U, V, W> {
         .map(index -> pair(type.substring(0, index), type.substring(index + 1)));
   }
 
+  private static Map<String, String> attributesToMap(final Attributes attributes) {
+    return map(
+        attributes.asMap().entrySet().stream()
+            .map(e -> pair(e.getKey().getKey(), e.getValue().toString())));
+  }
+
   private static String collectionKey(final String name) {
     return COLLECTION_PREFIX + name;
   }
 
   private static Stream<String> collectionNames(final JsonObject part) {
     return fromNames(part, FROM_COLLECTION, FROM_COLLECTIONS);
+  }
+
+  private static String command(final Message<String, JsonObject> message) {
+    return message.value.getString(JsonFields.COMMAND);
+  }
+
+  private static String commandTelemetryName(final Message<String, JsonObject> message) {
+    return (hasError(message.value) ? INVALID_COMMAND : COMMAND) + "." + command(message);
   }
 
   private static Context completeContext(
@@ -243,6 +305,7 @@ class App<T, U, V, W> {
     final var logger = getLogger(application);
     final var withValidator =
         context
+            .withLogger(() -> logger)
             .withFeatures(features)
             .withValidator(
                 new Validator(
@@ -250,13 +313,10 @@ class App<T, U, V, W> {
                     (id, parent) ->
                         getObject(specification, "/" + VALIDATOR_IMPORTS + "/" + id)
                             .map(v -> new Resolved(v, id))));
-
     final var result =
-        withValidator
-            .withStageExtensions(stageExtensions(withValidator, messageLag))
-            .withLogger(() -> logger);
+        withValidator.withStageExtensions(stageExtensions(withValidator, messageLag));
 
-    addKafkaLogger(application, version(specification), result);
+    addOtelLogger(application, version(specification), result);
 
     return result;
   }
@@ -286,6 +346,10 @@ class App<T, U, V, W> {
             .collect(toSet())
             .stream()
             .map(name -> pair(name, new ArrayList<>())));
+  }
+
+  private static String eventTelemetryName(final Message<String, JsonObject> message) {
+    return EVENT + "." + command(message);
   }
 
   private static CompletionStage<Pair<Message<String, JsonObject>, Publisher<JsonObject>>>
@@ -343,6 +407,10 @@ class App<T, U, V, W> {
             .build());
   }
 
+  private static Map<String, String> partLabel(final JsonObject part) {
+    return map(pair(PART, part.getString(NAME)));
+  }
+
   private static Stream<JsonObject> parts(final JsonArray parts, final Set<String> types) {
     return parts.stream()
         .filter(JsonUtil::isObject)
@@ -350,12 +418,12 @@ class App<T, U, V, W> {
         .filter(part -> types.contains(part.getString(TYPE)));
   }
 
-  private static void pullForever(final Publisher<Message<String, JsonObject>> publisher) {
-    publisher.subscribe(devNull());
-  }
-
   private static JsonObject removeJoinTimestamp(final JsonObject json) {
     return createObjectBuilder(json).remove(JOIN_TIMESTAMP).build();
+  }
+
+  private static boolean shouldTrace(final JsonObject specification) {
+    return specification.getBoolean(TRACE, true);
   }
 
   private static Map<String, Stage> stageExtensions(
@@ -382,6 +450,41 @@ class App<T, U, V, W> {
     return changes.stream()
         .filter(c -> c.getClusterTime() != null)
         .max(Comparator.comparing(c -> c.getClusterTime().getTime() + c.getClusterTime().getInc()));
+  }
+
+  private void addAggregateOutputTelemetry(
+      final Aggregate<T, U> aggregate, final JsonObject specification) {
+    final var partLabel = partLabel(specification);
+    final var scope = scope(specification);
+
+    telemetryProcessor(scope, App::eventTelemetryName, partLabel)
+        .ifPresent(p -> pullForever(with(builder.from(aggregate.topic(EVENT))).map(p).get()));
+    telemetryProcessor(scope, App::commandTelemetryName, partLabel)
+        .ifPresent(
+            p ->
+                pullForever(
+                    with(builder.from(aggregate.topic(REPLY)))
+                        .filter(m -> hasError(m.value))
+                        .map(p)
+                        .get()));
+  }
+
+  private Aggregate<T, U> addPreprocessor(
+      final Aggregate<T, U> aggregate, final JsonObject specification) {
+    final Supplier<Processor<Message<String, JsonObject>, Message<String, JsonObject>>> pipeline =
+        () -> createPipeline(specification, PREPROCESSOR);
+
+    return telemetryProcessor(
+            scope(specification), App::commandTelemetryName, partLabel(specification))
+        .map(
+            p ->
+                aggregate.withCommandProcessor(
+                    specification.containsKey(PREPROCESSOR) ? box(p, pipeline.get()) : p))
+        .orElseGet(
+            () ->
+                specification.containsKey(PREPROCESSOR)
+                    ? aggregate.withCommandProcessor(pipeline.get())
+                    : aggregate);
   }
 
   private void addStream(final Aggregate<T, U> aggregate, final String type, final String purpose) {
@@ -462,29 +565,26 @@ class App<T, U, V, W> {
                   reducers(
                       reducerProcessors(
                           preprocessors(
-                              create(
-                                      () ->
-                                          createAggregate(
-                                              aggregateType.first, aggregateType.second))
-                                  .updateIf(
-                                      () -> ofNullable(context.environment),
-                                      Aggregate::withEnvironment)
-                                  .updateIf(
-                                      () -> getValue(specification, "/" + UNIQUE_EXPRESSION),
-                                      Aggregate::withUniqueExpression)
-                                  .updateIf(
-                                      a -> specification.containsKey(PREPROCESSOR),
-                                      a ->
-                                          a.withCommandProcessor(
-                                              createPipeline(specification, PREPROCESSOR)))
-                                  .build(),
+                              createAggregate(
+                                  specification, aggregateType.first, aggregateType.second),
                               specification),
                           specification),
                       specification);
 
               aggregate.build();
               addStreams(aggregate);
+              addAggregateOutputTelemetry(aggregate, specification);
             });
+  }
+
+  private Aggregate<T, U> createAggregate(
+      final JsonObject specification, final String app, final String type) {
+    return create(() -> createAggregate(app, type))
+        .updateIf(() -> ofNullable(context.environment), Aggregate::withEnvironment)
+        .updateIf(
+            () -> getValue(specification, "/" + UNIQUE_EXPRESSION), Aggregate::withUniqueExpression)
+        .update(a -> addPreprocessor(a, specification))
+        .build();
   }
 
   private void createApplication() {
@@ -553,19 +653,26 @@ class App<T, U, V, W> {
   }
 
   private Publisher<Message<String, JsonObject>> createMerge(final JsonObject specification) {
-    return Cases.<JsonObject, Stream<Publisher<Message<String, JsonObject>>>>withValue(
-            specification)
-        .or(s -> s.containsKey(FROM_TOPICS), s -> getStrings(s, FROM_TOPICS).map(builder::from))
-        .or(
-            s -> s.containsKey(FROM_STREAMS),
-            s -> getStrings(s, FROM_STREAMS).map(this::addSubscriber))
-        .or(
-            s -> s.containsKey(FROM_COLLECTIONS),
-            s -> getStrings(s, FROM_COLLECTIONS).map(App::collectionKey).map(this::addSubscriber))
-        .get()
-        .map(Stream::toList)
-        .map(Merge::of)
-        .orElseGet(Util::empty);
+    return with(Cases.<JsonObject, Stream<Publisher<Message<String, JsonObject>>>>withValue(
+                specification)
+            .or(s -> s.containsKey(FROM_TOPICS), s -> getStrings(s, FROM_TOPICS).map(builder::from))
+            .or(
+                s -> s.containsKey(FROM_STREAMS),
+                s -> getStrings(s, FROM_STREAMS).map(this::addSubscriber))
+            .or(
+                s -> s.containsKey(FROM_COLLECTIONS),
+                s ->
+                    getStrings(s, FROM_COLLECTIONS)
+                        .map(App::collectionKey)
+                        .map(this::addSubscriber))
+            .get()
+            .map(Stream::toList)
+            .map(Merge::of)
+            .orElseGet(Util::empty))
+        .map(
+            telemetryProcessor(scope(specification), m -> MERGED, partLabel(specification))
+                .orElseGet(PassThrough::passThrough))
+        .get();
   }
 
   private Publisher<Message<String, JsonObject>> createPart(final JsonObject specification) {
@@ -630,7 +737,9 @@ class App<T, U, V, W> {
 
   private Publisher<Message<String, JsonObject>> createStream(final JsonObject specification) {
     return fromStream(
-        ofNullable(createPipeline(specification, PIPELINE)).orElseGet(PassThrough::passThrough),
+        ofNullable(createPipeline(specification, PIPELINE))
+            .map(p -> wrapTelemetry(p, specification))
+            .orElseGet(PassThrough::passThrough),
         specification);
   }
 
@@ -679,7 +788,13 @@ class App<T, U, V, W> {
       final ThisSide thisSide,
       final OtherSide otherSide,
       final int window) {
+    final var partLabel = partLabel(specification);
+    final var scope = scope(specification);
+
     return with(joinSource(specification.getJsonObject(thisSide.name)))
+        .map(
+            telemetryProcessor(scope, m -> thisSide.name + "." + IN, partLabel)
+                .orElseGet(PassThrough::passThrough))
         .map(message -> message.withValue(createJoinMessage(message.value)))
         .mapAsync(message -> saveMessage(thisSide.collection, message))
         .mapAsync(
@@ -695,6 +810,9 @@ class App<T, U, V, W> {
                 with(pair.second)
                     .map(found -> joinedMessage(pair.first.value, found, thisSide, otherSide))
                     .get())
+        .map(
+            telemetryProcessor(scope, m -> thisSide.name + "." + OUT, partLabel)
+                .orElseGet(PassThrough::passThrough))
         .get();
   }
 
@@ -702,8 +820,48 @@ class App<T, U, V, W> {
     return getLogger(name());
   }
 
+  private Attributes metricLabels(final String name, final Map<String, String> labels) {
+    return addLabels(
+        attributes,
+        merge(
+            labels,
+            map(
+                pair(INSTANCE, context.instance),
+                pair(PART, ofNullable(labels.get(PART)).map(p -> p + ".").orElse("") + name))));
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> metricsProcessor(
+      final String scope,
+      final Function<Message<String, JsonObject>, String> name,
+      final Map<String, String> labels) {
+    return ofNullable(context.metrics)
+        .map(OpenTelemetry::getMeterProvider)
+        .map(p -> p.meterBuilder(scope).build())
+        .map(
+            m ->
+                probeValue(
+                    resettingCounter(
+                        m,
+                        METRIC,
+                        (Message<String, JsonObject> message) ->
+                            metricLabels(name.apply(message), labels),
+                        message -> 1L,
+                        counters)))
+        .orElse(null);
+  }
+
   String name() {
     return application(specification);
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> preprocessor(
+      final JsonObject specification,
+      final Supplier<Processor<Message<String, JsonObject>, Message<String, JsonObject>>>
+          pipeline) {
+    return telemetryProcessor(
+            scope(specification), App::commandTelemetryName, partLabel(specification))
+        .map(p -> box(p, pipeline.get()))
+        .orElseGet(pipeline);
   }
 
   private Aggregate<T, U> preprocessors(
@@ -712,7 +870,10 @@ class App<T, U, V, W> {
         .filter(pair -> pair.second.containsKey(PREPROCESSOR))
         .reduce(
             aggregate,
-            (a, p) -> a.withCommandProcessor(p.first, createPipeline(p.second, PREPROCESSOR)),
+            (a, p) ->
+                a.withCommandProcessor(
+                    p.first,
+                    preprocessor(specification, () -> createPipeline(p.second, PREPROCESSOR))),
             (a1, a2) -> a1);
   }
 
@@ -784,6 +945,22 @@ class App<T, U, V, W> {
         .orElseGet(() -> completedFuture(false));
   }
 
+  private String scope(final JsonObject part) {
+    return part.getString(NAME);
+  }
+
+  private void sendTrace(
+      final String topic,
+      final Message<String, JsonObject> message,
+      final String name,
+      final Map<String, String> labels) {
+    traceMessage(message.value, eventTrace, name, labels)
+        .ifPresent(
+            m ->
+                context.producer.sendJson(
+                    topic, message.withValue(m).withKey(m.getString(TRACE_ID))));
+  }
+
   void start() {
     final String application = name();
     final String version = version(specification);
@@ -828,6 +1005,7 @@ class App<T, U, V, W> {
 
   void stop() {
     LOGGER.log(INFO, "Stopping {0} {1}", new Object[] {name(), version(specification)});
+    counters.forEach(c -> tryToDoSilent(c::close));
     builder.stop();
 
     if (thread != null) {
@@ -837,8 +1015,23 @@ class App<T, U, V, W> {
     LOGGER.log(INFO, "Stopped {0}", new Object[] {name()});
   }
 
+  private Optional<Processor<Message<String, JsonObject>, Message<String, JsonObject>>>
+      telemetryProcessor(
+          final String scope,
+          final Function<Message<String, JsonObject>, String> name,
+          final Map<String, String> labels) {
+    return Optional.of(
+            pair(metricsProcessor(scope, name, labels), tracesProcessor(scope, name, labels)))
+        .filter(p -> p.first != null || p.second != null)
+        .map(
+            p ->
+                box(
+                    p.first != null ? p.first : passThrough(),
+                    p.second != null ? p.second : passThrough()));
+  }
+
   private void terminateOpenStreams() {
-    streams.values().stream().filter(v -> v.subscriber == null).forEach(App::pullForever);
+    streams.values().stream().filter(v -> v.subscriber == null).forEach(Util::pullForever);
   }
 
   private SubscriptionMonitor<Message<String, JsonObject>> toStream(
@@ -851,6 +1044,39 @@ class App<T, U, V, W> {
     }
 
     return stream;
+  }
+
+  private Optional<JsonObject> traceMessage(
+      final JsonObject json,
+      final EventTrace eventTrace,
+      final String name,
+      final Map<String, String> labels) {
+    return getString(json, "/" + CORR)
+        .map(
+            corr ->
+                eventTrace
+                    .withTraceId(corr)
+                    .withTimestamp(now())
+                    .withName(name)
+                    .withAttributes(attributesToMap(addLabels(attributes, labels)))
+                    .withUsername(getUsername(json).orElse(""))
+                    .withPayload(hasError(json) ? json : null)
+                    .toJson()
+                    .build());
+  }
+
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> tracesProcessor(
+      final String scope,
+      final Function<Message<String, JsonObject>, String> name,
+      final Map<String, String> labels) {
+    return ofNullable(eventTrace)
+        .flatMap(e -> configValue(context.config::getString, TRACES_TOPIC))
+        .map(
+            topic ->
+                probeValue(
+                    (Message<String, JsonObject> v) ->
+                        sendTrace(topic, v, scope + "." + name.apply(v), labels)))
+        .orElse(null);
   }
 
   private UnaryOperator<JsonObject> transformer(final String jslt) {
@@ -943,6 +1169,24 @@ class App<T, U, V, W> {
     return new App<>(specification, getBuilder, stringBuilder, messageLag, onError, context);
   }
 
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> wrapTelemetry(
+      final Processor<Message<String, JsonObject>, Message<String, JsonObject>> processor,
+      final JsonObject specification) {
+    final var partLabel = partLabel(specification);
+    final var scope = scope(specification);
+
+    return telemetryProcessor(scope, m -> IN, partLabel)
+        .map(
+            in ->
+                (Processor<Message<String, JsonObject>, Message<String, JsonObject>>)
+                    pipe(in)
+                        .then(processor)
+                        .then(
+                            telemetryProcessor(scope, m -> OUT, partLabel)
+                                .orElseGet(PassThrough::passThrough)))
+        .orElse(processor);
+  }
+
   private class OnError {
     private Throwable error;
     private final Consumer<Throwable> onErrorFn;
@@ -964,18 +1208,8 @@ class App<T, U, V, W> {
     }
   }
 
-  private static class OtherSide {
-    private final MongoCollection<Document> collection;
-    private final JsonValue criterion;
-    private final String name;
-
-    private OtherSide(
-        final String name, final MongoCollection<Document> collection, final JsonValue criterion) {
-      this.name = name;
-      this.collection = collection;
-      this.criterion = criterion;
-    }
-  }
+  private record OtherSide(
+      String name, MongoCollection<Document> collection, JsonValue criterion) {}
 
   private static class SubscriptionMonitor<T> implements Publisher<T> {
     private final Publisher<T> publisher;
@@ -992,18 +1226,6 @@ class App<T, U, V, W> {
     }
   }
 
-  private static class ThisSide {
-    private final MongoCollection<Document> collection;
-    private final Function<JsonObject, JsonValue> key;
-    private final String name;
-
-    private ThisSide(
-        final String name,
-        final MongoCollection<Document> collection,
-        final Function<JsonObject, JsonValue> key) {
-      this.name = name;
-      this.collection = collection;
-      this.key = key;
-    }
-  }
+  private record ThisSide(
+      String name, MongoCollection<Document> collection, Function<JsonObject, JsonValue> key) {}
 }

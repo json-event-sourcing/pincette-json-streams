@@ -13,6 +13,8 @@ import static net.pincette.util.Collections.union;
 import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoDatabase;
 import com.typesafe.config.Config;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.sdk.logs.LogRecordProcessor;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -35,14 +37,15 @@ class Context {
   final Features features;
   final String instance = randomUUID().toString();
   final Supplier<Logger> logger;
-  final String logTopic;
+  final LogRecordProcessor logRecordProcessor;
+  final OpenTelemetry metrics;
   final Producer producer;
   final Map<String, Stage> stageExtensions;
   final Consumer<String> testLoadCollection;
   final Validator validator;
 
   Context() {
-    this(null, null, null, null, null, null, null, null, null, null, null);
+    this(null, null, null, null, null, null, null, null, null, null, null, null);
   }
 
   @SuppressWarnings("java:S107") // Internal constructor for immutable object.
@@ -53,7 +56,8 @@ class Context {
       final String environment,
       final Features features,
       final Supplier<Logger> logger,
-      final String logTopic,
+      final LogRecordProcessor logRecordProcessor,
+      final OpenTelemetry metrics,
       final Producer producer,
       final Map<String, Stage> stageExtensions,
       final Validator validator,
@@ -67,7 +71,8 @@ class Context {
             ? features
             : new Features().withCustomJsltFunctions(union(customFunctions(), set(trace(LOGGER))));
     this.logger = logger;
-    this.logTopic = logTopic;
+    this.logRecordProcessor = logRecordProcessor;
+    this.metrics = metrics;
     this.producer = producer;
     this.stageExtensions = stageExtensions;
     this.validator = validator;
@@ -123,7 +128,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -138,7 +144,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -154,7 +161,8 @@ class Context {
         mergeFeatures(
             features, new Features().withExpressionExtensions(operators(database, environment))),
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -172,7 +180,8 @@ class Context {
                 features, new Features().withExpressionExtensions(operators(database, environment)))
             : features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -187,7 +196,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -210,14 +220,15 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
         testLoadCollection);
   }
 
-  Context withLogTopic(final String logTopic) {
+  Context withMetrics(final OpenTelemetry metrics) {
     return new Context(
         client,
         config,
@@ -225,7 +236,24 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
+        producer,
+        stageExtensions,
+        validator,
+        testLoadCollection);
+  }
+
+  Context withLogRecordProcessor(final LogRecordProcessor logRecordProcessor) {
+    return new Context(
+        client,
+        config,
+        database,
+        environment,
+        features,
+        logger,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -240,7 +268,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -255,7 +284,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -270,7 +300,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
@@ -285,7 +316,8 @@ class Context {
         environment,
         features,
         logger,
-        logTopic,
+        logRecordProcessor,
+        metrics,
         producer,
         stageExtensions,
         validator,
