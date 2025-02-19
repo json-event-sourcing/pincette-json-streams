@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.4.1
+
+* Add more plugin load logging.
+
 ## 2.4.0
 
 * Switch to OpenTelemetry.
