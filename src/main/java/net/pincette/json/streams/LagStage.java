@@ -4,6 +4,7 @@ import static java.lang.String.valueOf;
 import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toMap;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
@@ -79,7 +80,12 @@ class LagStage {
                                   .thenApply(
                                       json ->
                                           m.withValue(
-                                              createObjectBuilder(m.value).add(a, json).build())))
+                                              createObjectBuilder(m.value).add(a, json).build()))
+                                  .exceptionally(
+                                      t -> {
+                                        context.logger.get().log(SEVERE, t, t::getMessage);
+                                        return m;
+                                      }))
                       .orElseGet(() -> completedFuture(m))));
     };
   }

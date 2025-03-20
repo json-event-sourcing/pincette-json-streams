@@ -19,7 +19,7 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.4.1";
+  static final String APP_VERSION = "2.4.2";
   private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
 
   private Application() {}

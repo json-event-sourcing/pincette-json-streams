@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.4.2
+
+* Log exceptions in `$lag` stage.
+* Fix message lag output from `$lag` stage being empty.
+
 ## 2.4.1
 
 * Add more plugin load logging.
