@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 40,
+  "id": 2,
   "links": [],
   "panels": [
     {
@@ -78,7 +78,7 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "ops"
         },
         "overrides": []
       },
@@ -97,11 +97,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.5.1",
       "targets": [
         {
           "datasource": {
@@ -109,9 +110,9 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum without (instance) (json_streams_messages_total{service_namespace=\"$namespace\", service_name=\"json-streams\", application=\"$application\"})",
+          "expr": "sum by (part) (rate(json_streams_messages_total{service_namespace=\"$namespace\", service_name=\"json-streams\", application=\"$application\"}[$__rate_interval]))",
           "interval": "1m",
-          "legendFormat": "{{part}}",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
@@ -171,6 +172,6 @@
   "timezone": "browser",
   "title": "JSON Streams Applications",
   "uid": "eebgyk6f5j4sgf",
-  "version": 7,
+  "version": 2,
   "weekStart": ""
 }

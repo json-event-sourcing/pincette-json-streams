@@ -31,6 +31,9 @@ parts:
       - $unset:
           - count
           - last
+      - $per:
+          amount: 100
+          as: batch
       - $jslt: otel.jslt
       - $http:
           url:
@@ -39,6 +42,7 @@ parts:
               - /v1/traces
           method: POST
           body: $$ROOT
+          as: result
       - $match:
           httpError:
             $exists: true

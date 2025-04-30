@@ -38,6 +38,28 @@ def resource(trace)
     ]
   }
 
+def resource-spans(batch)
+  [for ($batch) {
+      "resource": resource(.),
+      "scopeSpans": [
+        {
+          "scope": scope(.),
+          "spans": [
+            {
+              "traceId": replace(.traceId, "-", ""),
+              "spanId": span-id(if (.root) .traceId else uuid()),
+              "parentSpanId": if (.root) null else span-id(.traceId),
+              "name": .name,
+              "startTimeUnixNano": .timestampNanos,
+              "endTimeUnixNano": .timestampNanos + 1000,
+              "kind": 2,
+              "attributes": attributes(.attributes) + payload(.) + user-id(.)
+            }
+          ]
+        }
+      ]
+    }]
+
 def scope(trace)
   {
     "name": if ($trace.moduleName) $trace.moduleName else "unknown",
@@ -61,26 +83,5 @@ def user-id(trace)
     []
 
 {
-  "resourceSpans": [
-    {
-      "resource": resource(.),
-      "scopeSpans": [
-        {
-          "scope": scope(.),
-          "spans": [
-            {
-              "traceId": replace(.traceId, "-", ""),
-              "spanId": span-id(if (.root) .traceId else uuid()),
-              "parentSpanId": if (.root) null else span-id(.traceId),
-              "name": .name,
-              "startTimeUnixNano": .timestampNanos,
-              "endTimeUnixNano": .timestampNanos + 1000,
-              "kind": 2,
-              "attributes": attributes(.attributes) + payload(.) + user-id(.)
-            }
-          ]
-        }
-      ]
-    }
-  ]
+  "resourceSpans": resource-spans(.batch)
 }

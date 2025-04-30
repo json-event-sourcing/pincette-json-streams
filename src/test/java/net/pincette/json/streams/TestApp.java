@@ -93,12 +93,12 @@ class TestApp {
   private TestApp() {}
 
   @AfterAll
-  public static void afterAll() {
+  static void afterAll() {
     test.close();
   }
 
   @BeforeAll
-  public static void beforeAll() {
+  static void beforeAll() {
     final Config config = createConfig();
 
     init(config);

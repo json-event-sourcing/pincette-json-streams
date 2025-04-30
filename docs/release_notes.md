@@ -1,5 +1,14 @@
 # Release Notes
 
+## 2.4.3
+
+* Fix metrics.
+* Fix the bug where an application stops consuming when an aggregate reducer throws an exception.
+* Don't shut down an instance when an application fails to start. Retry instead.
+* Rebuild an application when it is restarted.
+* Improve the generation of event traces.
+* Fix background processing that could get stuck.
+
 ## 2.4.2
 
 * Log exceptions in `$lag` stage.

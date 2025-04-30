@@ -5,11 +5,9 @@ import static com.mongodb.client.model.Filters.in;
 import static java.lang.Integer.MAX_VALUE;
 import static java.lang.Integer.max;
 import static java.lang.String.valueOf;
-import static java.lang.System.exit;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.lines;
 import static java.time.Duration.ofSeconds;
-import static java.time.Instant.now;
 import static java.util.Arrays.fill;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
@@ -55,7 +53,6 @@ import static net.pincette.json.streams.Parameters.resolve;
 import static net.pincette.json.streams.Read.readObject;
 import static net.pincette.mongo.BsonUtil.fromBson;
 import static net.pincette.mongo.BsonUtil.toBsonDocument;
-import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.mongo.JsonClient.find;
 import static net.pincette.mongo.JsonClient.findPublisher;
 import static net.pincette.mongo.JsonClient.update;
@@ -69,14 +66,10 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.must;
-import static net.pincette.util.Util.tryToGet;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 import static net.pincette.util.Util.waitForCondition;
 
-import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Field;
-import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoClients;
@@ -96,7 +89,6 @@ import java.util.concurrent.Flow.Publisher;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -117,7 +109,6 @@ import net.pincette.rs.streams.Message;
 import net.pincette.util.Builder;
 import net.pincette.util.Cases;
 import net.pincette.util.Pair;
-import org.bson.BsonDateTime;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
@@ -133,6 +124,7 @@ class Common {
   static final String COMMANDS = "commands";
   static final String CONFIG_JSON_PREFIX = "config-json:";
   static final String CONFIG_PREFIX = "config:";
+  static final String DATABASE = "mongodb.database";
   static final String DOLLAR = "_dollar_";
   static final String DOT = "_dot_";
   static final String ENVIRONMENT = "environment";
@@ -154,6 +146,7 @@ class Common {
   static final String LEFT = "left";
   static final String LOG = "$log";
   static final String MERGE = "merge";
+  static final String MONGODB_URI = "mongodb.uri";
   static final String NAME = "name";
   static final String ON = "on";
   static final String PARTS = "parts";
@@ -178,7 +171,6 @@ class Common {
   static final String VERSION_FIELD = "version";
   static final String RESOURCE = "resource:";
   private static final Logger BUILD_LOGGER = getLogger(LOGGER_NAME + ".build");
-  private static final String DATABASE = "mongodb.database";
   private static final String DEFAULT_NAMESPACE = "json-streams";
   private static final String DESCRIPTION = "description";
   private static final String ENV = "ENV";
@@ -187,7 +179,6 @@ class Common {
   private static final String JSLT = "$jslt";
   private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
   private static final String MONGODB_COLLECTION = "mongodb.collection";
-  private static final String MONGODB_URI = "mongodb.uri";
   private static final String NAMESPACE = "namespace";
   private static final String PARAMETERS = "parameters";
   private static final String REF = "ref";
@@ -198,23 +189,6 @@ class Common {
   static void addOtelLogger(final String service, final String version, final Context context) {
     OtelUtil.otelLogHandler(namespace(context.config), service, version, context.logRecordProcessor)
         .ifPresent(h -> addOtelLogHandler(context.logger.get(), h));
-  }
-
-  static <T> CompletionStage<Boolean> aliveAtUpdate(
-      final Supplier<Bson> criterion,
-      final Supplier<Field<T>> field,
-      final MongoCollection<Document> collection,
-      final Logger logger) {
-    return updateOne(
-            collection,
-            criterion.get(),
-            list(
-                Aggregates.set(
-                    new Field<>(ALIVE_AT, new BsonDateTime(now().toEpochMilli())), field.get())),
-            new UpdateOptions().upsert(true))
-        .thenApply(result -> trace(() -> "aliveAtUpdate", result, logger))
-        .thenApply(result -> result != null && result.wasAcknowledged())
-        .exceptionally(t -> trace(t::getMessage, false, LOGGER));
   }
 
   static String application(final JsonObject specification) {
@@ -466,20 +440,6 @@ class Common {
     return expandSequenceContainer(stream, baseDirectory, parameters).apply(field, expandStage());
   }
 
-  static <T> T fatal(
-      final SupplierWithException<T> supplier,
-      final Logger logger,
-      final Supplier<String> message) {
-    return tryToGet(
-            supplier,
-            e -> {
-              logger.log(Level.SEVERE, e, message);
-              exit(1);
-              return null;
-            })
-        .orElse(null);
-  }
-
   static CompletionStage<Publisher<JsonObject>> findJson(
       final MongoCollection<Document> collection, final Bson filter) {
     return tryToGetForever(() -> completedFuture(findPublisher(collection, filter)));
@@ -497,7 +457,12 @@ class Common {
 
   static Stream<JsonObject> getApplications(
       final MongoCollection<Document> collection, final Bson filter) {
-    return find(collection, filter).toCompletableFuture().join().stream().map(Common::fromMongoDB);
+    return getApplicationsAsync(collection, filter).toCompletableFuture().join();
+  }
+
+  static CompletionStage<Stream<JsonObject>> getApplicationsAsync(
+      final MongoCollection<Document> collection, final Bson filter) {
+    return find(collection, filter).thenApply(list -> list.stream().map(Common::fromMongoDB));
   }
 
   static Stream<Pair<String, JsonObject>> getCommands(final JsonObject aggregate) {
@@ -663,7 +628,7 @@ class Common {
 
   static String numberLines(final String s) {
     return zip(stream(s.split("\\n")).sequential(), rangeExclusive(1, MAX_VALUE))
-        .map(pair -> rightAlign(valueOf(pair.second), 4) + " " + pair.first)
+        .map(pair -> rightAlign(valueOf(pair.second)) + " " + pair.first)
         .collect(joining("\n"));
   }
 
@@ -805,8 +770,8 @@ class Common {
         .build();
   }
 
-  private static String rightAlign(final String s, final int size) {
-    final var padding = new char[max(size - s.length(), 0)];
+  private static String rightAlign(final String s) {
+    final var padding = new char[max(4 - s.length(), 0)];
 
     fill(padding, ' ');
 

@@ -15,9 +15,7 @@ import static java.time.Instant.now;
 import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.INFO;
-import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.summingInt;
@@ -31,8 +29,6 @@ import static net.pincette.json.Factory.v;
 import static net.pincette.json.JsonUtil.asLong;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.from;
-import static net.pincette.json.JsonUtil.getString;
-import static net.pincette.json.JsonUtil.getStrings;
 import static net.pincette.json.JsonUtil.isLong;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.strings;
@@ -41,52 +37,42 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.removeSuffix;
-import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
-import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
-import static net.pincette.mongo.Collection.updateOne;
-import static net.pincette.mongo.JsonClient.aggregate;
-import static net.pincette.mongo.JsonClient.findOne;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Collections.difference;
 import static net.pincette.util.Collections.list;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
+import static net.pincette.util.ImmutableBuilder.create;
 import static net.pincette.util.Pair.pair;
-import static net.pincette.util.StreamUtil.composeAsyncStream;
 import static net.pincette.util.StreamUtil.rangeExclusive;
+import static net.pincette.util.StreamUtil.stream;
 import static net.pincette.util.StreamUtil.zip;
-import static net.pincette.util.Util.getStackTrace;
-import static net.pincette.util.Util.must;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
-import com.mongodb.client.result.UpdateResult;
-import com.mongodb.reactivestreams.client.MongoCollection;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.json.JsonUtil;
-import net.pincette.util.AsyncBuilder;
+import net.pincette.mongo.BsonUtil;
 import net.pincette.util.Pair;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 class Work<T, U, V, W> {
   private static final String AVERAGE_MESSAGE_TIME_ESTIMATE = "work.averageMessageTimeEstimate";
@@ -130,12 +116,6 @@ class Work<T, U, V, W> {
         config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
     this.instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
     this.intervalValue = config(context, config -> config.getDuration(INTERVAL), DEFAULT_INTERVAL);
-  }
-
-  private static Stream<String> applications(final List<JsonObject> list, final String pointer) {
-    return list.stream()
-        .map(json -> getString(json, pointer).orElse(null))
-        .filter(Objects::nonNull);
   }
 
   private static long capacityPerSecond(final WorkContext context) {
@@ -417,10 +397,14 @@ class Work<T, U, V, W> {
             });
   }
 
-  private CompletionStage<Set<String>> allApplications() {
-    return aggregate(
-            collection, list(match(exists(APPLICATION_FIELD)), project(include(APPLICATION_FIELD))))
-        .thenApply(list -> applications(list, "/" + APPLICATION_FIELD).collect(toSet()));
+  private Set<String> allApplications() {
+    return stream(
+            collection
+                .aggregate(
+                    list(match(exists(APPLICATION_FIELD)), project(include(APPLICATION_FIELD))))
+                .iterator())
+        .map(result -> result.getString(APPLICATION_FIELD))
+        .collect(toSet());
   }
 
   private boolean canWork() {
@@ -441,39 +425,25 @@ class Work<T, U, V, W> {
         f(TIME, v(now().toString())));
   }
 
-  CompletionStage<Boolean> giveWork() {
-    return canWork()
-        ? status()
-            .thenComposeAsync(
-                status ->
-                    status
-                        .map(s -> pair(s, desiredApplicationInstances(s, workContext)))
-                        .map(
-                            pair ->
-                                pair(giveWork(pair.first, pair.second, workContext), pair.second))
-                        .map(pair -> pair(logWork(pair.first), pair.second))
-                        .map(pair -> scaling(pair.first, pair.second))
-                        .map(this::sendInstances)
-                        .map(this::saveWork)
-                        .orElseGet(() -> completedFuture(false)))
-            .exceptionally(
-                e -> {
-                  severe(Stream.of(e.getMessage(), getStackTrace(e)));
-                  return false;
-                })
-        : completedFuture(false);
+  void giveWork() {
+    if (canWork()) {
+      final Status status = status();
+      final Map<String, Integer> desired = desiredApplicationInstances(status, workContext);
+      final Map<String, Set<String>> desiredPerInstance = giveWork(status, desired, workContext);
+
+      logWork(desiredPerInstance);
+      scaling(desiredPerInstance, desired);
+      sendInstances(desiredPerInstance);
+      saveWork(desiredPerInstance);
+    }
   }
 
   private void info(final Stream<String> messages) {
-    log(INFO, messages);
+    WORK_LOGGER.log(
+        INFO, () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
   }
 
-  private void log(final Level level, final Stream<String> messages) {
-    LOGGER.log(
-        level, () -> "Instance " + context.instance + ":\n  " + messages.collect(joining("\n  ")));
-  }
-
-  private Map<String, Set<String>> logWork(final Map<String, Set<String>> work) {
+  private void logWork(final Map<String, Set<String>> work) {
     info(
         work.entrySet().stream()
             .map(
@@ -481,17 +451,14 @@ class Work<T, U, V, W> {
                     e.getKey()
                         + ": "
                         + e.getValue().stream().sorted().collect(Collectors.joining(", "))));
-
-    return work;
   }
 
-  private CompletionStage<JsonObject> maximumMessageLag() {
-    return findOne(collection, exists(MAXIMUM_MESSAGE_LAG))
-        .thenApply(
-            result ->
-                result
-                    .map(r -> r.getJsonObject(MAXIMUM_MESSAGE_LAG))
-                    .orElseGet(JsonUtil::emptyObject));
+  private JsonObject maximumMessageLag() {
+    return stream(collection.find(exists(MAXIMUM_MESSAGE_LAG)).iterator())
+        .findFirst()
+        .map(Bson::toBsonDocument)
+        .map(BsonUtil::fromBson)
+        .orElseGet(JsonUtil::emptyObject);
   }
 
   private Map<String, Map<Partition, Long>> removeSuffixes(
@@ -501,42 +468,41 @@ class Work<T, U, V, W> {
             .map(e -> pair(removeSuffix(e.getKey(), context), e.getValue())));
   }
 
-  private CompletionStage<Map<String, Set<String>>> runningInstancesWithApplications() {
-    return aggregate(collection, list(match(exists(ALIVE_AT)), match(ne(ID, LEADER))))
-        .thenApply(
-            list ->
-                list.stream()
-                    .collect(
-                        toMap(
-                            json -> json.getString(ID),
-                            json -> getStrings(json, DESIRED).collect(toSet()))));
+  private Map<String, Set<String>> runningInstancesWithApplications() {
+    return stream(
+            collection.aggregate(list(match(exists(ALIVE_AT)), match(ne(ID, LEADER)))).iterator())
+        .collect(
+            toMap(
+                result -> result.getString(ID),
+                result ->
+                    ofNullable(result.getList(DESIRED, String.class))
+                        .map(HashSet::new)
+                        .orElseGet(HashSet::new)));
   }
 
-  private CompletionStage<Boolean> saveWork(final Map<String, Set<String>> work) {
-    return composeAsyncStream(work.entrySet().stream().map(e -> saveWork(e.getKey(), e.getValue())))
-        .thenApply(results -> results.reduce((r1, r2) -> r1 && r2).orElse(true));
+  private boolean saveWork(final Map<String, Set<String>> work) {
+    return work.entrySet().stream()
+        .map(e -> saveWork(e.getKey(), e.getValue()))
+        .reduce((r1, r2) -> r1 && r2)
+        .orElse(true);
   }
 
-  private CompletionStage<Boolean> saveWork(final String instance, final Set<String> applications) {
-    return updateOne(
-            collection,
+  private boolean saveWork(final String instance, final Set<String> applications) {
+    return collection
+        .updateOne(
             eq(ID, instance),
             list(
                 Aggregates.set(
                     new Field<>(DESIRED, fromJson(from(applications.stream().sorted()))))))
-        .thenApply(result -> trace(() -> "saveWork", result, WORK_LOGGER))
-        .thenApply(UpdateResult::wasAcknowledged)
-        .thenApply(result -> must(result, r -> r));
+        .wasAcknowledged();
   }
 
-  private Map<String, Set<String>> scaling(
+  private void scaling(
       final Map<String, Set<String>> work, final Map<String, Integer> desiredApplicationInstances) {
     final Pair<Integer, Integer> pair =
         scalingIndicator(work, desiredApplicationInstances, workContext);
 
     sendExcessMessageLag(pair.first, pair.second);
-
-    return work;
   }
 
   private void sendExcessMessageLag(final int running, final int desired) {
@@ -548,36 +514,21 @@ class Work<T, U, V, W> {
                     message(context.instance, createScalingIndicatorMessage(running, desired))));
   }
 
-  private Map<String, Set<String>> sendInstances(final Map<String, Set<String>> work) {
-    return ofNullable(instancesTopic)
-        .map(topic -> pair(topic, instances(context.instance, work)))
-        .map(
-            pair ->
-                context.producer.sendJson(
-                    pair.first, message(pair.second.getString(ID), pair.second)))
-        .map(result -> work)
-        .orElse(work);
+  private void sendInstances(final Map<String, Set<String>> work) {
+    if (instancesTopic != null) {
+      final JsonObject instances = instances(context.instance, work);
+
+      context.producer.sendJson(instancesTopic, message(instances.getString(ID), instances));
+    }
   }
 
-  private void severe(final Stream<String> messages) {
-    log(SEVERE, messages);
-  }
-
-  private CompletionStage<Optional<Status>> status() {
-    return AsyncBuilder.create(Status::new)
+  private Status status() {
+    return create(Status::new)
+        .update(status -> status.withAllApplications(allApplications()))
         .update(
             status ->
-                allApplications().thenApply(all -> Optional.of(status.withAllApplications(all))))
-        .update(
-            status ->
-                runningInstancesWithApplications()
-                    .thenApply(
-                        running ->
-                            Optional.of(status.withRunningInstancesWithApplications(running))))
-        .update(
-            status ->
-                maximumMessageLag()
-                    .thenApply(max -> Optional.of(status.withMaximumMessageLag(max))))
+                status.withRunningInstancesWithApplications(runningInstancesWithApplications()))
+        .update(status -> status.withMaximumMessageLag(maximumMessageLag()))
         .update(
             status ->
                 provider
@@ -585,9 +536,9 @@ class Work<T, U, V, W> {
                         group ->
                             status.maximumMessageLagApplications.contains(
                                 removeSuffix(group, context)))
-                    .thenApply(
-                        lag ->
-                            Optional.of(status.withMessageLagPerApplication(removeSuffixes(lag)))))
+                    .thenApply(lag -> status.withMessageLagPerApplication(removeSuffixes(lag)))
+                    .toCompletableFuture()
+                    .join())
         .build();
   }
 

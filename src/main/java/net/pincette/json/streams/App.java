@@ -10,7 +10,6 @@ import static java.util.Optional.ofNullable;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
-import static java.util.logging.Level.SEVERE;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.config.Util.configValue;
@@ -21,7 +20,7 @@ import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.Util.compose;
 import static net.pincette.jes.Util.getUsername;
 import static net.pincette.jes.tel.OtelUtil.addLabels;
-import static net.pincette.jes.tel.OtelUtil.resettingCounter;
+import static net.pincette.jes.tel.OtelUtil.counter;
 import static net.pincette.jes.util.Mongo.resolve;
 import static net.pincette.jes.util.Mongo.unresolve;
 import static net.pincette.jes.util.Mongo.withResolver;
@@ -86,7 +85,6 @@ import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
 import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
-import static net.pincette.json.streams.Common.fatal;
 import static net.pincette.json.streams.Common.findJson;
 import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.json.streams.Common.namespace;
@@ -103,6 +101,7 @@ import static net.pincette.json.streams.S3AttachmentsStage.s3AttachmentsStage;
 import static net.pincette.json.streams.S3CsvStage.s3CsvStage;
 import static net.pincette.json.streams.S3OutStage.s3OutStage;
 import static net.pincette.json.streams.SignJwtStage.signJwtStage;
+import static net.pincette.json.streams.TestExceptionStage.testExceptionStage;
 import static net.pincette.json.streams.ValidateStage.validateStage;
 import static net.pincette.mongo.BsonUtil.fromBson;
 import static net.pincette.mongo.BsonUtil.fromJson;
@@ -112,13 +111,17 @@ import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.rs.Async.mapAsyncSequential;
 import static net.pincette.rs.Box.box;
 import static net.pincette.rs.Chain.with;
+import static net.pincette.rs.Filter.filter;
+import static net.pincette.rs.Mapper.map;
 import static net.pincette.rs.PassThrough.passThrough;
 import static net.pincette.rs.Pipe.pipe;
 import static net.pincette.rs.Probe.probe;
 import static net.pincette.rs.Probe.probeValue;
 import static net.pincette.rs.Util.duplicateFilter;
+import static net.pincette.rs.Util.onErrorProcessor;
 import static net.pincette.rs.Util.pullForever;
 import static net.pincette.rs.Util.retryPublisher;
+import static net.pincette.rs.Util.tap;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.list;
@@ -129,9 +132,10 @@ import static net.pincette.util.Do.withValue;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.must;
-import static net.pincette.util.Util.tryToDo;
+import static net.pincette.util.Util.rethrow;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToDoSilent;
+import static net.pincette.util.Util.tryToGet;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 
 import com.mongodb.MongoCommandException;
@@ -148,6 +152,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
@@ -202,6 +207,7 @@ class App<T, U, V, W> {
   private static final String PROFILE_FRAME_TYPE = "profile.frame.type";
   private static final String PROFILE_FRAME_VERSION = "profile.frame.version";
   private static final String REDUCER_STATE = "state";
+  private static final String TEST_EXCEPTION = "$testException";
   private static final String TOKEN = "token";
   private static final String TO_STRING = "toString";
   private static final String TRACE = "trace";
@@ -217,7 +223,7 @@ class App<T, U, V, W> {
   private final Function<String, Streams<String, JsonObject, T, U>> getBuilder;
   private final Function<String, Streams<String, String, V, W>> getStringBuilder;
   private final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag;
-  private final OnError onError;
+  private final Consumer<Throwable> onError;
   private final JsonObject specification;
   private final Map<String, SubscriptionMonitor<Message<String, JsonObject>>> streams =
       new HashMap<>();
@@ -236,7 +242,7 @@ class App<T, U, V, W> {
       final Function<String, Streams<String, JsonObject, T, U>> getBuilder,
       final Function<String, Streams<String, String, V, W>> getStringBuilder,
       final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag,
-      final OnError onError,
+      final Consumer<Throwable> onError,
       final Context context) {
     this.specification = specification;
     this.getBuilder = getBuilder;
@@ -438,6 +444,7 @@ class App<T, U, V, W> {
             pair(S3ATTACHMENTS, s3AttachmentsStage(context)),
             pair(S3CSV, s3CsvStage(context)),
             pair(S3OUT, s3OutStage(context)),
+            pair(TEST_EXCEPTION, testExceptionStage()),
             pair(VALIDATE, validateStage(context))));
   }
 
@@ -507,12 +514,11 @@ class App<T, U, V, W> {
   }
 
   private Publisher<Message<String, JsonObject>> addSubscriber(final String name) {
-    final Processor<Message<String, JsonObject>, Message<String, JsonObject>> probe =
-        probe(n -> {}, v -> {}, () -> {}, onError::setError);
+    final Processor<Message<String, JsonObject>, Message<String, JsonObject>> pass = passThrough();
 
-    subscribers.get(name).add(probe);
+    subscribers.get(name).add(pass);
 
-    return probe;
+    return pass;
   }
 
   private void connectStreams() {
@@ -533,7 +539,11 @@ class App<T, U, V, W> {
       final Publisher<Message<String, JsonObject>> stream, final String collection) {
     final MongoCollection<Document> col = context.database.getCollection(collection);
 
-    pullForever(with(stream).mapAsync(message -> saveMessage(col, message)).get());
+    pullForever(
+        with(stream)
+            .mapAsync(message -> saveMessage(col, message))
+            .map(onErrorProcessor(onError::accept))
+            .get());
   }
 
   private void connectToTopic(final String topic, final JsonObject specification) {
@@ -820,6 +830,19 @@ class App<T, U, V, W> {
     return getLogger(name());
   }
 
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> mapToEventTrace(
+      final String scope,
+      final Function<Message<String, JsonObject>, String> name,
+      final Map<String, String> labels) {
+    return box(
+        map(
+            message ->
+                traceMessage(message.value, eventTrace, scope + "." + name.apply(message), labels)
+                    .map(m -> message.withValue(m).withKey(m.getString(TRACE_ID)))
+                    .orElse(null)),
+        filter(Objects::nonNull));
+  }
+
   private Attributes metricLabels(final String name, final Map<String, String> labels) {
     return addLabels(
         attributes,
@@ -840,7 +863,7 @@ class App<T, U, V, W> {
         .map(
             m ->
                 probeValue(
-                    resettingCounter(
+                    counter(
                         m,
                         METRIC,
                         (Message<String, JsonObject> message) ->
@@ -949,43 +972,17 @@ class App<T, U, V, W> {
     return part.getString(NAME);
   }
 
-  private void sendTrace(
-      final String topic,
-      final Message<String, JsonObject> message,
-      final String name,
-      final Map<String, String> labels) {
-    traceMessage(message.value, eventTrace, name, labels)
-        .ifPresent(
-            m ->
-                context.producer.sendJson(
-                    topic, message.withValue(m).withKey(m.getString(TRACE_ID))));
-  }
-
   void start() {
     final String application = name();
     final String version = version(specification);
 
     LOGGER.log(INFO, "Starting {0} {1}", new Object[] {application, version});
 
-    if (onError != null) {
-      onError.clear();
-    }
-
-    builder = getBuilder.apply(application);
-    stringBuilder = getStringBuilder.apply(application);
+    builder = getBuilder.apply(application).onError(onError);
+    stringBuilder = getStringBuilder.apply(application).onError(onError);
     createApplication();
     stringBuilder.start(); // String builders don't have a topic source.
-    thread =
-        new Thread(
-            () ->
-                tryToDo(
-                    () -> builder.start(),
-                    e -> {
-                      if (onError != null) {
-                        onError.setError(e);
-                      }
-                    }),
-            application);
+    thread = new Thread(builder::start, application);
     thread.start();
   }
 
@@ -1006,7 +1003,10 @@ class App<T, U, V, W> {
   void stop() {
     LOGGER.log(INFO, "Stopping {0} {1}", new Object[] {name(), version(specification)});
     counters.forEach(c -> tryToDoSilent(c::close));
-    builder.stop();
+
+    if (builder != null) {
+      builder.stop();
+    }
 
     if (thread != null) {
       tryToDoRethrow(thread::join);
@@ -1031,7 +1031,9 @@ class App<T, U, V, W> {
   }
 
   private void terminateOpenStreams() {
-    streams.values().stream().filter(v -> v.subscriber == null).forEach(Util::pullForever);
+    streams.values().stream()
+        .filter(v -> v.subscriber == null)
+        .forEach(p -> pullForever(with(p).map(onErrorProcessor(onError::accept)).get()));
   }
 
   private SubscriptionMonitor<Message<String, JsonObject>> toStream(
@@ -1072,29 +1074,43 @@ class App<T, U, V, W> {
     return ofNullable(eventTrace)
         .flatMap(e -> configValue(context.config::getString, TRACES_TOPIC))
         .map(
-            topic ->
-                probeValue(
-                    (Message<String, JsonObject> v) ->
-                        sendTrace(topic, v, scope + "." + name.apply(v), labels)))
+            topic -> {
+              final var p = mapToEventTrace(scope, name, labels);
+
+              builder.to(topic, p);
+              return tap(p);
+            })
         .orElse(null);
   }
 
   private UnaryOperator<JsonObject> transformer(final String jslt) {
     final var op =
-        fatal(
-            () ->
-                transformerObject(
-                    new Jslt.Context(tryReader(jslt))
-                        .withResolver(context.features.jsltResolver)
-                        .withFunctions(context.features.customJsltFunctions)),
-            LOGGER,
-            () -> jslt);
+        tryToGet(
+                () ->
+                    transformerObject(
+                        new Jslt.Context(tryReader(jslt))
+                            .withResolver(context.features.jsltResolver)
+                            .withFunctions(context.features.customJsltFunctions)),
+                e -> {
+                  exception(e, () -> jslt, this::logger);
+                  rethrow(e);
+                  return null;
+                })
+            .orElse(j -> j);
 
     return json ->
-        fatal(
-            () -> op.apply(json),
-            LOGGER,
-            () -> "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true));
+        tryToGet(
+                () -> op.apply(json),
+                e -> {
+                  exception(
+                      e,
+                      () ->
+                          "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true),
+                      this::logger);
+                  rethrow(e);
+                  return null;
+                })
+            .orElse(null);
   }
 
   private Processor<Message<String, JsonObject>, Message<String, JsonObject>> unresolveProcessor() {
@@ -1148,8 +1164,7 @@ class App<T, U, V, W> {
   }
 
   App<T, U, V, W> withOnError(final Consumer<Throwable> onError) {
-    return new App<>(
-        specification, getBuilder, getStringBuilder, messageLag, new OnError(onError), context);
+    return new App<>(specification, getBuilder, getStringBuilder, messageLag, onError, context);
   }
 
   App<T, U, V, W> withSpecification(final JsonObject specification) {
@@ -1185,27 +1200,6 @@ class App<T, U, V, W> {
                             telemetryProcessor(scope, m -> OUT, partLabel)
                                 .orElseGet(PassThrough::passThrough)))
         .orElse(processor);
-  }
-
-  private class OnError {
-    private Throwable error;
-    private final Consumer<Throwable> onErrorFn;
-
-    private OnError(final Consumer<Throwable> onError) {
-      this.onErrorFn = onError;
-    }
-
-    private void clear() {
-      error = null;
-    }
-
-    private void setError(final Throwable t) {
-      if (error == null) {
-        error = t;
-        logger().log(SEVERE, t, t::getMessage);
-        onErrorFn.accept(t);
-      }
-    }
   }
 
   private record OtherSide(

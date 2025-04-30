@@ -7,6 +7,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 
 |Entry|Mandatory|Description|
 |---|---|---|
+|backgroundInterval|No|The interval for background work such as becoming the cluster leader and keep alive signals. The default is 5s.|
 |batchSize|No|The size of the batches that are written to Kafka. This determines the overall batch size throughout the system. The default value is 100. Reduce it if your messages are rather large, which saves memory.|
 |batchTimeout|No|The time after which a message batch is flushed if it is not yet full and when additional messages are requested. The default is 50ms.|
 |contextPath|No|The context path used in generated URLs.|
@@ -15,8 +16,6 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |kafka|Yes|All Kafka settings come below this entry. So for example, the setting `bootstrap.servers` would go to the entry `kafka.bootstrap.servers`.|
 |kafka.num.stream.threads|No|The number of worker threads per instance.|
 |kafka.replication.factor|No|Check your Kafka cluster settings for this.|
-|keepAliveInterval|No|The interval between keep-alive signals from a running instance. These are saved in the same collection as in `mongodb.collection`. The default value is `10s`.|
-|leaderInterval|No|The interval between attempts to become or stay the leader of a group of instances. The leader record is saved in the same collection as in `mongodb.collection`. The leader distributes the work among all instances. The default value is `10s`.|
 |log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Telemetry](telemetry.md).|
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
 |mongodb.uri|Yes|The MongoDB connection URL.|
