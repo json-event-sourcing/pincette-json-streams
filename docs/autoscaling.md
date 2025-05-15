@@ -35,4 +35,6 @@ If the configuration has set the entry `work.excessMessageLagTopic`, then the de
 }
 ```
 
-There are two ways to consume those messages. Either some standardised custom metric is calculated with a message, which can be fed into an auto-scaler. Or it is used to set the number of instances directly. 
+There are two ways to consume those messages. Either some standardised custom metric is calculated with a message, which can be fed into an auto-scaler. Or it is used to set the number of instances directly.
+
+By default JSON Streams instances are identified by a generated UUID. This can be overridden with the environment variable `INSTANCE`. If you run it in a Kubernetes pod, you can use the downward API with the pod name. This way it is possible to find which applications are running in which pod.

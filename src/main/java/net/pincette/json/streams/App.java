@@ -42,7 +42,6 @@ import static net.pincette.json.JsonUtil.isArray;
 import static net.pincette.json.JsonUtil.isString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
-import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
 import static net.pincette.json.streams.Common.BACKOFF;
@@ -58,7 +57,6 @@ import static net.pincette.json.streams.Common.FROM_TOPIC;
 import static net.pincette.json.streams.Common.FROM_TOPICS;
 import static net.pincette.json.streams.Common.JOIN;
 import static net.pincette.json.streams.Common.JSLT_IMPORTS;
-import static net.pincette.json.streams.Common.JSON_STREAMS;
 import static net.pincette.json.streams.Common.LAG;
 import static net.pincette.json.streams.Common.LEFT;
 import static net.pincette.json.streams.Common.LOG;
@@ -85,8 +83,10 @@ import static net.pincette.json.streams.Common.VALIDATOR;
 import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
 import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.applicationAttributes;
 import static net.pincette.json.streams.Common.findJson;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Common.meterProvider;
 import static net.pincette.json.streams.Common.namespace;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.saveMessage;
@@ -97,6 +97,7 @@ import static net.pincette.json.streams.LogStage.logStage;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.exception;
 import static net.pincette.json.streams.Logging.getLogger;
+import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.S3AttachmentsStage.s3AttachmentsStage;
 import static net.pincette.json.streams.S3CsvStage.s3CsvStage;
 import static net.pincette.json.streams.S3OutStage.s3OutStage;
@@ -116,6 +117,8 @@ import static net.pincette.rs.Mapper.map;
 import static net.pincette.rs.PassThrough.passThrough;
 import static net.pincette.rs.Pipe.pipe;
 import static net.pincette.rs.Probe.probe;
+import static net.pincette.rs.Probe.probeCancel;
+import static net.pincette.rs.Probe.probeError;
 import static net.pincette.rs.Probe.probeValue;
 import static net.pincette.rs.Util.duplicateFilter;
 import static net.pincette.rs.Util.onErrorProcessor;
@@ -142,7 +145,6 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.ChangeStreamPublisher;
 import com.mongodb.reactivestreams.client.MongoCollection;
-import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -194,18 +196,14 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class App<T, U, V, W> {
-  private static final String APPLICATION = "application";
   private static final String COLLECTION_PREFIX = "collection-";
   private static final String IN = "in";
-  private static final String INSTANCE = "instance";
   private static final String INVALID_COMMAND = "invalid-command";
   private static final String JOIN_TIMESTAMP = "_join_timestamp";
   private static final String MERGED = "merged";
   private static final String METRIC = "json_streams.messages";
   private static final String OUT = "out";
   private static final String PART = "part";
-  private static final String PROFILE_FRAME_TYPE = "profile.frame.type";
-  private static final String PROFILE_FRAME_VERSION = "profile.frame.version";
   private static final String REDUCER_STATE = "state";
   private static final String TEST_EXCEPTION = "$testException";
   private static final String TOKEN = "token";
@@ -251,12 +249,8 @@ class App<T, U, V, W> {
     this.onError = onError;
     this.context = context;
     this.attributes =
-        specification != null
-            ? Attributes.builder()
-                .put(APPLICATION, name())
-                .put(PROFILE_FRAME_TYPE, JSON_STREAMS)
-                .put(PROFILE_FRAME_VERSION, APP_VERSION)
-                .build()
+        specification != null && context != null
+            ? applicationAttributes(name(), context).build()
             : null;
     this.eventTrace =
         context != null && specification != null && shouldTrace(specification)
@@ -659,7 +653,7 @@ class App<T, U, V, W> {
                 window)))
         .buffer(2) // Make sure the two branches get a request, otherwise it won't start.
         .map(duplicateFilter(m -> m.value, ofSeconds(1)))
-        .get(); // When matching messages arrive at the same time there can be duplicates.
+        .get(); // When matching messages arrive at the same time, there can be duplicates.
   }
 
   private Publisher<Message<String, JsonObject>> createMerge(final JsonObject specification) {
@@ -802,6 +796,10 @@ class App<T, U, V, W> {
     final var scope = scope(specification);
 
     return with(joinSource(specification.getJsonObject(thisSide.name)))
+        .backpressureTimeout(ofSeconds(60))
+        .map(
+            probeCancel(
+                () -> severe(() -> "Part " + string(specification, false) + " was cancelled")))
         .map(
             telemetryProcessor(scope, m -> thisSide.name + "." + IN, partLabel)
                 .orElseGet(PassThrough::passThrough))
@@ -823,6 +821,15 @@ class App<T, U, V, W> {
         .map(
             telemetryProcessor(scope, m -> thisSide.name + "." + OUT, partLabel)
                 .orElseGet(PassThrough::passThrough))
+        .map(
+            probeError(
+                e ->
+                    severe(
+                        () ->
+                            "Part "
+                                + string(specification, false)
+                                + " had error "
+                                + e.getMessage())))
         .get();
   }
 
@@ -848,17 +855,14 @@ class App<T, U, V, W> {
         attributes,
         merge(
             labels,
-            map(
-                pair(INSTANCE, context.instance),
-                pair(PART, ofNullable(labels.get(PART)).map(p -> p + ".").orElse("") + name))));
+            map(pair(PART, ofNullable(labels.get(PART)).map(p -> p + ".").orElse("") + name))));
   }
 
   private Processor<Message<String, JsonObject>, Message<String, JsonObject>> metricsProcessor(
       final String scope,
       final Function<Message<String, JsonObject>, String> name,
       final Map<String, String> labels) {
-    return ofNullable(context.metrics)
-        .map(OpenTelemetry::getMeterProvider)
+    return meterProvider(context)
         .map(p -> p.meterBuilder(scope).build())
         .map(
             m ->

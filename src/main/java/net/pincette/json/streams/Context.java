@@ -1,5 +1,6 @@
 package net.pincette.json.streams;
 
+import static java.lang.System.getenv;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
 import static net.pincette.jes.util.MongoExpressions.operators;
@@ -30,12 +31,14 @@ import net.pincette.mongo.Validator;
 import net.pincette.mongo.streams.Stage;
 
 class Context {
+  private static final String INSTANCE_ENV = "INSTANCE";
+
   final MongoClient client;
   final Config config;
   final MongoDatabase database;
   final String environment;
   final Features features;
-  final String instance = randomUUID().toString();
+  final String instance = ofNullable(getenv(INSTANCE_ENV)).orElse(randomUUID().toString());
   final Supplier<Logger> logger;
   final LogRecordProcessor logRecordProcessor;
   final OpenTelemetry metrics;

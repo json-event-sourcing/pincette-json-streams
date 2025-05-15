@@ -1,9 +1,11 @@
 package net.pincette.json.streams;
 
 import static java.time.Duration.ofMillis;
+import static java.util.concurrent.CompletableFuture.completedStage;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.jes.util.Kafka.fromConfig;
+import static net.pincette.rs.kafka.ConsumerEvent.STARTED;
 import static net.pincette.rs.kafka.KafkaPublisher.publisher;
 import static net.pincette.rs.kafka.KafkaSubscriber.subscriber;
 import static net.pincette.rs.kafka.Util.fromPublisher;
@@ -127,7 +129,7 @@ class KafkaProvider
     return new KafkaProvider(config, new Producer(config))
         .withConsumerEventHandler(
             (e, c) -> {
-              if (e == ConsumerEvent.STARTED) {
+              if (e == STARTED) {
                 c.seekToBeginning(c.assignment());
               }
             });
@@ -146,7 +148,9 @@ class KafkaProvider
   }
 
   public CompletionStage<Boolean> allAssigned(final String application, final Set<String> topics) {
-    return getAssigned(application).thenApply(t -> t.containsAll(topics));
+    return topics.isEmpty()
+        ? completedStage(true)
+        : getAssigned(application).thenApply(t -> t.containsAll(topics));
   }
 
   public Streams<

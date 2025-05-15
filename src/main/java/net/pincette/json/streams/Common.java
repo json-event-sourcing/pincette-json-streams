@@ -43,6 +43,7 @@ import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.JsonUtil.transformFieldNames;
 import static net.pincette.json.Transform.transform;
 import static net.pincette.json.Transform.transformBuilder;
+import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.exception;
@@ -75,6 +76,10 @@ import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.typesafe.config.Config;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.metrics.MeterProvider;
 import java.io.File;
 import java.time.Duration;
 import java.util.Collection;
@@ -181,6 +186,8 @@ class Common {
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String NAMESPACE = "namespace";
   private static final String PARAMETERS = "parameters";
+  private static final String PROFILE_FRAME_TYPE = "profile.frame.type";
+  private static final String PROFILE_FRAME_VERSION = "profile.frame.version";
   private static final String REF = "ref";
   private static final String SCRIPT = "script";
 
@@ -193,6 +200,14 @@ class Common {
 
   static String application(final JsonObject specification) {
     return specification.getString(APPLICATION_FIELD, null);
+  }
+
+  static AttributesBuilder applicationAttributes(final String application, final Context context) {
+    return Attributes.builder()
+        .put(APPLICATION_FIELD, application)
+        .put(INSTANCE, context.instance)
+        .put(PROFILE_FRAME_TYPE, JSON_STREAMS)
+        .put(PROFILE_FRAME_VERSION, APP_VERSION);
   }
 
   static Stream<JsonValue> asStream(final JsonStructure json) {
@@ -622,6 +637,10 @@ class Common {
                     e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
   }
 
+  static Optional<MeterProvider> meterProvider(final Context context) {
+    return ofNullable(context.metrics).map(OpenTelemetry::getMeterProvider);
+  }
+
   static String namespace(final Config config) {
     return configValue(config::getString, NAMESPACE).orElse(DEFAULT_NAMESPACE);
   }
@@ -860,15 +879,5 @@ class Common {
 
   private interface Expander extends Fn<JsonObject, Fn<File, Fn<JsonObject, JsonObject>>> {}
 
-  private static class Expansion {
-    private final File file;
-    private final JsonObject parameters;
-    private final JsonValue specification;
-
-    private Expansion(final JsonValue specification, final File file, final JsonObject parameters) {
-      this.specification = specification;
-      this.file = file;
-      this.parameters = parameters;
-    }
-  }
+  private record Expansion(JsonValue specification, File file, JsonObject parameters) {}
 }

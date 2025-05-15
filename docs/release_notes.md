@@ -1,5 +1,14 @@
 # Release Notes
 
+## 2.4.4
+
+* Fix bug in application scaling.
+* Add tracing for application scaling.
+* Add the `INSTANCE` environment variable to set the JSON Streams instance ID instead of the default generated UUID.
+* Add the metrics counters `json_streams.starts` and `json_streams.stops`.
+* Fix the bug where a join could get stuck in some cases.
+* Fix the bug where error signals where not propagated, preventing the restart of an application.
+
 ## 2.4.3
 
 * Fix metrics.

@@ -7,6 +7,7 @@ import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
 import static net.pincette.config.Util.configValue;
+import static net.pincette.jes.tel.OtelUtil.counter;
 import static net.pincette.jes.tel.OtelUtil.metrics;
 import static net.pincette.jes.util.Href.setContextPath;
 import static net.pincette.json.streams.Application.APP_VERSION;
@@ -17,8 +18,10 @@ import static net.pincette.json.streams.Common.JSON_STREAMS;
 import static net.pincette.json.streams.Common.MONGODB_URI;
 import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.applicationAttributes;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
+import static net.pincette.json.streams.Common.meterProvider;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.LOGGER;
@@ -35,6 +38,7 @@ import static net.pincette.util.Util.doUntil;
 import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.tryToDo;
 import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.Util.tryToDoSilent;
 import static net.pincette.util.Util.tryToGetSilent;
 
 import com.mongodb.reactivestreams.client.MongoCollection;
@@ -43,8 +47,10 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
@@ -73,9 +79,13 @@ class Run<T, U, V, W> implements Runnable {
   private static final String BACKGROUND_INTERVAL = "backgroundInterval";
   private static final String CONTEXT_PATH = "contextPath";
   private static final Duration DEFAULT_BACKGROUND_INTERVAL = ofSeconds(5);
+  private static final String METRIC_STARTS = "json_streams.starts";
+  private static final String METRIC_STOPS = "json_streams.stops";
   private static final String PLUGINS = "plugins";
 
   private final Supplier<Context> contextSupplier;
+  private final Map<String, Consumer<String>> appCounterConsumers = new HashMap<>();
+  private final Set<AutoCloseable> appCounters = new HashSet<>();
   private final Supplier<Provider<T, U, V, W>> providerSupplier;
   private final BlockingQueue<Runnable> runQueue = new LinkedBlockingQueue<>();
   private final Map<String, App<T, U, V, W>> running = new HashMap<>();
@@ -138,6 +148,23 @@ class Run<T, U, V, W> implements Runnable {
         .orElse(DEFAULT_BACKGROUND_INTERVAL);
   }
 
+  private Consumer<String> appCounter(final String application, final String metric) {
+    return appCounterConsumers.computeIfAbsent(
+        application + "#" + metric,
+        k ->
+            meterProvider(context)
+                .map(p -> p.meterBuilder(APPLICATION_FIELD).build())
+                .map(
+                    m ->
+                        counter(
+                            m,
+                            metric,
+                            (String app) -> applicationAttributes(app, context).build(),
+                            app -> 1L,
+                            appCounters))
+                .orElse(a -> {}));
+  }
+
   @SuppressWarnings("java:S106") // The logger is no longer available when shutting down.
   private void close() {
     System.out.println("SHUTDOWN");
@@ -152,6 +179,8 @@ class Run<T, U, V, W> implements Runnable {
               app.stop();
               System.out.println("Stopped " + app.name());
             });
+
+    appCounters.forEach(c -> tryToDoSilent(c::close));
   }
 
   Optional<App<T, U, V, W>> createApp(final File file) {
@@ -312,6 +341,7 @@ class Run<T, U, V, W> implements Runnable {
           keepAlive.start(removeSuffix(application.name(), context));
           application.start();
           running.put(application.name(), application);
+          appCounter(application.name(), METRIC_STARTS).accept(application.name());
         },
         e -> runAsyncAfter(() -> start(application.name()), BACKOFF));
   }
@@ -349,6 +379,7 @@ class Run<T, U, V, W> implements Runnable {
                     app -> {
                       app.stop();
                       keepAlive.stop(removeSuffix(application, context));
+                      appCounter(application, METRIC_STOPS).accept(application);
                     }));
   }
 

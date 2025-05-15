@@ -39,6 +39,7 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
+import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Collections.difference;
@@ -131,9 +132,12 @@ class Work<T, U, V, W> {
 
   private static Map<String, Integer> desiredApplicationInstances(
       final Status status, final WorkContext context) {
-    return map(
-        status.allApplications.stream()
-            .map(app -> pair(app, desiredApplicationInstances(status, app, context))));
+    return trace(
+        () -> "Desired application instances: ",
+        map(
+            status.allApplications.stream()
+                .map(app -> pair(app, desiredApplicationInstances(status, app, context)))),
+        WORK_LOGGER);
   }
 
   private static int desiredInstances(
@@ -155,7 +159,10 @@ class Work<T, U, V, W> {
         status.maximumMessageLagPerApplication.get(application);
 
     return min(
-        status.maximumAllowedApplicationInstances(application),
+        trace(
+            () -> "Maximum allowed instances for " + application + ": ",
+            status.maximumAllowedApplicationInstances(application),
+            WORK_LOGGER),
         status.messageLagPerTopic(application).entrySet().stream()
             .map(
                 e ->
@@ -185,12 +192,21 @@ class Work<T, U, V, W> {
     return ofNullable(maximumMessageLagPerTopic.get(topic))
         .map(max -> messageLag - max)
         .filter(excessLag -> excessLag > 0)
-        .map(excessLag -> extraApplicationCapacity(excessLag, context))
+        .map(
+            excessLag ->
+                trace(
+                    () -> "Required extra application capacity: ",
+                    extraApplicationCapacity(
+                        trace(
+                            () -> "Excess message lag for topic " + topic, excessLag, WORK_LOGGER),
+                        context),
+                    WORK_LOGGER))
         .orElse(0);
   }
 
   private static int extraApplicationCapacity(final long messageLag, final WorkContext context) {
-    final long capacity = instanceCapacityPerSecond(context);
+    final long capacity =
+        trace(() -> "Application capacity per second: ", capacityPerSecond(context), WORK_LOGGER);
 
     return (int) (messageLag / capacity) + (messageLag > 0 && messageLag % capacity != 0 ? 1 : 0);
   }
@@ -220,10 +236,6 @@ class Work<T, U, V, W> {
     rebalance(desiredApplicationsPerInstance);
 
     return desiredApplicationsPerInstance;
-  }
-
-  private static long instanceCapacityPerSecond(final WorkContext context) {
-    return capacityPerSecond(context) * context.maximumAppsPerInstance;
   }
 
   private static JsonObject instances(final String leader, final Map<String, Set<String>> work) {
@@ -458,6 +470,7 @@ class Work<T, U, V, W> {
         .findFirst()
         .map(Bson::toBsonDocument)
         .map(BsonUtil::fromBson)
+        .map(json -> json.getJsonObject(MAXIMUM_MESSAGE_LAG))
         .orElseGet(JsonUtil::emptyObject);
   }
 

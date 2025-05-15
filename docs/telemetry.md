@@ -30,7 +30,7 @@ There is also a Java logger for each application. Its name is simply the name of
 
 ## Metrics
 
-JSON Streams will add OpenTelemetry counters in the applications. These are observable counters that refresh every minute. The name of the counter is always `json_streams.messages`. If your backend is Prometheus, then it will appear as `json_streams_messages_total`. The following table shows the attributes that are used. Again, if Prometheus is used, the label names are derived from the attribute names by replacing the dots with underscores, unless you do other manipulations in your telemetry collector. 
+JSON Streams will add OpenTelemetry counters in the applications for all their parts, incoming and outgoing. These are observable counters that are emitted every minute. The name of the counter is always `json_streams.messages`. If your backend is Prometheus, then it will appear as `json_streams_messages_total`. The following table shows the attributes that are used. Again, if Prometheus is used, the label names are derived from the attribute names by replacing the dots with underscores, unless you do other manipulations in your telemetry collector. 
 
 |Attribute|Description|
 |---|---|
@@ -39,6 +39,8 @@ JSON Streams will add OpenTelemetry counters in the applications. These are obse
 |part|The name of the application part that is counted, followed by the subpart in it. The suffix depends on the kind of part. For a stream the whole name will be either `<part>.in` of `<part>.out`. A merge will have `<part>.merged`. A join has the parts `<part>.left.in`, `<part>.right.in`, `<part>.left.out` and `<part>.right.out`. The latter two represent the sides at which the matches happen. Aggregates have the parts `<part>.command.<command>`, `<part>.event.<command>` and `<part>.invalid-command.<command>`.|
 |profile.frame.type|This is always `json-streams`.|
 |profile.frame.version|The JSON Streams version.|
+
+The number of times an application is started and stopped is captured by the observable counters `json_streams.starts` and `json_streams.stops`. The above attributes are also applied, except `part`.
 
 ## Traces
 
