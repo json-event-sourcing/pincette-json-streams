@@ -8,6 +8,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |Entry|Mandatory|Description|
 |---|---|---|
 |backgroundInterval|No|The interval for background work such as becoming the cluster leader and keep alive signals. The default is 5s.|
+|backpressureTimeout|No|When set to a value larger than zero, it will set a timeout after which an error signal is sent if no backpressure signal was received from downstream. This causes the application where it happens to be restarted. The logs will detail where that was.|
 |batchSize|No|The size of the batches that are written to Kafka. This determines the overall batch size throughout the system. The default value is 100. Reduce it if your messages are rather large, which saves memory.|
 |batchTimeout|No|The time after which a message batch is flushed if it is not yet full and when additional messages are requested. The default is 50ms.|
 |contextPath|No|The context path used in generated URLs.|

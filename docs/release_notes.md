@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.4.5
+
+* Add configuration entry `backpressureTimeout`.
+
 ## 2.4.4
 
 * Fix bug in application scaling.

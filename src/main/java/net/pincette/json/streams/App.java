@@ -110,6 +110,7 @@ import static net.pincette.mongo.Collection.findOne;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.JsonClient.update;
 import static net.pincette.rs.Async.mapAsyncSequential;
+import static net.pincette.rs.BackpressureTimout.backpressureTimeout;
 import static net.pincette.rs.Box.box;
 import static net.pincette.rs.Chain.with;
 import static net.pincette.rs.Filter.filter;
@@ -146,6 +147,7 @@ import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.ChangeStreamPublisher;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import io.opentelemetry.api.common.Attributes;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -196,6 +198,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class App<T, U, V, W> {
+  private static final String BACKPRESSURE_TIMEOUT = "backpressureTimeout";
   private static final String COLLECTION_PREFIX = "collection-";
   private static final String IN = "in";
   private static final String INVALID_COMMAND = "invalid-command";
@@ -215,6 +218,7 @@ class App<T, U, V, W> {
   private static final String WINDOW = "window";
 
   private final Attributes attributes;
+  private final Duration backpressureTimeout;
   private final Context context;
   private final Set<AutoCloseable> counters = new HashSet<>();
   private final EventTrace eventTrace;
@@ -258,6 +262,10 @@ class App<T, U, V, W> {
                 .withServiceNamespace(namespace(context.config))
                 .withServiceName(name())
                 .withServiceVersion(version(specification))
+            : null;
+    this.backpressureTimeout =
+        context != null
+            ? configValue(context.config::getDuration, BACKPRESSURE_TIMEOUT).orElse(null)
             : null;
   }
 
@@ -515,6 +523,10 @@ class App<T, U, V, W> {
     return pass;
   }
 
+  private String backpressureName(final JsonObject specification) {
+    return name() + ":" + specification.getString(NAME);
+  }
+
   private void connectStreams() {
     streams.forEach(
         (k, v) ->
@@ -670,7 +682,16 @@ class App<T, U, V, W> {
                         .map(App::collectionKey)
                         .map(this::addSubscriber))
             .get()
-            .map(Stream::toList)
+            .map(
+                stream ->
+                    stream
+                        .map(
+                            p ->
+                                with(p)
+                                    .backpressureTimeout(
+                                        backpressureTimeout, () -> backpressureName(specification))
+                                    .get())
+                        .toList())
             .map(Merge::of)
             .orElseGet(Util::empty))
         .map(
@@ -742,7 +763,14 @@ class App<T, U, V, W> {
   private Publisher<Message<String, JsonObject>> createStream(final JsonObject specification) {
     return fromStream(
         ofNullable(createPipeline(specification, PIPELINE))
-            .map(p -> wrapTelemetry(p, specification))
+            .map(
+                p ->
+                    wrapTelemetry(
+                        box(
+                            backpressureTimeout(
+                                backpressureTimeout, () -> backpressureName(specification)),
+                            p),
+                        specification))
             .orElseGet(PassThrough::passThrough),
         specification);
   }
@@ -796,7 +824,9 @@ class App<T, U, V, W> {
     final var scope = scope(specification);
 
     return with(joinSource(specification.getJsonObject(thisSide.name)))
-        .backpressureTimeout(ofSeconds(60))
+        .backpressureTimeout(
+            backpressureTimeout,
+            () -> name() + ":" + specification.getString(NAME) + ":" + thisSide.name)
         .map(
             probeCancel(
                 () -> severe(() -> "Part " + string(specification, false) + " was cancelled")))
@@ -912,7 +942,12 @@ class App<T, U, V, W> {
             aggregate,
             (a, p) ->
                 a.withReducer(
-                    p.first, createReducerProcessor(p.second, p.second.getJsonObject(VALIDATOR))),
+                    p.first,
+                    box(
+                        backpressureTimeout(
+                            backpressureTimeout,
+                            () -> name() + ":" + aggregate.fullType() + ":" + p.first),
+                        createReducerProcessor(p.second, p.second.getJsonObject(VALIDATOR)))),
             (a1, a2) -> a1);
   }
 
