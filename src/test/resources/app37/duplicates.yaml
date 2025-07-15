@@ -1,0 +1,9 @@
+---
+- $deduplicate:
+    expression:
+      concat:
+        - "$_id"
+        - "$_corr"
+        - "$_command"
+    collection: "plusminus-duplicate-commands"
+    cacheWindow: 5000

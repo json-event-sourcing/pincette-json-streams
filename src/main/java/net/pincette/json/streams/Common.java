@@ -66,6 +66,7 @@ import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
+import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
@@ -160,6 +161,7 @@ class Common {
   static final String REDUCER = "reducer";
   static final String REPLY = "reply";
   static final String RIGHT = "right";
+  static final String SCRIPT_IMPORTS = "scriptImports";
   static final String SIGN_JWT = "$signJwt";
   static final String SLASH = "_slash_";
   static final String STREAM = "stream";
@@ -181,8 +183,8 @@ class Common {
   private static final String ENV = "ENV";
   private static final String FILE = "file";
   private static final String INCLUDE = "include";
+  private static final String JQ = "$jq";
   private static final String JSLT = "$jslt";
-  private static final Pattern JSLT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\"" + ".*$");
   private static final String MONGODB_COLLECTION = "mongodb.collection";
   private static final String NAMESPACE = "namespace";
   private static final String PARAMETERS = "parameters";
@@ -190,6 +192,7 @@ class Common {
   private static final String PROFILE_FRAME_VERSION = "profile.frame.version";
   private static final String REF = "ref";
   private static final String SCRIPT = "script";
+  private static final Pattern SCRIPT_IMPORT = compile("^.*import[ \t]+\"([^\"]+)\".*$");
 
   private Common() {}
 
@@ -224,7 +227,7 @@ class Common {
       final JsonObject specification,
       final boolean runtime,
       final ApplicationContext applicationContext) {
-    final Map<File, Pair<String, String>> jsltImports = new HashMap<>();
+    final Map<File, Pair<String, String>> scriptImports = new HashMap<>();
     final Map<File, Pair<String, JsonObject>> validatorImports = new HashMap<>();
     final Supplier<String> message = () -> instanceMessage("build", applicationContext.context);
     final var parameters =
@@ -240,18 +243,18 @@ class Common {
                 applicationContext.baseDirectory != null
                     ? expandApplication(specification, applicationContext.baseDirectory, parameters)
                     : specification,
-                createTransformer(jsltImports, validatorImports, parameters))
+                createTransformer(scriptImports, validatorImports, parameters))
             .add(
                 VALIDATOR_IMPORTS,
                 createImports(
                     specification,
                     VALIDATOR_IMPORTS,
-                    resolveJsltInValidatorImports(validatorImports.values(), jsltImports),
+                    resolveScriptInValidatorImports(validatorImports.values(), scriptImports),
                     v -> v))
             .add(
-                JSLT_IMPORTS,
+                SCRIPT_IMPORTS,
                 createImports(
-                    specification, JSLT_IMPORTS, jsltImports.values(), JsonUtil::createValue))
+                    specification, SCRIPT_IMPORTS, scriptImports.values(), JsonUtil::createValue))
             .add(ID, ofNullable(application(specification)).orElse("unknown"))
             .build(),
         JsonUtil::string,
@@ -280,6 +283,11 @@ class Common {
     return ofNullable(context)
         .flatMap(c -> tryToGetSilent(() -> get.apply(c.config)))
         .orElse(defaultValue);
+  }
+
+  static <T> Optional<T> configValueApp(
+      final Function<String, T> fn, final String path, final String application) {
+    return configValue(fn, application + "." + path).or(() -> configValue(fn, path));
   }
 
   static ApplicationContext createApplicationContext(final Loaded loaded, final Context context) {
@@ -324,7 +332,7 @@ class Common {
       final JsonObject parameters) {
     return replaceParameters(parameters)
         .thenApply(validatorResolver(validatorImports, parameters))
-        .thenApply(jsltResolver(jsltImports));
+        .thenApply(scriptResolver(jsltImports));
   }
 
   private static JsonObject expandAggregate(
@@ -362,7 +370,7 @@ class Common {
                     REDUCER,
                     expandStream(command, REDUCER, baseDirectory, parameters).get(REDUCER)))
         .updateIf(
-            () -> getString(command, "/" + REDUCER).filter(s -> s.endsWith(".jslt")),
+            () -> getString(command, "/" + REDUCER).filter(Common::isScript),
             (b, v) -> b.add(REDUCER, resolveFile(baseDirectory, v, parameters)))
         .updateIf(
             () -> getString(command, "/" + VALIDATOR),
@@ -539,8 +547,8 @@ class Common {
             });
   }
 
-  private static Optional<String> getImport(final String line) {
-    return Optional.of(JSLT_IMPORT.matcher(line))
+  private static Optional<String> getScriptImport(final String line) {
+    return Optional.of(SCRIPT_IMPORT.matcher(line))
         .filter(Matcher::matches)
         .map(matcher -> matcher.group(1));
   }
@@ -608,16 +616,26 @@ class Common {
         .isPresent();
   }
 
-  private static boolean isJsltPath(final String path) {
-    return path.endsWith(JSLT)
-        || path.endsWith(JSLT + "." + SCRIPT)
-        || path.endsWith("." + REDUCER)
-        || path.endsWith(EVENT_TO_COMMAND);
-  }
-
   private static boolean isPipeline(final JsonValue json) {
     return stringValue(json).filter(s -> s.endsWith(".yaml") || s.endsWith(".yml")).isPresent()
         || isArray(json);
+  }
+
+  private static boolean isReducerPath(final String path) {
+    return path.endsWith("." + REDUCER);
+  }
+
+  private static boolean isScript(final String s) {
+    return s.endsWith(".jslt") || s.endsWith(".jq");
+  }
+
+  private static boolean isScriptPath(final String path) {
+    return path.endsWith(JSLT)
+        || path.endsWith(JSLT + "." + SCRIPT)
+        || path.endsWith(JQ)
+        || path.endsWith(JQ + "." + SCRIPT)
+        || isReducerPath(path)
+        || path.endsWith(EVENT_TO_COMMAND);
   }
 
   private static boolean isValidatorPath(final String path) {
@@ -626,15 +644,6 @@ class Common {
 
   private static boolean isValidatorRef(final String path) {
     return path.equals(INCLUDE) || path.endsWith("." + REF);
-  }
-
-  private static Transformer jsltResolver(final Map<File, Pair<String, String>> imports) {
-    return new Transformer(
-        e -> isJsltPath(e.path) && isString(e.value),
-        e ->
-            Optional.of(
-                new JsonEntry(
-                    e.path, createValue(resolveJslt(asString(e.value).getString(), imports)))));
   }
 
   static Optional<MeterProvider> meterProvider(final Context context) {
@@ -696,24 +705,32 @@ class Common {
         .orElse(path);
   }
 
-  private static String resolveJslt(
-      final String jslt, final Map<File, Pair<String, String>> imports) {
-    return Optional.of(jslt)
+  private static String resolveScript(
+      final String script,
+      final Map<File, Pair<String, String>> imports,
+      final boolean forReducer) {
+    return Optional.of(script)
         .filter(j -> !j.startsWith(RESOURCE))
         .map(File::new)
         .filter(File::exists)
-        .map(file -> "// " + file.getName() + "\n" + resolveJsltImports(file, imports))
-        .orElse(jslt);
+        .map(
+            file ->
+                scriptPrefix(script, forReducer)
+                    + file.getName()
+                    + "\n"
+                    + resolveScriptImports(file, imports, forReducer))
+        .orElse(script);
   }
 
-  private static String resolveJsltImport(
+  private static String resolveScriptImport(
       final String line,
       final String imp,
-      final File jslt,
-      final Map<File, Pair<String, String>> imports) {
+      final File script,
+      final Map<File, Pair<String, String>> imports,
+      final boolean forReducer) {
     final var imported =
-        net.pincette.util.Util.resolveFile(baseDirectory(jslt, null), imp).orElse(null);
-    final var resolved = resolveJsltImports(imported, imports);
+        net.pincette.util.Util.resolveFile(baseDirectory(script, null), imp).orElse(null);
+    final var resolved = resolveScriptImports(imported, imports, forReducer);
 
     return line.replace(
         imp,
@@ -721,23 +738,23 @@ class Common {
             .first);
   }
 
-  private static String resolveJsltImports(
-      final File jslt, final Map<File, Pair<String, String>> imports) {
-    return tryToGetRethrow(() -> lines(jslt.toPath(), UTF_8))
+  private static String resolveScriptImports(
+      final File script, final Map<File, Pair<String, String>> imports, final boolean forReducer) {
+    return tryToGetRethrow(() -> lines(script.toPath(), UTF_8))
         .orElseGet(Stream::empty)
         .map(
             line ->
-                getImport(line)
-                    .map(imp -> resolveJsltImport(line, imp, jslt, imports))
+                getScriptImport(line)
+                    .map(imp -> resolveScriptImport(line, imp, script, imports, forReducer))
                     .orElse(line))
         .collect(joining("\n"));
   }
 
-  private static Collection<Pair<String, JsonObject>> resolveJsltInValidatorImports(
+  private static Collection<Pair<String, JsonObject>> resolveScriptInValidatorImports(
       final Collection<Pair<String, JsonObject>> validatorImports,
-      final Map<File, Pair<String, String>> jsltImports) {
+      final Map<File, Pair<String, String>> scriptImports) {
     return validatorImports.stream()
-        .map(pair -> pair(pair.first, transform(pair.second, jsltResolver(jsltImports))))
+        .map(pair -> pair(pair.first, transform(pair.second, scriptResolver(scriptImports))))
         .toList();
   }
 
@@ -811,10 +828,30 @@ class Common {
     return saveJson(collection, message.value).thenApply(value -> message);
   }
 
+  private static String scriptPrefix(final String filename, final boolean forReducer) {
+    final var comment = filename.endsWith(".jq") ? "# " : "// ";
+
+    return forReducer
+        ? getLastSegment(filename, ".").map(s -> s + ":" + comment).orElse(comment)
+        : comment;
+  }
+
+  private static Transformer scriptResolver(final Map<File, Pair<String, String>> imports) {
+    return new Transformer(
+        e -> isScriptPath(e.path) && isString(e.value),
+        e ->
+            Optional.of(
+                new JsonEntry(
+                    e.path,
+                    createValue(
+                        resolveScript(
+                            asString(e.value).getString(), imports, isReducerPath(e.path))))));
+  }
+
   private static Transformer stageFileResolver(
       final File baseDirectory, final JsonObject parameters) {
     return new Transformer(
-        e -> (isJsltPath(e.path) && isString(e.value)) || isValidatorPath(e.path),
+        e -> (isScriptPath(e.path) && isString(e.value)) || isValidatorPath(e.path),
         e ->
             stringValue(e.value)
                 .map(

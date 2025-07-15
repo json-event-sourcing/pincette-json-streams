@@ -8,35 +8,35 @@ This is a simple application with just one stream. It consumes the Kafka topic `
 
 ```yaml
 ---
-application: "my-app"
+application: my-app
 version: "1.0"
 parts:
-  - type: "stream"
-    name: "my-stream"
-    fromTopic: "my-commands"
-    toTopic: "my-commands-filtered"
+  - type: stream
+    name: my-stream
+    fromTopic: my-commands
+    toTopic: my-commands-filtered
     pipeline:
       - $match:
-          _command: "put"
+          _command: put
 ```        
 
 We could have left out the `toTopic` field. In that case the results are available as the stream called `my-stream`. Another part of the application can consume that stream by referring to its name. It could look like this:
 
 ```yaml
 ---
-application: "my-app"
+application: my-app
 version: "1.0"
 parts:
-  - type: "stream"
-    name: "my-stream"
-    fromTopic: "my-commands"
+  - type: stream
+    name: my-stream
+    fromTopic: my-commands
     pipeline:
       - $match:
-          _command: "put"
-  - type: "stream"
-    name: "set-filtered"
-    fromStream: "my-stream"
-    toTopic: "my-commands-filtered"
+          _command: put
+  - type: stream
+    name: set-filtered
+    fromStream: my-stream
+    toTopic: my-commands-filtered
     pipeline:
       - $addFields:
           filtered: true    
@@ -48,29 +48,29 @@ Sometimes a file can grow very large when there are many parts. Then it is more 
 
 ```yaml
 ---
-application: "my-app"
+application: my-app
 version: "1.0"
 parts:
-  - "my_stream.yml"
-  - "set_filtered.yml"
+  - my_stream.yml
+  - set_filtered.yml
 ```
 
 The files would then contain the following respectively:
 
 ```yaml
 ---
-type: "stream"
-name: "my-stream"
-fromTopic: "my-commands"
+type: stream
+name: my-stream
+fromTopic: my-commands
 pipeline:
   - $match:
-      _command: "put"
+      _command: put
 
 ---
-type: "stream"
-name: "set-filtered"
-fromStream: "my-stream"
-toTopic: "my-commands-filtered"
+type: stream
+name: set-filtered
+fromStream: my-stream
+toTopic: my-commands-filtered
 pipeline:
   - $addFields:
       filtered: true    
@@ -80,12 +80,12 @@ Part files can also contain arrays of parts. Everything will be loaded and assem
 
 ```yaml
 ---
-- application: "my-app1"
+- application: my-app1
   version: "1.0"
   parts:
-    - "parts1.yml"
-- application: "my-app2"
+    - parts1.yml
+- application: my-app2
   version: "1.0"
   parts:
-    - "parts2.yml"  
+    - parts2.yml  
 ```

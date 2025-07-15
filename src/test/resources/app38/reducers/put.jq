@@ -1,0 +1,1 @@
+.command | del(._command)

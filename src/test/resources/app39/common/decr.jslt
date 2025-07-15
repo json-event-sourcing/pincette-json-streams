@@ -1,0 +1,1 @@
+def decr(value) $value - 1

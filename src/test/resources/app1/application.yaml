@@ -7,7 +7,8 @@ parts:
     fromTopic: in
     toTopic: out
     pipeline:
-      - $match:
+      - _trace: true
+        $match:
           value:
             $exists: true
       - $log:

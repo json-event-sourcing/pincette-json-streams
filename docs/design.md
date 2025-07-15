@@ -6,7 +6,7 @@ When a user is making changes or creating an item, their work should be captured
 
 It is not necessary to let the user wait for the result of the submission. As soon as the confirmation of delivery is received, the screen can be closed. If there are validation errors, the part of the UI that deals with the incoming events can reopen the screen with the original data and the error annotations. If the screen was still open, it can be annotated there. If the screen was closed and should not be reopened automatically, a light notification can make the user aware of the problem. This could be something like a badge with the number of errors, which, when clicked, opens a list of error reports. Clicking on one can then reopen the original screen. A refinement could be to reopen the screen automatically anyway if the user has not yet opened a new context. 
 
-The point is that a power user should never be waiting for something. They can work through a list of tasks very quickly, knowing that in the vast majority of cases there will be no validation errors. It would be a pity to let them always wait because there can be exceptional cases.
+The point is that a power user should never be waiting for something. They can work through a list of tasks very quickly, knowing that in the vast majority of cases there will be no validation errors. It would be a pity to let them always wait only because there could be exceptional cases.
 
 Users normally work on different items. So, there would always be some kind of list to start with. This could be the result of a search, a recent items list, a task list, a browse, etc. Such lists should come from simple queries that project everything away that is not needed to present the list.
 
@@ -29,3 +29,9 @@ So, in general the sequence goes as follows:
 1. A reactor consumes the event and translates it into a command for the list aggregate instance that corresponds to the selected item.
 1. The list aggregate instance emits an event, which is also relayed back to the user.
 1. The item in the list is updated.
+
+Instead of making big applications with many parts, it is better to create several small ones. This has two advantages. Firstly, when an application is restarted because of a problem, the impact is less. Secondly, it provides better scaling because of the way Kafka works. The automatic scaling is limited by the number of partitions in the widest topic the application consumes. Extra instances would get no traffic. If you consume many topics, you may be lucky that the idleness is spread evenly across the application instances, but in the extreme case it might all go to only one. You have no control over that.
+
+With several smaller applications, each can scale out individually. This makes scaling more focussed, but it also increases the overall parallelism. Say, for example, our topics have four partitions. One big application could scale out to four instances. But if the same code lives in ten applications, there could be forty consumers because each application forms its own Kafka consumer group.
+
+This is also another reason to keep aggregates small and focussed, as mentioned above. Big aggregates have many commands and, hence, attract a lot of traffic. This can quickly become a bottleneck. With small aggregates, commands are spread over several instances.

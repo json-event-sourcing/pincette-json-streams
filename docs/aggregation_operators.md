@@ -1059,6 +1059,32 @@ $type: "$myfield"
 
 ## Miscellaneous
 
+### $jq
+
+The expression of the `$jq` extension operator should be an object with the fields `input` and `script`. The former is an expression that should produce a JSON value. If it is absent `$$ROOT` will be assumed. The latter is a reference to a JQ script. If the value starts with "resource:" then it is treated as a resource in the class path. Otherwise, it is a filename or a script. The result of the expression will be a JSON value.
+
+Example:
+
+```yaml
+$jq:
+  input:
+    test: "test"
+  script: '. + {test2: "test2"}'    
+```
+
+### $jslt
+
+The expression of the `$jslt` extension operator should be an object with the fields `input` and `script`. The former is an expression that should produce a JSON value. If it is absent `$$ROOT` will be assumed. The latter is a reference to a JQ script. If the value starts with "resource:" then it is treated as a resource in the class path. Otherwise, it is a filename or a script. The result of the expression will be a JSON value.
+
+Example:
+
+```yaml
+$jslt:
+  input:
+    test: "test"
+  script: '{test2: "test2", *: .}'    
+```
+
 ### [$let](https://docs.mongodb.com/manual/reference/operator/aggregation/let/)
 
 Example:

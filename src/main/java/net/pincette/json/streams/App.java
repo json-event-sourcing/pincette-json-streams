@@ -29,8 +29,7 @@ import static net.pincette.json.Factory.a;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
-import static net.pincette.json.Jslt.transformerObject;
-import static net.pincette.json.Jslt.tryReader;
+import static net.pincette.json.Jq.MapModuleLoader.mapModuleLoader;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.getArray;
@@ -72,6 +71,7 @@ import static net.pincette.json.streams.Common.RIGHT;
 import static net.pincette.json.streams.Common.S3ATTACHMENTS;
 import static net.pincette.json.streams.Common.S3CSV;
 import static net.pincette.json.streams.Common.S3OUT;
+import static net.pincette.json.streams.Common.SCRIPT_IMPORTS;
 import static net.pincette.json.streams.Common.SIGN_JWT;
 import static net.pincette.json.streams.Common.STREAM;
 import static net.pincette.json.streams.Common.STREAM_TYPES;
@@ -84,6 +84,7 @@ import static net.pincette.json.streams.Common.VALIDATOR_IMPORTS;
 import static net.pincette.json.streams.Common.addOtelLogger;
 import static net.pincette.json.streams.Common.application;
 import static net.pincette.json.streams.Common.applicationAttributes;
+import static net.pincette.json.streams.Common.configValueApp;
 import static net.pincette.json.streams.Common.findJson;
 import static net.pincette.json.streams.Common.getCommands;
 import static net.pincette.json.streams.Common.meterProvider;
@@ -133,6 +134,7 @@ import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Do.withValue;
+import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.must;
@@ -163,6 +165,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Processor;
 import java.util.concurrent.Flow.Publisher;
 import java.util.concurrent.Flow.Subscriber;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -176,6 +179,7 @@ import net.pincette.jes.Aggregate;
 import net.pincette.jes.JsonFields;
 import net.pincette.jes.Reducer;
 import net.pincette.jes.tel.EventTrace;
+import net.pincette.json.Jq;
 import net.pincette.json.Jslt;
 import net.pincette.json.Jslt.MapResolver;
 import net.pincette.json.JsonUtil;
@@ -231,6 +235,7 @@ class App<T, U, V, W> {
       new HashMap<>();
   private Streams<String, JsonObject, T, U> builder;
   private Set<String> consumedStreams;
+  private BiConsumer<Streams<String, JsonObject, T, U>, Streams<String, String, V, W>> onCreated;
   private Map<String, List<Subscriber<Message<String, JsonObject>>>> subscribers;
   private Streams<String, String, V, W> stringBuilder;
   private Thread thread;
@@ -265,7 +270,7 @@ class App<T, U, V, W> {
             : null;
     this.backpressureTimeout =
         context != null
-            ? configValue(context.config::getDuration, BACKPRESSURE_TIMEOUT).orElse(null)
+            ? configValueApp(context.config::getDuration, BACKPRESSURE_TIMEOUT, name()).orElse(null)
             : null;
   }
 
@@ -304,12 +309,15 @@ class App<T, U, V, W> {
       final JsonObject specification,
       final Supplier<CompletionStage<Map<String, Map<Partition, Long>>>> messageLag) {
     final var application = application(specification);
+    final var scriptImports =
+        getScriptImports(specification)
+            .map(App::convertScriptImports)
+            .orElseGet(Collections::emptyMap);
     final var features =
-        context.features.withJsltResolver(
-            new MapResolver(
-                ofNullable(specification.getJsonObject(JSLT_IMPORTS))
-                    .map(App::convertJsltImports)
-                    .orElseGet(Collections::emptyMap)));
+        context
+            .features
+            .withJsltResolver(new MapResolver(scriptImports))
+            .withJqModuleLoader(mapModuleLoader(scriptImports));
     final var logger = getLogger(application);
     final var withValidator =
         context
@@ -333,8 +341,8 @@ class App<T, U, V, W> {
     return parts(parts, STREAM_TYPES).flatMap(App::streamNames).collect(toSet());
   }
 
-  private static Map<String, String> convertJsltImports(final JsonObject jsltImports) {
-    return jsltImports.entrySet().stream()
+  private static Map<String, String> convertScriptImports(final JsonObject imports) {
+    return imports.entrySet().stream()
         .filter(e -> isString(e.getValue()))
         .collect(toMap(Entry::getKey, e -> asString(e.getValue()).getString()));
   }
@@ -382,6 +390,16 @@ class App<T, U, V, W> {
 
   private static JsonArray getPipeline(final JsonObject specification, final String field) {
     return getArray(specification, "/" + field).orElseGet(JsonUtil::emptyArray);
+  }
+
+  private static Optional<JsonObject> getScriptImports(final JsonObject specification) {
+    final JsonObject jslt = specification.getJsonObject(JSLT_IMPORTS); // For backward compatibility
+    final JsonObject script = specification.getJsonObject(SCRIPT_IMPORTS);
+
+    return tryWith(() -> jslt != null && script != null ? JsonUtil.merge(jslt, script) : null)
+        .or(() -> jslt)
+        .or(() -> script)
+        .get();
   }
 
   private static Bson joinFilter(
@@ -452,6 +470,19 @@ class App<T, U, V, W> {
 
   private static Stream<String> streamNames(final JsonObject part) {
     return fromNames(part, FROM_STREAM, FROM_STREAMS);
+  }
+
+  private static String stripScriptPrefix(final String script) {
+    return Cases.<String, String>withValue(script)
+        .or(s -> s.startsWith("jq:"), s -> s.substring("jq:".length()))
+        .or(s -> s.startsWith("jslt:"), s -> s.substring("jslt:".length()))
+        .get()
+        .orElse(script);
+  }
+
+  private static Message<String, JsonObject> validationResult(
+      final Message<String, JsonObject> message, final JsonObject result) {
+    return hasError(result) ? message.withValue(result) : message;
   }
 
   private static Optional<ChangeStreamDocument<Document>> youngest(
@@ -743,8 +774,12 @@ class App<T, U, V, W> {
             .withTrace(FINEST.equals(logger().getLevel())));
   }
 
-  private Reducer createReducer(final String jslt, final JsonObject validator) {
-    final var reducer = reducer(transformer(jslt));
+  private Reducer createReducer(final String script, final JsonObject validator) {
+    final var reducer =
+        reducer(
+            script.startsWith("jq:")
+                ? transformerJq(stripScriptPrefix(script))
+                : transformerJslt(stripScriptPrefix(script)));
 
     return withResolver(
         validator != null ? compose(validatorReducer(validator), reducer) : reducer,
@@ -911,6 +946,11 @@ class App<T, U, V, W> {
     return application(specification);
   }
 
+  void onCreated(
+      final BiConsumer<Streams<String, JsonObject, T, U>, Streams<String, String, V, W>> consumer) {
+    this.onCreated = consumer;
+  }
+
   private Processor<Message<String, JsonObject>, Message<String, JsonObject>> preprocessor(
       final JsonObject specification,
       final Supplier<Processor<Message<String, JsonObject>, Message<String, JsonObject>>>
@@ -1020,6 +1060,11 @@ class App<T, U, V, W> {
     builder = getBuilder.apply(application).onError(onError);
     stringBuilder = getStringBuilder.apply(application).onError(onError);
     createApplication();
+
+    if (onCreated != null) {
+      onCreated.accept(builder, stringBuilder);
+    }
+
     stringBuilder.start(); // String builders don't have a topic source.
     thread = new Thread(builder::start, application);
     thread.start();
@@ -1122,12 +1167,29 @@ class App<T, U, V, W> {
         .orElse(null);
   }
 
-  private UnaryOperator<JsonObject> transformer(final String jslt) {
-    final var op =
+  private UnaryOperator<JsonObject> transformerJq(final String jq) {
+    return transformerScript(
+        jq,
         tryToGet(
                 () ->
-                    transformerObject(
-                        new Jslt.Context(tryReader(jslt))
+                    Jq.transformerObject(
+                        new Jq.Context(Jq.tryReader(jq))
+                            .withModuleLoader(context.features.jqModuleLoader)),
+                e -> {
+                  exception(e, () -> jq, this::logger);
+                  rethrow(e);
+                  return null;
+                })
+            .orElse(j -> j));
+  }
+
+  private UnaryOperator<JsonObject> transformerJslt(final String jslt) {
+    return transformerScript(
+        jslt,
+        tryToGet(
+                () ->
+                    Jslt.transformerObject(
+                        new Jslt.Context(Jslt.tryReader(jslt))
                             .withResolver(context.features.jsltResolver)
                             .withFunctions(context.features.customJsltFunctions)),
                 e -> {
@@ -1135,8 +1197,11 @@ class App<T, U, V, W> {
                   rethrow(e);
                   return null;
                 })
-            .orElse(j -> j);
+            .orElse(j -> j));
+  }
 
+  private UnaryOperator<JsonObject> transformerScript(
+      final String script, final UnaryOperator<JsonObject> op) {
     return json ->
         tryToGet(
                 () -> op.apply(json),
@@ -1144,7 +1209,10 @@ class App<T, U, V, W> {
                   exception(
                       e,
                       () ->
-                          "Script:\n" + numberLines(jslt) + "\n\nWith JSON:\n" + string(json, true),
+                          "Script:\n"
+                              + numberLines(script)
+                              + "\n\nWith JSON:\n"
+                              + string(json, true),
                       this::logger);
                   rethrow(e);
                   return null;
@@ -1165,7 +1233,7 @@ class App<T, U, V, W> {
             m ->
                 validatorFunction
                     .apply(m.value.getJsonObject(COMMAND), m.value.getJsonObject(REDUCER_STATE))
-                    .thenApply(m::withValue))
+                    .thenApply(result -> validationResult(m, result)))
         : passThrough();
   }
 

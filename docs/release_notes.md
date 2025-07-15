@@ -1,5 +1,16 @@
 # Release Notes
 
+## 2.5.0
+
+* Improve Reactive Streams throughput.
+* Fix backpressure loss in aggregates and consume the `backpressureTimeout` configuration entry in them.
+* Fix retries not stopping after an application has been restarted.
+* Allow application overrides for certain configuration entries.
+* Add execution time tracing for individual stages through the `_trace` field.
+* Document `$jslt` operator.
+* Add `$jq` operator and `$jq` aggregation pipeline stage.
+* Improve test harness.
+
 ## 2.4.5
 
 * Add configuration entry `backpressureTimeout`.

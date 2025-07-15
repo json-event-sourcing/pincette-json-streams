@@ -4,9 +4,41 @@ State is managed in an aggregate. An aggregate can define commands, which may ha
 
 You manage the state by writing reducers for commands. A reducer receives a command and the current state of an aggregate instance. Its task is to calculate the new state. Reducers are supposed to not have side effects. As such, reducers are merely JSON transformations.
 
-Reducers are written in [JSLT](https://github.com/schibsted/jslt) or as an aggregation pipeline. A JSLT script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
+Reducers are written in [JQ](https://github.com/eiiches/jackson-jq), [JSLT](https://github.com/schibsted/jslt) or as an aggregation pipeline. A JSLT script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
 
-A pipeline receives the same object. Its output becomes the new state.
+A pipeline receives the same object. Its output becomes the new state. Since you can add your own pipeline stages through a plugin, a reducer could also be written in Java. This is an example of reducers as pipelines.
+
+```yaml
+---
+application: app
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: plusminus-counter
+    name: plusminus
+    preprocessor: duplicates.yaml
+    commands:
+      plus:
+        reducer:
+          - $replaceRoot:
+              newRoot: $state
+          - $addFields:
+              value:
+                $add:
+                  - $value
+                  - 1
+        validator: validators/validate_plus.yaml
+      minus:
+        reducer:
+          - $replaceRoot:
+              newRoot: $state
+          - $addFields:
+              value:
+                $add:
+                  - $value
+                  - -1
+        validator: validators/validate_minus.yaml
+```
 
 ## Aggregate Parts
 
@@ -100,8 +132,8 @@ The state is always stored in MongoDB in the collection with the name `<applicat
 
 ```yaml
 ---
-- type: "stream"
-  name: "save-commands"
+- type: stream
+  name: save-commands
   fromStream: "${AGGREGATE_TYPE}-command"
   pipeline:
     - $set:
@@ -110,24 +142,24 @@ The state is always stored in MongoDB in the collection with the name `<applicat
           corr: $_corr
           command: $_command
     - $out: "${AGGREGATE_TYPE}-command-${ENV}"
-- type: "stream"
-  name: "save-events"
+- type: stream
+  name: save-events
   fromStream: "${AGGREGATE_TYPE}-event"
   pipeline:
     - $set:
         _id:
-          id: "$_id"
-          seq: "$_seq"
+          id: $_id
+          seq: $_seq
     - $out: "${AGGREGATE_TYPE}-event-${ENV}"
-- type: "stream"
-  name: "save-deleted"
+- type: stream
+  name: save-deleted
   fromStream: "${AGGREGATE_TYPE}-aggregate"
   pipeline:
     - $match:
         _deleted: true
     - $out: "${AGGREGATE_TYPE}-deleted-${ENV}"
-- type: "stream"
-  name: "save-invalid"
+- type: stream
+  name: save-invalid
   fromStream: "${AGGREGATE_TYPE}-reply"
   pipeline:
     - $match:
@@ -205,21 +237,21 @@ The following example is the aggregate `plusminus-counter`. It has the commands 
 
 ```yaml
 ---
-application: "plusminus"
+application: plusminus
 version: "1.0"
 parts:
-  - type: "aggregate"
-    aggregateType: "plusminus-counter"
+  - type: aggregate
+    aggregateType: plusminus-counter
     commands:
       plus:
-        reducer: "plus.jslt"
-        validator: "validate_plus.yml"
+        reducer: plus.jslt
+        validator: validate_plus.yml
       minus:
-        reducer: "minus.jslt"
-        validator: "validate_minus.yml"
+        reducer: minus.jslt
+        validator: validate_minus.yml
       put:
-        reducer: "put.jslt"
-        validator: "validate_put.yml"
+        reducer: put.jslt
+        validator: validate_put.yml
 ```      
 
 plus.jslt:
@@ -254,9 +286,9 @@ validate_plus.yml:
 ```yaml
 ---
 include:
-  - "operator.yml"
+  - operator.yml
 conditions:
-  - _command: "plus"
+  - _command: plus
 ```
 
 validate_minus.yml:
@@ -264,9 +296,9 @@ validate_minus.yml:
 ```yaml
 ---
 include:
-  - "operator.yml"
+  - operator.yml
 conditions:
-  - _command: "minus"
+  - _command: minus
 ```
 
 validate_put.yml:
@@ -274,11 +306,11 @@ validate_put.yml:
 ```yaml
 ---
 include:
-  - "type.yml"
+  - type.yml
 conditions:
-  - _command: "put"
+  - _command: put
   - value: 0
-    $code: "INIT"
+    $code: INIT
 ```
 
 type.yml:
@@ -286,7 +318,7 @@ type.yml:
 ```yaml
 ---
 conditions:
-  - _type: "plusminus-counter"
+  - _type: plusminus-counter
 ```
 
 operator.yml:
@@ -294,16 +326,16 @@ operator.yml:
 ```yaml
 ---
 include:
-  - "type.yml"
+  - type.yml
 conditions:
   - value:
       $exists: false
-    $code: "OPERATOR"
+    $code: OPERATOR
 ```
 
 The first two reducers move the context into the `state` field. They change the `value` field and just copy all the others. The last reducer is for the `put` command. It moves the context into the `command` field, because the whole command will become the new state. Only the `_command` field is removed.
 
-You don't have to provide the `put` command, because it is built in. The reason to add it here is validation. You could also import a common `put` implementation in JSLT.
+You don't have to provide the `put` command, because it is built in. The reason to add it here is validation. You could also import a common `put` implementation in JSLT or JQ.
 
 The validators check the command names and if the commands are for the right aggregate type. The latter is not strictly necessary, because commands of the wrong type are ignored by the aggregate. For the commands `plus` and `minus` an extra check is done. The `value` field should not be present. In the case of the `put` command the `value` must be zero.
 

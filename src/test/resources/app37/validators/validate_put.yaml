@@ -1,0 +1,7 @@
+---
+include:
+  - "../common/type.yaml"
+conditions:
+  - _command: "put"
+  - value: 0
+    $code: "INIT"

@@ -8,7 +8,8 @@ parts:
     toTopic: out1
     pipeline:
       - $match:
-          value:
+          value: 0
+          _id:
             $exists: true
   - type: stream
     name: stream2

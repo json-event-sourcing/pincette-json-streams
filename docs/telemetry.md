@@ -4,7 +4,7 @@ The telemetry is emitted using the [OpenTelemetry](https://opentelemetry.io) sta
 
 ## Logging
 
-The JSON Streams runtime uses the Java logger `net.pincette.json.streams`. You can set its level in the configuration entry `log`. There are the lower level loggers. Set their level to `FINEST` to see the tracing.
+The JSON Streams runtime uses the Java logger `net.pincette.json.streams`. You can set its level in the configuration entry `log`. These are the lower level loggers. Set their level to `FINEST` to see the tracing.
 
 |Logger|Description|
 |---|---|

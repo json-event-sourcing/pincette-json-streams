@@ -38,7 +38,7 @@ class Context {
   final MongoDatabase database;
   final String environment;
   final Features features;
-  final String instance = ofNullable(getenv(INSTANCE_ENV)).orElse(randomUUID().toString());
+  final String instance = ofNullable(getenv(INSTANCE_ENV)).orElseGet(() -> randomUUID().toString());
   final Supplier<Logger> logger;
   final LogRecordProcessor logRecordProcessor;
   final OpenTelemetry metrics;

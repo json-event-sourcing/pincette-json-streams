@@ -1,0 +1,18 @@
+---
+application: app38
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: plusminus-counter
+    name: plusminus
+    preprocessor: duplicates.yaml
+    commands:
+      plus:
+        reducer: reducers/plus.jq
+        validator: validators/validate_plus.yaml
+      minus:
+        reducer: reducers/minus.jq
+        validator: validators/validate_minus.yaml
+      put:
+        reducer: reducers/put.jq
+        validator: validators/validate_put.yaml

@@ -1,0 +1,33 @@
+---
+application: app37
+version: "1.0"
+parts:
+  - type: aggregate
+    aggregateType: plusminus-counter
+    name: plusminus
+    preprocessor: duplicates.yaml
+    commands:
+      plus:
+        reducer:
+          - $replaceRoot:
+              newRoot: $state
+          - $addFields:
+              value:
+                $add:
+                  - $value
+                  - 1
+        validator: validators/validate_plus.yaml
+      minus:
+        reducer:
+          - $replaceRoot:
+              newRoot: $state
+          - $addFields:
+              value:
+                $add:
+                  - $value
+                  - -1
+        validator: validators/validate_minus.yaml
+      put:
+        reducer:
+          - $jslt: reducers/put.jslt
+        validator: validators/validate_put.yaml

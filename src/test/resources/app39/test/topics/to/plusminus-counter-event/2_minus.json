@@ -1,0 +1,17 @@
+{
+  "_id": "642ccccc-c2c0-4c79-8a53-96c82c5bb8f1",
+  "_type": "plusminus-counter",
+  "_corr": "8e016df5-1302-4db6-9c59-39cd92c9aec2",
+  "_command": "minus",
+  "_seq": 2,
+  "_jwt": {
+    "sub": "system"
+  },
+  "_ops": [
+    {
+      "op": "replace",
+      "path": "/value",
+      "value": 0
+    }
+  ]
+}

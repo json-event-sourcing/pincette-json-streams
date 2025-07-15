@@ -670,7 +670,7 @@ class Work<T, U, V, W> {
     }
   }
 
-  private static class WorkContext {
+  static class WorkContext {
     private final Duration averageMessageTimeEstimate;
     private final int maximumAppsPerInstance;
 
@@ -695,7 +695,7 @@ class Work<T, U, V, W> {
           DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE);
     }
 
-    private static int maximumAppsPerInstance(final Context context) {
+    static int maximumAppsPerInstance(final Context context) {
       return config(
           context,
           config -> config.getInt(MAXIMUM_APPS_PER_INSTANCE),

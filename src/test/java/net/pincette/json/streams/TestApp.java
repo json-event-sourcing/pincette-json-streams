@@ -13,6 +13,8 @@ import static java.nio.file.Files.createTempDirectory;
 import static java.nio.file.Files.createTempFile;
 import static java.nio.file.StandardOpenOption.SYNC;
 import static java.nio.file.StandardOpenOption.WRITE;
+import static java.time.Duration.ofMillis;
+import static java.time.Duration.ofSeconds;
 import static java.util.Optional.ofNullable;
 import static net.pincette.io.PathUtil.copy;
 import static net.pincette.io.PathUtil.delete;
@@ -74,7 +76,10 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -102,9 +107,7 @@ class TestApp {
     final Config config = createConfig();
 
     init(config);
-    test =
-        new net.pincette.json.streams.Test<>(
-            () -> tester(config), () -> tester(config), () -> createContext(config));
+    test = new net.pincette.json.streams.Test<>(() -> tester(config), () -> createContext(config));
   }
 
   private static Stream<BodyPart> bodyParts(final MimeMultipart mmp) {
@@ -135,7 +138,11 @@ class TestApp {
   private static Config createConfig() {
     return ConfigFactory.empty()
         .withValue("kafka.bootstrap.servers", fromAnyRef(KAFKA))
-        .withValue("plugins", fromAnyRef("plugins"));
+        .withValue("plugins", fromAnyRef("plugins"))
+        .withValue("app1.batchSize", fromAnyRef(10))
+        .withValue("app2.batchTimeout", fromAnyRef(ofMillis(10)))
+        .withValue("app3.throttleTime", fromAnyRef(ofMillis(100)))
+        .withValue("app4.backpressureTimeout", fromAnyRef(ofSeconds(10)));
   }
 
   private static void deleteS3(final String bucket, final String key) {
@@ -481,6 +488,24 @@ class TestApp {
   @DisplayName("app36")
   void app36() {
     runTest("app36");
+  }
+
+  @Test
+  @DisplayName("app37")
+  void app37() {
+    runTest("app37");
+  }
+
+  @Test
+  @DisplayName("app38")
+  void app38() {
+    runTest("app38");
+  }
+
+  @Test
+  @DisplayName("app39")
+  void app39() {
+    runTest("app39");
   }
 
   @Test

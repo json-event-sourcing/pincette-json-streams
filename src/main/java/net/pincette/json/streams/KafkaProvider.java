@@ -1,10 +1,13 @@
 package net.pincette.json.streams;
 
 import static java.time.Duration.ofMillis;
+import static java.util.Collections.emptySet;
 import static java.util.concurrent.CompletableFuture.completedStage;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
+import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.util.Kafka.fromConfig;
+import static net.pincette.json.streams.Common.configValueApp;
 import static net.pincette.rs.kafka.ConsumerEvent.STARTED;
 import static net.pincette.rs.kafka.KafkaPublisher.publisher;
 import static net.pincette.rs.kafka.KafkaSubscriber.subscriber;
@@ -16,7 +19,6 @@ import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
 import static net.pincette.util.Pair.pair;
-import static net.pincette.util.Util.tryToGetSilent;
 import static org.apache.kafka.clients.admin.AdminClientConfig.configNames;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG;
@@ -26,6 +28,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZE
 
 import com.typesafe.config.Config;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -72,8 +75,7 @@ class KafkaProvider
   private static final String THROTTLE_TIME = "throttleTime";
 
   private final Admin admin;
-  private final int batchSize;
-  private final Duration batchTimeout;
+  private final Config config;
   private final BiConsumer<ConsumerEvent, KafkaConsumer<String, JsonObject>> consumerEventHandler;
   private final String groupIdSuffix;
   private final Map<String, Object> kafkaConfig;
@@ -81,21 +83,17 @@ class KafkaProvider
   private final BiConsumer<ProducerEvent, KafkaProducer<String, JsonObject>>
       producerEventHandlerJsonObject;
   private final BiConsumer<ProducerEvent, KafkaProducer<String, String>> producerEventHandlerString;
-  private final Duration throttleTime;
 
   KafkaProvider(final Config config) {
     this(config, new Producer(config));
   }
 
   private KafkaProvider(final Config config, final Producer producer) {
+    this.config = config;
     this.producer = producer;
     kafkaConfig = fromConfig(config, KAFKA);
     admin = Admin.create(toAdmin(kafkaConfig));
-    groupIdSuffix = tryToGetSilent(() -> config.getString(GROUP_ID_SUFFIX)).orElse(null);
-    batchSize = tryToGetSilent(() -> config.getInt(BATCH_SIZE)).orElse(DEFAULT_BATCH_SIZE);
-    batchTimeout =
-        tryToGetSilent(() -> config.getDuration(BATCH_TIMEOUT)).orElse(DEFAULT_BATCH_TIMEOUT);
-    throttleTime = tryToGetSilent(() -> config.getDuration(THROTTLE_TIME)).orElse(null);
+    groupIdSuffix = configValue(config::getString, GROUP_ID_SUFFIX).orElse(null);
     consumerEventHandler = null;
     producerEventHandlerJsonObject = null;
     producerEventHandlerString = null;
@@ -108,12 +106,10 @@ class KafkaProvider
           producerEventHandlerJsonObject,
       final BiConsumer<ProducerEvent, KafkaProducer<String, String>> producerEventHandlerString) {
     admin = provider.admin;
+    config = provider.config;
     groupIdSuffix = provider.groupIdSuffix;
     kafkaConfig = provider.kafkaConfig;
     producer = provider.producer;
-    batchSize = provider.batchSize;
-    batchTimeout = provider.batchTimeout;
-    throttleTime = provider.throttleTime;
     this.consumerEventHandler = consumerEventHandler;
     this.producerEventHandlerJsonObject = producerEventHandlerJsonObject;
     this.producerEventHandlerString = producerEventHandlerString;
@@ -153,21 +149,33 @@ class KafkaProvider
         : getAssigned(application).thenApply(t -> t.containsAll(topics));
   }
 
+  private int batchSize(final String application) {
+    return configValueApp(config::getInt, BATCH_SIZE, application).orElse(DEFAULT_BATCH_SIZE);
+  }
+
+  private Duration batchTimeout(final String application) {
+    return configValueApp(config::getDuration, BATCH_TIMEOUT, application)
+        .orElse(DEFAULT_BATCH_TIMEOUT);
+  }
+
   public Streams<
           String,
           JsonObject,
           ConsumerRecord<String, JsonObject>,
           ProducerRecord<String, JsonObject>>
       builder(final String application) {
+    final int batchSize = batchSize(application);
+
     return streams(
         fromPublisher(
-            publisher(() -> consumer(application))
+            publisher(() -> consumer(application, batchSize))
                 .withEventHandler(consumerEventHandler)
-                .withThrottleTime(throttleTime)),
+                .withThrottleTime(
+                    configValueApp(config::getDuration, THROTTLE_TIME, application).orElse(null))),
         fromSubscriber(
             subscriber(producer::getNewJsonProducer)
                 .withBatchSize(batchSize)
-                .withTimeout(batchTimeout)
+                .withTimeout(batchTimeout(application))
                 .withEventHandler(producerEventHandlerJsonObject)));
   }
 
@@ -175,7 +183,7 @@ class KafkaProvider
     admin.close();
   }
 
-  private KafkaConsumer<String, JsonObject> consumer(final String groupId) {
+  private KafkaConsumer<String, JsonObject> consumer(final String groupId, final int batchSize) {
     return new KafkaConsumer<>(
         merge(
             merge(kafkaConfig, KAFKA_DEFAULT),
@@ -193,6 +201,11 @@ class KafkaProvider
         .join();
   }
 
+  @Override
+  public void deleteConsumerGroups(final Set<String> groupIds) {
+    net.pincette.rs.kafka.Util.deleteConsumerGroups(groupIds, admin).toCompletableFuture().join();
+  }
+
   public void deleteTopics(final Set<String> topics) {
     net.pincette.rs.kafka.Util.deleteTopics(topics, admin).toCompletableFuture().join();
   }
@@ -208,7 +221,8 @@ class KafkaProvider
                     .map(MemberDescription::assignment)
                     .flatMap(a -> a.topicPartitions().stream())
                     .map(TopicPartition::topic)
-                    .collect(toSet()));
+                    .collect(toSet()))
+        .exceptionally(t -> emptySet());
   }
 
   public Producer getProducer() {
@@ -230,8 +244,8 @@ class KafkaProvider
         null,
         fromSubscriber(
             subscriber(producer::getNewStringProducer)
-                .withBatchSize(batchSize)
-                .withTimeout(batchTimeout)
+                .withBatchSize(batchSize(application))
+                .withTimeout(batchTimeout(application))
                 .withEventHandler(producerEventHandlerString)));
   }
 

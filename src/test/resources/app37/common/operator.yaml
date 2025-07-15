@@ -1,0 +1,7 @@
+---
+include:
+  - "type.yaml"
+conditions:
+  - value:
+      $exists: false
+    $code: "OPERATOR"

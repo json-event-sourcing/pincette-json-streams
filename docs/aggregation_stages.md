@@ -240,6 +240,22 @@ parts:
             X-My-Header: "$meta"
           as: "result"
 ```
+### $jq
+
+This extension stage transforms the incoming message with a [JQ](https://github.com/eiiches/jackson-jq) script. Its specification should be a string. If it starts with `resource:/` the script will be loaded as a class path resource, otherwise it is interpreted as a filename. If the transformation changes or adds the `_id` field then that will become the key of the outgoing message.
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "my-stream"
+    fromTopic: "my-messages"
+    toTopic: "my-messages-jslt"
+    pipeline:
+      - $jq: "my_script.jq"
+```
 
 ### $jslt
 

@@ -2,10 +2,13 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
 import static java.lang.Boolean.FALSE;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
+import static java.util.logging.Level.SEVERE;
 import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.tel.OtelUtil.counter;
 import static net.pincette.jes.tel.OtelUtil.metrics;
@@ -30,6 +33,7 @@ import static net.pincette.json.streams.Logging.exception;
 import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.info;
 import static net.pincette.json.streams.Read.readTopologies;
+import static net.pincette.json.streams.Work.WorkContext.maximumAppsPerInstance;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
@@ -81,6 +85,8 @@ class Run<T, U, V, W> implements Runnable {
   private static final Duration DEFAULT_BACKGROUND_INTERVAL = ofSeconds(5);
   private static final String METRIC_STARTS = "json_streams.starts";
   private static final String METRIC_STOPS = "json_streams.stops";
+  private static final int MAX_POOL_SIZE = 20;
+  private static final int MIN_POOL_SIZE = 5;
   private static final String PLUGINS = "plugins";
 
   private final Supplier<Context> contextSupplier;
@@ -123,6 +129,7 @@ class Run<T, U, V, W> implements Runnable {
         .withLogger(() -> LOGGER)
         .withProducer(new Producer(context.config))
         .doTask(c -> addOtelLogger(LOGGER_NAME, APP_VERSION, c))
+        .doTask(Run::reactivePoolSize)
         .withMetrics(metrics(namespace, JSON_STREAMS, APP_VERSION, context.config).orElse(null))
         .doTask(c -> LOGGER.info("Loading plugins ..."))
         .with(Run::loadPlugins)
@@ -131,6 +138,10 @@ class Run<T, U, V, W> implements Runnable {
             c ->
                 setContextPath(tryToGetSilent(() -> c.config.getString(CONTEXT_PATH)).orElse(null)))
         .doTask(c -> LOGGER.info("Loading applications ..."));
+  }
+
+  private static int reactivePoolSize(final Context context) {
+    return min(MAX_POOL_SIZE, max(MIN_POOL_SIZE, maximumAppsPerInstance(context)));
   }
 
   private static Context withPlugins(final Plugins plugins, final Context context) {
@@ -343,7 +354,10 @@ class Run<T, U, V, W> implements Runnable {
           running.put(application.name(), application);
           appCounter(application.name(), METRIC_STARTS).accept(application.name());
         },
-        e -> runAsyncAfter(() -> start(application.name()), BACKOFF));
+        e -> {
+          LOGGER.log(SEVERE, e, () -> "Cannot start application " + application.name());
+          runAsyncAfter(() -> start(application.name()), BACKOFF);
+        });
   }
 
   private void startWork() {

@@ -19,7 +19,7 @@ import picocli.CommandLine.HelpCommand;
     version = Application.APP_VERSION,
     description = "The JSON Streams command-line interface.")
 public class Application {
-  static final String APP_VERSION = "2.4.5";
+  static final String APP_VERSION = "2.5.0";
   private static final Logger CONFIG_LOGGER = getLogger(LOGGER_NAME + ".config");
 
   private Application() {}
@@ -41,12 +41,7 @@ public class Application {
             .addSubcommand("restart", new Restart(() -> createContext(config)))
             .addSubcommand(
                 "run", new Run<>(() -> new KafkaProvider(config), () -> createContext(config)))
-            .addSubcommand(
-                "test",
-                new Test<>(
-                    () -> new KafkaProvider(config),
-                    () -> tester(config),
-                    () -> createContext(config)))
+            .addSubcommand("test", new Test<>(() -> tester(config), () -> createContext(config)))
             .addSubcommand("yaml", new Yaml())
             .execute(args));
   }

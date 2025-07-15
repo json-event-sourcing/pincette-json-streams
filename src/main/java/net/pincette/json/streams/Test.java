@@ -34,15 +34,20 @@ import static net.pincette.mongo.Collection.drop;
 import static net.pincette.mongo.Collection.insertMany;
 import static net.pincette.rs.Chain.with;
 import static net.pincette.rs.LambdaSubscriber.lambdaSubscriber;
+import static net.pincette.rs.QueuePublisher.queuePublisher;
+import static net.pincette.rs.Util.join;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
 import static net.pincette.util.Collections.map;
+import static net.pincette.util.Collections.set;
+import static net.pincette.util.Collections.union;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.StreamUtil.composeAsyncStream;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.padWith;
 import static net.pincette.util.Util.tryToDoRethrow;
+import static net.pincette.util.Util.tryToDoWithRethrow;
 import static net.pincette.util.Util.tryToGetWithRethrow;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 import static org.reactivestreams.FlowAdapters.toSubscriber;
@@ -61,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionStage;
@@ -74,10 +80,11 @@ import javax.json.JsonObject;
 import javax.json.JsonReader;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Collection;
-import net.pincette.rs.Source;
+import net.pincette.rs.QueuePublisher;
 import net.pincette.rs.streams.Message;
 import net.pincette.rs.streams.Streams;
 import net.pincette.util.Pair;
+import net.pincette.util.State;
 import org.bson.Document;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
@@ -93,13 +100,13 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private static final Path COLLECTIONS_FROM = Paths.get("test", "collections", "from");
   private static final Path COLLECTIONS_TO = Paths.get("test", "collections", "to");
   private static final String MONGODB = "mongodb://localhost:27017";
+  private static final String TEST_DATABASE = "json-streams-test";
   private static final Path TOPICS_FROM = Paths.get("test", "topics", "from");
   private static final Path TOPICS_TO = Paths.get("test", "topics", "to");
 
   private Context context;
   private boolean keep;
   private final Supplier<Context> contextSupplier;
-  private final Supplier<Provider<T, U, V, W>> providerSupplier;
   private final Supplier<TestProvider<T, U, V, W>> testProviderSupplier;
 
   @Option(
@@ -109,10 +116,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private File file;
 
   Test(
-      final Supplier<Provider<T, U, V, W>> providerSupplier,
       final Supplier<TestProvider<T, U, V, W>> testProviderSupplier,
       final Supplier<Context> contextSupplier) {
-    this.providerSupplier = providerSupplier;
     this.testProviderSupplier = testProviderSupplier;
     this.contextSupplier = contextSupplier;
   }
@@ -128,24 +133,11 @@ class Test<T, U, V, W> implements Callable<Integer> {
                 ofSeconds(1)));
   }
 
-  private static <V, W> Streams<String, JsonObject, V, W> addMessagesFrom(
-      final Streams<String, JsonObject, V, W> streams,
-      final Map<String, List<JsonObject>> messages) {
-    return messages.entrySet().stream()
-        .reduce(
-            streams,
-            (s, e) ->
-                s.to(
-                    trace(() -> "load messages for topic", e.getKey()),
-                    with(Source.of(inputMessages(e.getValue()))).map(Logging::trace).get()),
-            (s1, s2) -> s1);
-  }
-
   private static <V, W> Streams<String, JsonObject, V, W> addExpectedTopics(
       final Streams<String, JsonObject, V, W> streams,
-      final Map<String, Pair<List<JsonObject>, List<JsonObject>>> expected,
+      final Map<String, Pair<List<JsonObject>, List<JsonObject>>> expectedWithResults,
       final AtomicInteger running) {
-    return expected.entrySet().stream()
+    return expectedWithResults.entrySet().stream()
         .reduce(
             streams,
             (s, e) ->
@@ -190,6 +182,12 @@ class Test<T, U, V, W> implements Callable<Integer> {
         + json.hashCode();
   }
 
+  private static void dropDatabase() {
+    tryToDoWithRethrow(
+        () -> MongoClients.create(MONGODB),
+        c -> join(toFlowPublisher(c.getDatabase(TEST_DATABASE).drop())));
+  }
+
   private static List<Message<String, JsonObject>> inputMessages(final List<JsonObject> messages) {
     return messages.stream()
         .map(
@@ -206,6 +204,11 @@ class Test<T, U, V, W> implements Callable<Integer> {
             messages.stream().map(BsonUtil::fromJson).map(BsonUtil::toDocument).toList())
         .thenApply(InsertManyResult::wasAcknowledged)
         .thenApply(result -> must(result, r -> r));
+  }
+
+  private static void loadTopics(
+      final Map<String, Queue<Message<String, JsonObject>>> topics, final TestContext testContext) {
+    testContext.topicsFromMessages.forEach((k, v) -> topics.get(k).addAll(inputMessages(v)));
   }
 
   private static Message<String, JsonObject> removeTimestamps(
@@ -262,9 +265,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
     final Context ctx =
         context.client == null ? context.withClient(MongoClients.create(MONGODB)) : context;
 
-    return ctx.database == null
-        ? ctx.withDatabase(ctx.client.getDatabase(randomUUID().toString()))
-        : context;
+    return ctx.database == null ? ctx.withDatabase(ctx.client.getDatabase(TEST_DATABASE)) : context;
   }
 
   public Integer call() {
@@ -320,6 +321,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
   }
 
   private void init() {
+    dropDatabase();
+
     if (context == null) {
       context = withTestDatabase(contextSupplier.get());
       keep = context.database != null;
@@ -333,22 +336,23 @@ class Test<T, U, V, W> implements Callable<Integer> {
         .join();
   }
 
-  private Map<String, Pair<List<JsonObject>, List<JsonObject>>> start(
-      final Streams<String, JsonObject, T, U> streams,
-      final Map<String, List<JsonObject>> messagesFrom,
-      final Map<String, List<JsonObject>> messagesTo,
-      final AtomicInteger running) {
-    final Map<String, Pair<List<JsonObject>, List<JsonObject>>> expectedWithResults =
-        withResults(messagesTo);
+  private Map<String, Queue<Message<String, JsonObject>>> inputQueues(
+      final TestContext testContext, final Streams<String, JsonObject, T, U> builder) {
+    return map(
+        testContext.topicsFrom.stream()
+            .map(
+                topic -> {
+                  final QueuePublisher<Message<String, JsonObject>> publisher = queuePublisher();
 
-    addExpectedTopics(addMessagesFrom(streams, messagesFrom), expectedWithResults, running).start();
+                  builder.to(topic, publisher);
 
-    return expectedWithResults;
+                  return pair(topic, publisher.getQueue());
+                }));
   }
 
   boolean test(final Path application) {
-    Set<String> allTopics = emptySet();
-    final Provider<T, U, V, W> provider = providerSupplier.get();
+    final State<Set<String>> allTopics = new State<>(emptySet());
+    final State<String> name = new State<>(null);
     final TestProvider<T, U, V, W> testProvider = testProviderSupplier.get();
 
     try {
@@ -359,51 +363,72 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
       final Optional<App<T, U, V, W>> app =
           new Run<>(
-                  () -> provider,
+                  () -> testProvider,
                   () -> completeContext(context, testContext, testProvider.getProducer()))
               .createApp(application.toFile());
 
-      allTopics = testContext.allTopics();
-      testProvider.deleteTopics(allTopics);
-      testProvider.createTopics(allTopics);
-      info("Topics created");
       initCollections(testContext.allCollections());
       info("Collections created");
 
       return app.map(
               a -> {
-                a.start();
-                waitFor(() -> testProvider.allAssigned(a.name(), testContext.topicsFrom));
-                info("Topics assigned");
-
+                final State<Set<String>> consumedTopics = new State<>(emptySet());
+                final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
+                    expectedCollectionsWithResults = withResults(testContext.collectionsToMessages);
+                final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
+                    expectedTopicsWithResults = withResults(testContext.topicsToMessages);
+                final State<Map<String, Queue<Message<String, JsonObject>>>> inputQueues =
+                    new State<>(null);
                 final AtomicInteger running =
                     new AtomicInteger(
                         testContext.topicsTo.size() + testContext.collectionsTo.size());
-                final Streams<String, JsonObject, T, U> streams =
-                    testProvider.builder(a.name() + "-test");
-                final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
-                    expectedWithResultsCollections =
-                        watchCollections(streams, testContext.collectionsToMessages, running);
-                final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
-                    expectedWithResultsTopics =
-                        start(
-                            streams,
-                            testContext.topicsFromMessages,
-                            testContext.topicsToMessages,
-                            running);
 
+                name.set(a.name());
+                testProvider.deleteConsumerGroups(set(a.name()));
+
+                a.onCreated(
+                    (builder, stringBuilder) -> {
+                      allTopics.set(
+                          union(
+                              builder.sourceTopics(),
+                              builder.sinkTopics(),
+                              stringBuilder.sourceTopics(),
+                              stringBuilder.sinkTopics()));
+                      consumedTopics.set(
+                          union(builder.sourceTopics(), stringBuilder.sourceTopics()));
+                      testProvider.deleteTopics(allTopics.get());
+                      testProvider.createTopics(allTopics.get());
+                      info("Topics created");
+                      inputQueues.set(inputQueues(testContext, builder));
+                      addExpectedTopics(builder, expectedTopicsWithResults, running);
+                      watchCollections(builder, expectedCollectionsWithResults, running);
+                    });
+
+                a.start();
+                waitFor(() -> testProvider.allAssigned(a.name(), consumedTopics.get()));
+                info("Topics assigned");
+                loadTopics(inputQueues.get(), testContext);
                 waitFor(() -> completedFuture(running.intValue() == 0));
                 a.stop();
 
-                return assertResults(expectedWithResultsCollections)
-                    && assertResults(expectedWithResultsTopics);
+                return assertResults(expectedCollectionsWithResults)
+                    && assertResults(expectedTopicsWithResults);
               })
           .orElse(false);
     } finally {
-      testProvider.deleteTopics(allTopics);
+      testProvider.deleteTopics(allTopics.get());
       info("Topics deleted");
-      tryToDoRethrow(provider::close);
+
+      ofNullable(name.get())
+          .ifPresent(
+              n -> {
+                testProvider.deleteConsumerGroups(set(n));
+                info("Consumer group deleted");
+              });
+
       tryToDoRethrow(testProvider::close);
+      dropDatabase();
+      info("Database dropped");
     }
   }
 
@@ -418,19 +443,14 @@ class Test<T, U, V, W> implements Callable<Integer> {
         .get();
   }
 
-  private Map<String, Pair<List<JsonObject>, List<JsonObject>>> watchCollections(
+  private void watchCollections(
       final Streams<String, JsonObject, T, U> streams,
-      final Map<String, List<JsonObject>> expected,
+      final Map<String, Pair<List<JsonObject>, List<JsonObject>>> expectedWithResults,
       final AtomicInteger running) {
-    final Map<String, Pair<List<JsonObject>, List<JsonObject>>> expectedWithResults =
-        withResults(expected);
-
     expectedWithResults.forEach(
         (collection, expectedAndActual) ->
             values(collection, expectedAndActual.first, expectedAndActual.second, streams, running)
                 .accept(with(watchCollection(collection)).map(Common::toMessage).get()));
-
-    return expectedWithResults;
   }
 
   private static class TestContext {
@@ -515,10 +535,6 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
     private Set<String> allCollections() {
       return concat(collectionsFrom.stream(), collectionsTo.stream()).collect(toSet());
-    }
-
-    private Set<String> allTopics() {
-      return concat(topicsFrom.stream(), topicsTo.stream()).collect(toSet());
     }
   }
 }
