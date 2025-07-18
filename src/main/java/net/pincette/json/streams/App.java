@@ -71,6 +71,7 @@ import static net.pincette.json.streams.Common.RIGHT;
 import static net.pincette.json.streams.Common.S3ATTACHMENTS;
 import static net.pincette.json.streams.Common.S3CSV;
 import static net.pincette.json.streams.Common.S3OUT;
+import static net.pincette.json.streams.Common.S3TRANSFER;
 import static net.pincette.json.streams.Common.SCRIPT_IMPORTS;
 import static net.pincette.json.streams.Common.SIGN_JWT;
 import static net.pincette.json.streams.Common.STREAM;
@@ -102,6 +103,7 @@ import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.S3AttachmentsStage.s3AttachmentsStage;
 import static net.pincette.json.streams.S3CsvStage.s3CsvStage;
 import static net.pincette.json.streams.S3OutStage.s3OutStage;
+import static net.pincette.json.streams.S3TransferStage.s3TransferStage;
 import static net.pincette.json.streams.SignJwtStage.signJwtStage;
 import static net.pincette.json.streams.TestExceptionStage.testExceptionStage;
 import static net.pincette.json.streams.ValidateStage.validateStage;
@@ -464,6 +466,7 @@ class App<T, U, V, W> {
             pair(S3ATTACHMENTS, s3AttachmentsStage(context)),
             pair(S3CSV, s3CsvStage(context)),
             pair(S3OUT, s3OutStage(context)),
+            pair(S3TRANSFER, s3TransferStage(context)),
             pair(TEST_EXCEPTION, testExceptionStage()),
             pair(VALIDATE, validateStage(context))));
   }

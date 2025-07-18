@@ -169,6 +169,7 @@ class Common {
   static final String S3ATTACHMENTS = "$s3Attachments";
   static final String S3CSV = "$s3Csv";
   static final String S3OUT = "$s3Out";
+  static final String S3TRANSFER = "$s3Transfer";
   static final String TO_COLLECTION = "toCollection";
   static final String TO_TOPIC = "toTopic";
   static final String TYPE = "type";

@@ -9,6 +9,7 @@ import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 import static software.amazon.awssdk.services.s3.S3AsyncClient.create;
 import static software.amazon.awssdk.services.s3.model.GetObjectRequest.builder;
 
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -26,6 +27,7 @@ import software.amazon.awssdk.core.async.SdkPublisher;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.GetUrlRequest;
 
 class S3Util {
   private static final S3AsyncClient client = create();
@@ -60,6 +62,19 @@ class S3Util {
             .orElseGet(() -> completedFuture(empty()));
   }
 
+  static Function<JsonObject, Optional<URL>> getObjectUrl(
+          final Function<JsonObject, JsonValue> bucket, final Function<JsonObject, JsonValue> key) {
+    return json ->
+            Optional.of(pair(bucket.apply(json), key.apply(json)))
+                    .map(
+                            pair ->
+                                    pair(
+                                            stringValue(pair.first).orElse(null),
+                                            stringValue(pair.second).orElse(null)))
+                    .filter(pair -> pair.first != null && pair.second != null)
+                    .map(pair -> getObjectUrl(pair.first, pair.second));
+  }
+
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
       final String bucket, final String key, final Supplier<Logger> logger) {
     return getObject(bucket, key, logger, (req, res) -> true);
@@ -71,6 +86,10 @@ class S3Util {
       final Supplier<Logger> logger,
       final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
     return getStream(s3Request(bucket, key), logger, condition);
+  }
+
+  static URL getObjectUrl(final String bucket, final String key) {
+    return client.utilities().getUrl(GetUrlRequest.builder().bucket(bucket).key(key).build());
   }
 
   private static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>
