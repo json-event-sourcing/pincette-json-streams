@@ -217,6 +217,11 @@
       <version>3.10.2</version>
     </dependency>
     <dependency>
+      <groupId>net.pincette</groupId>
+      <artifactId>pincette-s3-util</artifactId>
+      <version>1.0.1</version>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
       <version>5.13.3</version>

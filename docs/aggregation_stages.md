@@ -741,6 +741,40 @@ parts:
               - "$field2"      
 ```
 
+### $s3Transfer
+
+This extension stage lets you post an S3-object fetched from an HTTP endpoint. The object supports the following fields:
+
+| Field      | Mandatory | Description                                                                                                                                                                                                 |
+|------------|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| url        | Yes       | The URL that will be called. The expression should yield a string.                                                                                                                                          |
+| headers    | No        | The expression should yield an object. Its contents will be added as HTTP headers. Array values will result in multi-valued headers.                                                                        |
+| sslContext | No        | This object can be used for client-side authentication. Its `keyStore` field should refer to a PKCS#12 key store file. Its `password` field should provide the password for the keys in the key store file. |
+| bucket     | Yes       | The name of the S3 bucket.                                                                                                                                                                                  |
+| key        | Yes       | The S3 object key.                                                                                                                                                                                          |
+| as         | Yes       | The name of the field that will receive the S3 Object URL.                                                                                                                                                  |
+
+HTTP errors are put in the `httpError` field, which contains the field integer `statusCode` and `body`, which can be any JSON value.
+
+The following is an example with an input message:
+
+```yaml
+---
+application: "my-app"
+version: "1.0"
+parts:
+  - type: "stream"
+    name: "stream"
+    fromTopic: "in"
+    toTopic: "out"
+    pipeline:
+      - $s3Transfer:
+          url: "http://localhost:9000"
+          bucket: "my-bucket"
+          key: "image.jpg"
+          as: "s3Response"
+```
+
 ### $throttle
 
 With this extension stage you can limit the throughput in a pipeline by setting the `maxPerSecond` field. An example:

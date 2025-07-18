@@ -37,6 +37,7 @@ module application {
   requires io.opentelemetry.sdk.metrics;
   requires com.schibsted.spt.data.jslt;
   requires org.mongodb.driver.sync.client;
+  requires net.pincette.s3util;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;
