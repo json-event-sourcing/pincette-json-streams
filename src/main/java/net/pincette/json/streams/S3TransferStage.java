@@ -17,19 +17,7 @@ import static net.pincette.rs.PassThrough.passThrough;
 import static net.pincette.s3.util.Util.putObject;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.*;
-import net.pincette.function.SideEffect;
-import net.pincette.json.JsonUtil;
-import net.pincette.mongo.streams.Stage;
-import net.pincette.rs.Chain;
-import net.pincette.rs.FlattenList;
-import net.pincette.util.Builder;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import javax.json.JsonObject;
-import javax.json.JsonValue;
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
 import java.io.FileInputStream;
 import java.net.URI;
 import java.net.URL;
@@ -41,6 +29,18 @@ import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
+import javax.json.JsonObject;
+import javax.json.JsonValue;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import net.pincette.function.SideEffect;
+import net.pincette.json.JsonUtil;
+import net.pincette.mongo.Features;
+import net.pincette.mongo.streams.Stage;
+import net.pincette.rs.Chain;
+import net.pincette.rs.FlattenList;
+import net.pincette.util.Builder;
 
 class S3TransferStage {
 
@@ -55,6 +55,8 @@ class S3TransferStage {
   private static final String PASSWORD = "password";
   private static final String SSL_CONTEXT = "sslContext";
   private static final String STATUS_CODE = "statusCode";
+  private static final String CONTENT_TYPE = "contentType";
+  private static final String CONTENT_LENGTH = "contentLength";
 
   private S3TransferStage() {}
 
@@ -73,35 +75,22 @@ class S3TransferStage {
               && jsonExpression.containsKey(KEY)
               && jsonExpression.containsKey(AS));
 
-      final Function<JsonObject, CompletionStage<JsonObject>> execute =
-          execute(
-              getClient(jsonExpression),
-              function(jsonExpression.getValue("/" + URL), context.features),
-              getValue(jsonExpression, "/" + HEADERS)
-                  .map(headers -> function(headers, context.features))
-                  .orElse(json -> emptyObject()),
-              function(jsonExpression.getValue("/" + BUCKET), context.features),
-              function(jsonExpression.getValue("/" + KEY), context.features),
-              function(jsonExpression.getValue("/" + AS), context.features),
-              outerContext.logger);
+      final var mapperConfiguration = new MapperConfiguration(jsonExpression, context.features);
+      final var execute =
+          execute(getClient(jsonExpression), mapperConfiguration, outerContext.logger);
 
       return mapAsync(message -> execute.apply(message.value).thenApply(message::withValue));
     };
   }
 
   private static Function<JsonObject, CompletionStage<JsonObject>> execute(
-      final HttpClient client,
-      final Function<JsonObject, JsonValue> urlMapper,
-      final Function<JsonObject, JsonValue> headersMapper,
-      final Function<JsonObject, JsonValue> bucketMapper,
-      final Function<JsonObject, JsonValue> keyMapper,
-      final Function<JsonObject, JsonValue> asMapper,
-      final Supplier<Logger> logger) {
+      final HttpClient client, final MapperConfiguration mappers, final Supplier<Logger> logger) {
     return message ->
         tryToGetForever(
             () ->
-                stringValue(urlMapper.apply(message))
-                    .flatMap(url -> createRequest(url, headersMapper.apply(message)))
+                mappers
+                    .url(message)
+                    .flatMap(url -> createRequest(url, mappers.headers(message)))
                     .map(
                         request ->
                             client
@@ -114,19 +103,17 @@ class S3TransferStage {
                                 .thenComposeAsync(
                                     publisher ->
                                         putObject(
-                                                putRequest(bucketMapper, keyMapper).apply(message),
-                                                publisher)
-                                            .thenApply(
-                                                putResponse ->
-                                                    getObjectUrl(bucketMapper, keyMapper)
-                                                        .apply(message))
-                                            .thenApply(
-                                                url ->
-                                                    url.map(
-                                                            value ->
-                                                                annotateMessage(
-                                                                    message, value, asMapper))
-                                                        .orElseGet(() -> serverError(message)))))
+                                            mappers.bucket(message),
+                                            mappers.key(message),
+                                            mappers.contentType(message),
+                                            mappers.contentLength(message),
+                                            publisher))
+                                .thenApply(
+                                    putResponse ->
+                                        getObjectUrl(mappers.bucket(message), mappers.key(message)))
+                                .thenApply(
+                                    url -> annotateMessage(message, url, mappers.as(message)))
+                                .exceptionallyAsync(ignored -> serverError(message)))
                     .orElseGet(() -> completedFuture(badRequest(message))),
             () -> S3TRANSFER,
             logger);
@@ -233,19 +220,65 @@ class S3TransferStage {
   }
 
   private static JsonObject annotateMessage(
-      final JsonObject message, final URL url, final Function<JsonObject, JsonValue> asMapper) {
-    return stringValue(asMapper.apply(message))
-        .map(key -> createObjectBuilder(message).add(key, url.toString()).build())
-        .orElse(message);
+      final JsonObject message, final URL url, final String as) {
+    return createObjectBuilder(message).add(as, url.toString()).build();
   }
 
-  private static Function<JsonObject, PutObjectRequest> putRequest(
-      final Function<JsonObject, JsonValue> bucketMapper,
-      final Function<JsonObject, JsonValue> keyMapper) {
-    return json ->
-        PutObjectRequest.builder()
-            .bucket(stringValue(bucketMapper.apply(json)).orElse(""))
-            .key(stringValue(keyMapper.apply(json)).orElse(""))
-            .build();
+  private static class MapperConfiguration {
+    private final Function<JsonObject, JsonValue> url;
+    private final Function<JsonObject, JsonValue> headers;
+    private final Function<JsonObject, JsonValue> bucket;
+    private final Function<JsonObject, JsonValue> key;
+    private final Function<JsonObject, JsonValue> as;
+    private final Function<JsonObject, JsonValue> contentLength;
+    private final Function<JsonObject, JsonValue> contentType;
+
+    public MapperConfiguration(final JsonObject jsonExpression, final Features features) {
+      url = function(jsonExpression.getValue("/" + URL), features);
+      bucket = function(jsonExpression.getValue("/" + BUCKET), features);
+      key = function(jsonExpression.getValue("/" + KEY), features);
+      as = function(jsonExpression.getValue("/" + AS), features);
+
+      headers =
+          getValue(jsonExpression, "/" + HEADERS)
+              .map(value -> function(value, features))
+              .orElse(json -> emptyObject());
+      contentLength =
+          getValue(jsonExpression, "/" + CONTENT_LENGTH)
+              .map(jsonValue -> function(jsonValue, features))
+              .orElse(json -> emptyObject());
+      contentType =
+          getValue(jsonExpression, "/" + CONTENT_TYPE)
+              .map(jsonValue -> function(jsonValue, features))
+              .orElse(json -> emptyObject());
+    }
+
+    public Optional<String> url(final JsonObject message) {
+      return stringValue(url.apply(message));
+    }
+
+    public JsonValue headers(final JsonObject message) {
+      return headers.apply(message);
+    }
+
+    public String bucket(final JsonObject message) {
+      return stringValue(bucket.apply(message)).orElse("");
+    }
+
+    public String key(final JsonObject message) {
+      return stringValue(key.apply(message)).orElse("");
+    }
+
+    public String as(final JsonObject message) {
+      return stringValue(as.apply(message)).orElse("");
+    }
+
+    public long contentLength(final JsonObject message) {
+      return longValue(contentLength.apply(message)).orElse(-1L);
+    }
+
+    public String contentType(final JsonObject message) {
+      return stringValue(contentType.apply(message)).orElse("");
+    }
   }
 }
