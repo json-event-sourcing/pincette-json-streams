@@ -745,14 +745,17 @@ parts:
 
 This extension stage lets you post an S3-object fetched from an HTTP endpoint. The object supports the following fields:
 
-| Field      | Mandatory | Description                                                                                                                                                                                                 |
-|------------|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| url        | Yes       | The URL that will be called. The expression should yield a string.                                                                                                                                          |
-| headers    | No        | The expression should yield an object. Its contents will be added as HTTP headers. Array values will result in multi-valued headers.                                                                        |
-| sslContext | No        | This object can be used for client-side authentication. Its `keyStore` field should refer to a PKCS#12 key store file. Its `password` field should provide the password for the keys in the key store file. |
-| bucket     | Yes       | The name of the S3 bucket.                                                                                                                                                                                  |
-| key        | Yes       | The S3 object key.                                                                                                                                                                                          |
-| as         | Yes       | The name of the field that will receive the S3 Object URL.                                                                                                                                                  |
+| Field          | Mandatory | Description                                                                                                                                                                                                 |
+|----------------|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| url            | Yes       | The URL that will be called. The expression should yield a string.                                                                                                                                          |
+| headers        | No        | The expression should yield an object. Its contents will be added as HTTP headers. Array values will result in multi-valued headers.                                                                        |
+| sslContext     | No        | This object can be used for client-side authentication. Its `keyStore` field should refer to a PKCS#12 key store file. Its `password` field should provide the password for the keys in the key store file. |
+| bucket         | Yes       | The name of the S3 bucket.                                                                                                                                                                                  |
+| key            | Yes       | The S3 object key.                                                                                                                                                                                          |
+| as             | Yes       | The name of the field that will receive the S3 Object URL.                                                                                                                                                  |
+| contentType    | No        | The content type of the S3-object.                                                                                                                                                                          |
+| contentLength  | No        | The content length, in bytes, of the s3-object.                                                                                                                                                             |
+**Note**: if the contentLength is not provided, the S3 object will be stored in a temporal file in order to calculate its length.
 
 HTTP errors are put in the `httpError` field, which contains the field integer `statusCode` and `body`, which can be any JSON value.
 
@@ -773,6 +776,8 @@ parts:
           bucket: "my-bucket"
           key: "image.jpg"
           as: "s3Response"
+          contentType: "image/jpeg"
+          contentLength: 9494
 ```
 
 ### $throttle
