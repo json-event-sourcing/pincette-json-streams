@@ -180,8 +180,14 @@ class Run<T, U, V, W> implements Runnable {
   private void close() {
     System.out.println("SHUTDOWN");
     stop = true;
-    keepAlive.stop();
-    leader.stop();
+
+    if (keepAlive != null) {
+      keepAlive.stop();
+    }
+
+    if (leader != null) {
+      leader.stop();
+    }
 
     new ArrayList<>(running.values())
         .forEach(

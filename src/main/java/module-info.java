@@ -38,6 +38,7 @@ module application {
   requires com.schibsted.spt.data.jslt;
   requires org.mongodb.driver.sync.client;
   requires net.pincette.s3util;
+  requires transitive org.jruby.joni;
 
   uses net.pincette.json.streams.plugin.Plugin;
   uses javax.json.spi.JsonProvider;

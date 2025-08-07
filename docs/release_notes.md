@@ -1,5 +1,13 @@
 # Release Notes
 
+## 2.6.0
+
+* Add `$s3Transfer` aggregation pipeline stage.
+* Add the MongoDB operators `$fromEpochSeconds`, `$fromEpochMillis`, `$fromEpochNanos`, `$toDate`, `$toDay`, `$toEpochSeconds`, `$toEpochMillis`, `$toEpochNanos`, `$toMonth` and `$toYear`.
+* Fix the NullPointerException when trying to stop the keep-alive loop that isn't running.
+* Fix the module path issue for a dependency of `jackson-jq`.
+* Log errors when applications can't be started because there is not enough capacity.
+
 ## 2.5.0
 
 * Improve Reactive Streams throughput.

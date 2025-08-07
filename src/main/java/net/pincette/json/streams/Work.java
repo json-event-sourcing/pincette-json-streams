@@ -39,6 +39,7 @@ import static net.pincette.json.streams.Common.config;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
+import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.rs.streams.Message.message;
@@ -58,6 +59,7 @@ import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -262,6 +264,20 @@ class Work<T, U, V, W> {
         .sorted(Work::largestInstance);
   }
 
+  private static void logNotRunning(
+      final Set<String> allApplications, final Map<String, Set<String>> desiredPerInstance) {
+    difference(
+            allApplications,
+            desiredPerInstance.values().stream().flatMap(Collection::stream).collect(toSet()))
+        .forEach(
+            a ->
+                severe(
+                    () ->
+                        "Application "
+                            + a
+                            + " cannot be started because there is not enough capacity."));
+  }
+
   private static Map<String, Map<Partition, Long>> messageLagPerApplication(final JsonObject json) {
     return json.entrySet().stream()
         .collect(toMap(Entry::getKey, e -> messageLagPerTopic(e.getValue().asJsonObject())));
@@ -364,10 +380,10 @@ class Work<T, U, V, W> {
   }
 
   private static Stream<Entry<String, Set<String>>> smallestInstancesWithoutApplication(
-      final Map<String, Set<String>> desired,
+      final Map<String, Set<String>> desiredPerInstance,
       final String application,
       final int maximumAppsPerInstance) {
-    return desired.entrySet().stream()
+    return desiredPerInstance.entrySet().stream()
         .filter(
             e ->
                 !e.getValue().contains(application) && e.getValue().size() < maximumAppsPerInstance)
@@ -375,16 +391,17 @@ class Work<T, U, V, W> {
   }
 
   private static void spreadAdditionalApplications(
-      final Map<String, Set<String>> desired,
+      final Map<String, Set<String>> desiredPerInstance,
       final Map<String, Integer> additional,
       final int maximumAppsPerInstance) {
     additional.forEach(
-        (key, value) -> spreadAdditionalApplications(desired, key, value, maximumAppsPerInstance));
+        (key, value) ->
+            spreadAdditionalApplications(desiredPerInstance, key, value, maximumAppsPerInstance));
   }
 
   /** Some extra application instances may not be scheduled because there is no room left. */
   private static void spreadAdditionalApplications(
-      final Map<String, Set<String>> desired,
+      final Map<String, Set<String>> desiredPerInstance,
       final String application,
       final int count,
       final int maximumAppsPerInstance) {
@@ -392,8 +409,11 @@ class Work<T, U, V, W> {
 
     zip(
             rangeExclusive(0, count),
-            smallestInstancesWithoutApplication(desired, application, maximumAppsPerInstance))
-        .forEach(pair -> desired.put(pair.second.getKey(), union(pair.second.getValue(), toAdd)));
+            smallestInstancesWithoutApplication(
+                desiredPerInstance, application, maximumAppsPerInstance))
+        .forEach(
+            pair ->
+                desiredPerInstance.put(pair.second.getKey(), union(pair.second.getValue(), toAdd)));
   }
 
   private static void transfer(
@@ -444,6 +464,7 @@ class Work<T, U, V, W> {
       final Map<String, Set<String>> desiredPerInstance = giveWork(status, desired, workContext);
 
       logWork(desiredPerInstance);
+      logNotRunning(status.allApplications, desiredPerInstance);
       scaling(desiredPerInstance, desired);
       sendInstances(desiredPerInstance);
       saveWork(desiredPerInstance);

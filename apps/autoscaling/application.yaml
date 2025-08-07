@@ -1,0 +1,58 @@
+application: autoscaling
+title: Emit Autoscaling Metric
+version: 1.0.0
+description: |
+  JSON Streams can emit messages on an "instances" topic that say how many runtime instances 
+  there are and how many are desired. This application emits the difference as an OTEL metric, 
+  which can be used by autoscalers such as KEDA.
+parameters:
+  NAMESPACE: config:namespace
+  OTLP_HTTP: config:otlp.http
+  TOPIC: config:work.excessMessageLagTopic
+parts:
+  - name: otel
+    type: stream
+    fromTopic: ${TOPIC}
+    pipeline:
+      - $set:
+          otel:
+            resourceMetrics:
+              - resource:
+                  attributes:
+                    - key: service.namespace
+                      value:
+                        stringValue: ${NAMESPACE}
+                    - key: service.name
+                      value:
+                        stringValue: json-streams-autoscaling
+                scopeMetrics:
+                  - scope:
+                      name: json-streams
+                    metrics:
+                      - name: json_streams.instance_skew
+                        unit: "1"
+                        description: The difference between the number of desired and running instances
+                        gauge:
+                          dataPoints:
+                            - asInt:
+                                $subtract:
+                                  - $desired
+                                  - $running
+                              timeUnixNano:
+                                $toEpochNanos: $time
+      - $replaceWith: $otel
+      - $trace: null
+      - $http:
+          url:
+            $concat:
+              - ${OTLP_HTTP}
+              - /v1/metrics
+          method: POST
+          body: $$ROOT
+          as: result
+      - $match:
+          httpError:
+            $exists: true
+      - $log:
+          level: SEVERE
+          message: $$ROOT

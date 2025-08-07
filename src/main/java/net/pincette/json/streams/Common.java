@@ -16,11 +16,14 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Logger.getLogger;
 import static java.util.regex.Pattern.compile;
 import static java.util.stream.Collectors.joining;
+import static java.util.stream.Stream.concat;
+import static javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm;
 import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.tel.OtelUtil.addOtelLogHandler;
 import static net.pincette.jes.tel.OtelUtil.logRecordProcessor;
 import static net.pincette.json.JsonOrYaml.read;
+import static net.pincette.json.JsonUtil.asArray;
 import static net.pincette.json.JsonUtil.asString;
 import static net.pincette.json.JsonUtil.createArrayBuilder;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
@@ -68,6 +71,7 @@ import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.getLastSegment;
 import static net.pincette.util.Util.must;
+import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 import static net.pincette.util.Util.waitForCondition;
@@ -82,6 +86,9 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.MeterProvider;
 import java.io.File;
+import java.io.FileInputStream;
+import java.net.http.HttpRequest;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
@@ -105,7 +112,11 @@ import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonStructure;
 import javax.json.JsonValue;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import net.pincette.function.Fn;
+import net.pincette.function.SideEffect;
 import net.pincette.function.SupplierWithException;
 import net.pincette.jes.tel.OtelUtil;
 import net.pincette.json.JsonUtil;
@@ -115,6 +126,7 @@ import net.pincette.rs.streams.Message;
 import net.pincette.util.Builder;
 import net.pincette.util.Cases;
 import net.pincette.util.Pair;
+import net.pincette.util.Util.GeneralException;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
@@ -147,6 +159,7 @@ class Common {
   static final String JOIN = "join";
   static final String JSLT_IMPORTS = "jsltImports";
   static final String JSON_STREAMS = "json-streams";
+  private static final String KEY_STORE = "keyStore";
   static final String LAG = "$lag";
   static final String LEADER = "pincette-json-streams-leader";
   static final String LEFT = "left";
@@ -156,6 +169,7 @@ class Common {
   static final String NAME = "name";
   static final String ON = "on";
   static final String PARTS = "parts";
+  private static final String PASSWORD = "password";
   static final String PIPELINE = "pipeline";
   static final String PREPROCESSOR = "preprocessor";
   static final String REDUCER = "reducer";
@@ -327,6 +341,23 @@ class Common {
             (b1, b2) -> b1);
   }
 
+  static Optional<SSLContext> createSslContext(final JsonObject sslContext) {
+    final String password = sslContext.getString(PASSWORD);
+
+    return tryToGetRethrow(() -> SSLContext.getInstance("TLSv1.3"))
+        .flatMap(
+            context ->
+                getKeyStore(sslContext.getString(KEY_STORE), password)
+                    .flatMap(store -> getKeyManagerFactory(store, password))
+                    .flatMap(Common::getKeyManagers)
+                    .map(managers -> pair(context, managers)))
+        .map(
+            pair ->
+                SideEffect.<SSLContext>run(
+                        () -> tryToDoRethrow(() -> pair.first.init(pair.second, null, null)))
+                    .andThenGet(() -> pair.first));
+  }
+
   private static Transformer createTransformer(
       final Map<File, Pair<String, String>> jsltImports,
       final Map<File, Pair<String, JsonObject>> validatorImports,
@@ -351,7 +382,7 @@ class Common {
   private static JsonObject expandApplication(
       final JsonObject application, final File baseDirectory, final JsonObject parameters) {
     return expandSequenceContainer(application, baseDirectory, parameters)
-        .apply(PARTS, expandPart());
+        .apply(PARTS, expandPart(application(application)));
   }
 
   private static JsonObject expandCommand(
@@ -387,15 +418,25 @@ class Common {
         .reduce(createObjectBuilder(), (b, p) -> b.add(p.first, p.second), (b1, b2) -> b1);
   }
 
-  private static Expander expandPart() {
+  private static Expander expandPart(final String application) {
     return part ->
         baseDirectory ->
-            parameters ->
-                switch (part.getString(TYPE)) {
-                  case AGGREGATE -> expandAggregate(part, baseDirectory, parameters);
-                  case STREAM -> expandStream(part, PIPELINE, baseDirectory, parameters);
-                  default -> part;
-                };
+            parameters -> {
+              if (!part.containsKey(TYPE)) {
+                throw new GeneralException(
+                    "The application "
+                        + application
+                        + " has the part "
+                        + part.getString(NAME, "unknown")
+                        + ", which has no type field.");
+              }
+
+              return switch (part.getString(TYPE)) {
+                case AGGREGATE -> expandAggregate(part, baseDirectory, parameters);
+                case STREAM -> expandStream(part, PIPELINE, baseDirectory, parameters);
+                default -> part;
+              };
+            };
   }
 
   private static JsonArray expandSequence(
@@ -546,6 +587,49 @@ class Common {
                           + " could not be substituted by the configuration");
               return value;
             });
+  }
+
+  private static Optional<KeyManager[]> getKeyManagers(final KeyManagerFactory factory) {
+    return Optional.of(factory.getKeyManagers()).filter(managers -> managers.length > 0);
+  }
+
+  private static Optional<KeyManagerFactory> getKeyManagerFactory(
+      final KeyStore keyStore, final String password) {
+    return tryToGetRethrow(() -> KeyManagerFactory.getInstance(getDefaultAlgorithm()))
+        .map(
+            factory ->
+                SideEffect.<KeyManagerFactory>run(
+                        () -> tryToDoRethrow(() -> factory.init(keyStore, password.toCharArray())))
+                    .andThenGet(() -> factory));
+  }
+
+  private static Optional<KeyStore> getKeyStore(final String keyStore, final String password) {
+    return tryToGetRethrow(() -> KeyStore.getInstance("pkcs12"))
+        .map(
+            store ->
+                SideEffect.<KeyStore>run(
+                        () ->
+                            tryToDoRethrow(
+                                () ->
+                                    store.load(
+                                        new FileInputStream(keyStore), password.toCharArray())))
+                    .andThenGet(() -> store));
+  }
+
+  static HttpRequest.Builder getRequestBuilder(
+      final HttpRequest.Builder builder, final JsonObject headers) {
+    return concat(
+            headers.entrySet().stream()
+                .filter(entry -> isString(entry.getValue()))
+                .map(entry -> pair(entry.getKey(), asString(entry.getValue()).getString())),
+            headers.entrySet().stream()
+                .filter(entry -> isArray(entry.getValue()))
+                .flatMap(
+                    entry ->
+                        asArray(entry.getValue()).stream()
+                            .flatMap(value -> stringValue(value).stream())
+                            .map(raw -> pair(entry.getKey(), raw))))
+        .reduce(builder, (b, p) -> b.header(p.first, p.second), (b1, b2) -> b1);
   }
 
   private static Optional<String> getScriptImport(final String line) {

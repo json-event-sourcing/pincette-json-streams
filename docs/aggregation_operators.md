@@ -511,6 +511,107 @@ $switch:
     then: "small"
   default: "Unknown"
 ```
+## ISO-8601
+
+### $fromEpochMillis
+
+Creates an ISO-8601 timestamp from an epoch milliseconds value.
+
+Example:
+
+```yaml
+$fromEpochMillis: 1754483753622
+```
+
+### $fromEpochNanos
+
+Creates an ISO-8601 timestamp from an epoch nanoseconds value.
+
+Example:
+
+```yaml
+$fromEpochNanos: 1754483753622243
+```
+
+### $fromEpochSeconds
+
+Creates an ISO-8601 timestamp from an epoch seconds value.
+
+Example:
+
+```yaml
+$fromEpochSeconds: 1754483753
+```
+
+### $toDate
+
+Extracts the date from an ISO-8601 timestamp.
+
+Example:
+
+```yaml
+$toDate: 2025-08-06T12:35:53.622243Z
+```
+
+### $toDay
+
+Extracts the day of the month from an ISO-8601 timestamp. The result is a number.
+
+Example:
+
+```yaml
+$toDay: 2025-08-06T12:35:53.622243Z
+```
+
+### $toEpochMillis
+
+Converts an ISO-8601 timestamp to an epoch milliseconds value.
+
+Example:
+
+```yaml
+$toEpochMillis: 2025-08-06T12:35:53.622243Z
+```
+
+### $toEpochNanos
+
+Converts an ISO-8601 timestamp to an epoch nanoseconds value.
+
+Example:
+
+```yaml
+$toEpochNanos: 2025-08-06T12:35:53.622243Z
+```
+
+### $toEpochSeconds
+
+Converts an ISO-8601 timestamp to an epoch seconds value.
+
+Example:
+
+```yaml
+$toEpochSeconds: 2025-08-06T12:35:53.622243Z
+```
+
+### $toMonth
+
+Extracts the month of the year from an ISO-8601 timestamp. The result is a number.
+
+Example:
+
+```yaml
+$toMonth: 2025-08-06T12:35:53.622243Z
+```
+
+### $toYear
+
+Extracts the year from an ISO-8601 timestamp. The result is a number.
+
+Example:
+
+```yaml
+$toYear: 2025-08-06T12:35:53.622243Z
+```
 
 ## Literal
 
