@@ -21,6 +21,7 @@ import static net.pincette.jes.Util.compose;
 import static net.pincette.jes.Util.getUsername;
 import static net.pincette.jes.tel.OtelUtil.addLabels;
 import static net.pincette.jes.tel.OtelUtil.counter;
+import static net.pincette.jes.tel.OtelUtil.retainTraceSample;
 import static net.pincette.jes.util.Mongo.resolve;
 import static net.pincette.jes.util.Mongo.unresolve;
 import static net.pincette.jes.util.Mongo.withResolver;
@@ -206,6 +207,7 @@ import org.bson.conversions.Bson;
 class App<T, U, V, W> {
   private static final String BACKPRESSURE_TIMEOUT = "backpressureTimeout";
   private static final String COLLECTION_PREFIX = "collection-";
+  private static final int DEFAULT_TRACE_SAMPLE_PERCENTAGE = 10;
   private static final String IN = "in";
   private static final String INVALID_COMMAND = "invalid-command";
   private static final String JOIN_TIMESTAMP = "_join_timestamp";
@@ -219,6 +221,7 @@ class App<T, U, V, W> {
   private static final String TO_STRING = "toString";
   private static final String TRACE = "trace";
   private static final String TRACE_ID = "traceId";
+  private static final String TRACE_SAMPLE_PERCENTAGE = "traceSamplePercentage";
   private static final String TRACES_TOPIC = "tracesTopic";
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
   private static final String WINDOW = "window";
@@ -568,7 +571,7 @@ class App<T, U, V, W> {
                 .ifPresent(
                     list -> {
                       if (list.size() == 1) {
-                        v.subscribe(list.get(0));
+                        v.subscribe(list.getFirst());
                       } else if (!list.isEmpty()) {
                         v.subscribe(Fanout.of(list));
                       }
@@ -909,10 +912,19 @@ class App<T, U, V, W> {
       final String scope,
       final Function<Message<String, JsonObject>, String> name,
       final Map<String, String> labels) {
+    final var percentage =
+        configValue(context.config::getInt, TRACE_SAMPLE_PERCENTAGE)
+            .orElse(DEFAULT_TRACE_SAMPLE_PERCENTAGE);
+
     return box(
         map(
             message ->
-                traceMessage(message.value, eventTrace, scope + "." + name.apply(message), labels)
+                traceMessage(
+                        message.value,
+                        eventTrace,
+                        scope + "." + name.apply(message),
+                        labels,
+                        percentage)
                     .map(m -> message.withValue(m).withKey(m.getString(TRACE_ID)))
                     .orElse(null)),
         filter(Objects::nonNull));
@@ -1018,7 +1030,7 @@ class App<T, U, V, W> {
                     list ->
                         m.withValue(
                             createObjectBuilder(m.value)
-                                .add(COMMAND, list.get(0))
+                                .add(COMMAND, list.getFirst())
                                 .add(REDUCER_STATE, list.get(1))
                                 .build())));
   }
@@ -1139,8 +1151,10 @@ class App<T, U, V, W> {
       final JsonObject json,
       final EventTrace eventTrace,
       final String name,
-      final Map<String, String> labels) {
+      final Map<String, String> labels,
+      final int percentage) {
     return getString(json, "/" + CORR)
+        .filter(corr -> retainTraceSample(corr, percentage))
         .map(
             corr ->
                 eventTrace

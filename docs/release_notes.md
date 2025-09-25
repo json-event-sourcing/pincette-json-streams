@@ -1,5 +1,13 @@
 # Release Notes
 
+## 2.7.0
+
+* Add distributed trace sampling.
+* Fix the issue where the log levels in the configuration were not used when a `logging.properties` file was set with the system property.
+* Add cool down period for application scaling.
+* Allow overcommitment above the theoretical maximum number of applications per runtime instance.
+* Fix the stalling stream merge bug.
+
 ## 2.6.0
 
 * Add `$s3Transfer` aggregation pipeline stage.

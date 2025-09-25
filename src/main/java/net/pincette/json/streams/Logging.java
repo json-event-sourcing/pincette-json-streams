@@ -1,22 +1,21 @@
 package net.pincette.json.streams;
 
-import static java.lang.System.getProperty;
 import static java.util.Optional.ofNullable;
 import static java.util.logging.Level.SEVERE;
+import static java.util.logging.Level.parse;
 import static java.util.logging.LogManager.getLogManager;
+import static net.pincette.config.Util.configValue;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.util.Collections.flatten;
 import static net.pincette.util.Pair.pair;
+import static net.pincette.util.Util.initLogging;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigObject;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
@@ -32,16 +31,20 @@ class Logging {
 
   private Logging() {}
 
-  private static void addLevels(final Properties logging, final Config config) {
+  private static void addLevels(final Config config) {
     tryToGetSilent(() -> config.getObject(LOG))
         .map(ConfigObject::unwrapped)
         .map(map -> flatten(map, "."))
         .ifPresent(
             log ->
                 log.entrySet().stream()
-                    .map(e -> pair(e.getKey(), e.getValue()))
-                    .filter(p -> p.second instanceof String)
-                    .forEach(p -> logging.setProperty(p.first + LEVEL, (String) p.second)));
+                    .map(e -> pair(e.getKey(), e.getValue().toString()))
+                    .flatMap(
+                        pair ->
+                            tryToGetSilent(() -> parse(pair.second))
+                                .map(level -> pair(pair.first, level))
+                                .stream())
+                    .forEach(pair -> getLogger(pair.first).setLevel(pair.second)));
   }
 
   static void exception(final Throwable e) {
@@ -83,29 +86,9 @@ class Logging {
   }
 
   static void init(final Config config) {
-    if (getProperty("java.util.logging.config.class") == null
-        && getProperty("java.util.logging.config.file") == null) {
-      final var logging = loadLogging();
-      final var out = new ByteArrayOutputStream();
-
-      tryToGetSilent(() -> config.getString(LOG_LEVEL))
-          .ifPresent(level -> logging.setProperty(LEVEL, level));
-      addLevels(logging, config);
-
-      tryToDoRethrow(
-          () -> {
-            logging.store(out, null);
-            getLogManager().readConfiguration(new ByteArrayInputStream(out.toByteArray()));
-          });
-    }
-  }
-
-  private static Properties loadLogging() {
-    final var properties = new Properties();
-
-    tryToDoRethrow(() -> properties.load(Logging.class.getResourceAsStream("/logging.properties")));
-
-    return properties;
+    initLogging();
+    setGlobalLogLevel(config);
+    addLevels(config);
   }
 
   static void logStageObject(final String name, final JsonValue expression) {
@@ -113,6 +96,17 @@ class Logging {
         SEVERE,
         "The value of {0} should be an object, but {1} was given.",
         new Object[] {name, string(expression)});
+  }
+
+  private static void setGlobalLogLevel(final Config config) {
+    configValue(config::getString, LOG_LEVEL)
+        .ifPresent(
+            level ->
+                tryToDoRethrow(
+                    () ->
+                        getLogManager()
+                            .updateConfiguration(
+                                property -> ((o, n) -> property.equals(LEVEL) ? level : o))));
   }
 
   static void severe(final String message) {

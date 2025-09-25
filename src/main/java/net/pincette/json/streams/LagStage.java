@@ -104,7 +104,7 @@ class LagStage {
         messageLags.entrySet().stream()
             .collect(
                 groupingBy(
-                    e -> e.getKey().topic,
-                    toMap(e -> valueOf(e.getKey().offset), Entry::getValue))));
+                    e -> e.getKey().topic(),
+                    toMap(e -> valueOf(e.getKey().offset()), Entry::getValue))));
   }
 }

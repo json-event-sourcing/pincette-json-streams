@@ -2,8 +2,7 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Filters.eq;
 import static java.lang.Boolean.FALSE;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
+import static java.lang.Math.clamp;
 import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.stream;
@@ -34,6 +33,7 @@ import static net.pincette.json.streams.Logging.getLogger;
 import static net.pincette.json.streams.Logging.info;
 import static net.pincette.json.streams.Read.readTopologies;
 import static net.pincette.json.streams.Work.WorkContext.maximumAppsPerInstance;
+import static net.pincette.rs.Serializer.startPool;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
@@ -140,8 +140,8 @@ class Run<T, U, V, W> implements Runnable {
         .doTask(c -> LOGGER.info("Loading applications ..."));
   }
 
-  private static int reactivePoolSize(final Context context) {
-    return min(MAX_POOL_SIZE, max(MIN_POOL_SIZE, maximumAppsPerInstance(context)));
+  private static void reactivePoolSize(final Context context) {
+    startPool(clamp(maximumAppsPerInstance(context), MIN_POOL_SIZE, MAX_POOL_SIZE));
   }
 
   private static Context withPlugins(final Plugins plugins, final Context context) {

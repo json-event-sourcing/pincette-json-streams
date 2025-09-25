@@ -27,9 +27,11 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |otlp.http|No|The OpenTelemetry endpoint for traces. It should be a URL like `http://localhost:4318`. You only need it if you run the [`traces` application](https://github.com/json-event-sourcing/pincette-json-streams/tree/master/apps/traces).|
 |plugins|No|The directory from where the plugins are loaded.|
 |throttleTime|No|Since the Kafka poller has to run in its own thread, backpressure co-ordination may be too slow, which can cause topic publisher batch queues to grow too large. If the messages are large as well, then you may have memory issues. With this configuration entry you can throttle the poller. This has to stay under the value of the Kafka parameter `max.poll.interval.ms`. Note that this causes latency spikes. An application can override this by adding the application name as a prefix.|
+|traceSamplePercentage|No|The percentage of distributed trace samples that are retained. The value should be between 1 and 100. The default is 10. You should use the same percentage in all components that contribute to a trace, otherwise you may see incomplete traces.|
 |tracesTopic|No|The Kafka topic to which the event traces are sent. If it is not set, then no tracing will happen.|
 |work|No|Configuration for the leader to divide the work amongst the instances.|
 |work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 20 milliseconds. With this parameter you can tune the capacity of one instance.|
+|work.coolDownPeriod|No|The time that is waited before applications that are scaled in are actually stopped. The default is one minute.|
 |work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `desired`, `running` and `time`.|
 |work.instancesTopic|No|If this Kafka topic is provided, then a message with all the running instances and their work is published on it by the leader.|
 |work.maximumAppsPerInstance|No|The maximum number of applications a running instance is willing to pick up. The default value is 50.|

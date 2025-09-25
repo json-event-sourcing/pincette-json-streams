@@ -22,6 +22,7 @@ import static java.util.stream.Collectors.summingInt;
 import static java.util.stream.Collectors.summingLong;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
+import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
@@ -50,6 +51,7 @@ import static net.pincette.util.Collections.set;
 import static net.pincette.util.Collections.union;
 import static net.pincette.util.ImmutableBuilder.create;
 import static net.pincette.util.Pair.pair;
+import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.stream;
 import static net.pincette.util.StreamUtil.zip;
@@ -80,7 +82,9 @@ import org.bson.conversions.Bson;
 class Work<T, U, V, W> {
   private static final String AVERAGE_MESSAGE_TIME_ESTIMATE = "work.averageMessageTimeEstimate";
   private static final String AVERAGE_MESSAGE_TIME_ESTIMATE_SIM = "averageMessageTimeEstimate";
+  private static final String COOL_DOWN_PERIOD = "work.coolDownPeriod";
   private static final Duration DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE = ofMillis(20);
+  private static final Duration DEFAULT_COOL_DOWN_PERIOD = ofMinutes(1);
   private static final Duration DEFAULT_INTERVAL = ofMinutes(1);
   private static final String DESIRED = "desired";
   private static final int DEFAULT_MAXIMUM_APPS_PER_INSTANCE = 50;
@@ -113,12 +117,12 @@ class Work<T, U, V, W> {
       final Context context) {
     this.collection = collection;
     this.provider = provider;
-    this.workContext = new WorkContext(context);
     this.context = context;
-    this.excessMessageLagTopic =
+    workContext = new WorkContext(context);
+    excessMessageLagTopic =
         config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
-    this.instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
-    this.intervalValue = config(context, config -> config.getDuration(INTERVAL), DEFAULT_INTERVAL);
+    instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
+    intervalValue = config(context, config -> config.getDuration(INTERVAL), DEFAULT_INTERVAL);
   }
 
   private static long capacityPerSecond(final WorkContext context) {
@@ -179,10 +183,11 @@ class Work<T, U, V, W> {
   }
 
   private static Map<String, Integer> diffApplicationInstances(
-      final Map<String, Integer> remove, final Map<String, Integer> from) {
+      final Map<String, Integer> running, final Map<String, Integer> desired) {
     return map(
-        from.entrySet().stream()
-            .map(e -> pair(e.getKey(), e.getValue() - ofNullable(remove.get(e.getKey())).orElse(0)))
+        desired.entrySet().stream()
+            .map(
+                e -> pair(e.getKey(), e.getValue() - ofNullable(running.get(e.getKey())).orElse(0)))
             .filter(pair -> pair.second > 0));
   }
 
@@ -227,15 +232,18 @@ class Work<T, U, V, W> {
 
     removeRunningInExcess(
         desiredApplicationsPerInstance,
-        diffApplicationInstances(
-            desiredApplicationInstances, status.runningApplicationInstances()));
+        diffApplicationInstances(desiredApplicationInstances, status.runningApplicationInstances()),
+        context);
 
     spreadAdditionalApplications(
         desiredApplicationsPerInstance,
-        diffApplicationInstances(status.runningApplicationInstances(), desiredApplicationInstances),
-        context.maximumAppsPerInstance);
+        diffApplicationInstances(
+            status.runningApplicationInstances(), desiredApplicationInstances));
 
     rebalance(desiredApplicationsPerInstance);
+    warnForExtraApplications(desiredApplicationsPerInstance, context.maximumAppsPerInstance);
+    context.removeCold();
+    context.addCoolingDown(status.runningInstancesWithApplications, desiredApplicationsPerInstance);
 
     return desiredApplicationsPerInstance;
   }
@@ -315,18 +323,28 @@ class Work<T, U, V, W> {
   }
 
   private static void removeRunningInExcess(
-      final Map<String, Set<String>> desired, final Map<String, Integer> runningInExcess) {
-    runningInExcess.forEach((key, value) -> removeRunningInExcess(desired, key, value));
+      final Map<String, Set<String>> desiredApplicationsPerInstance,
+      final Map<String, Integer> runningInExcess,
+      final WorkContext context) {
+    runningInExcess.forEach(
+        (key, value) -> removeRunningInExcess(desiredApplicationsPerInstance, key, value, context));
   }
 
   private static void removeRunningInExcess(
-      final Map<String, Set<String>> desired, final String application, final int excess) {
+      final Map<String, Set<String>> desiredApplicationsPerInstance,
+      final String application,
+      final int excess,
+      final WorkContext context) {
     final Set<String> toRemove = set(application);
 
-    zip(rangeExclusive(0, excess), largestInstancesWithApplication(desired, application))
+    zip(
+            rangeExclusive(0, excess),
+            largestInstancesWithApplication(desiredApplicationsPerInstance, application))
+        .filter(pair -> !context.isCoolingDown(application))
         .forEach(
             pair ->
-                desired.put(pair.second.getKey(), difference(pair.second.getValue(), toRemove)));
+                desiredApplicationsPerInstance.put(
+                    pair.second.getKey(), difference(pair.second.getValue(), toRemove)));
   }
 
   private static int runningApplicationInstances(final Map<String, Set<String>> work) {
@@ -371,7 +389,8 @@ class Work<T, U, V, W> {
         new WorkContext()
             .withAverageMessageTimeEstimate(
                 ofMillis(json.getInt(AVERAGE_MESSAGE_TIME_ESTIMATE_SIM)))
-            .withMaximumAppsPerInstance(json.getInt(MAXIMUM_APPS_PER_INSTANCE_SIM)));
+            .withMaximumAppsPerInstance(json.getInt(MAXIMUM_APPS_PER_INSTANCE_SIM))
+            .withCoolDownPeriod(ofMillis(0)));
   }
 
   private static int smallestInstance(
@@ -380,37 +399,27 @@ class Work<T, U, V, W> {
   }
 
   private static Stream<Entry<String, Set<String>>> smallestInstancesWithoutApplication(
-      final Map<String, Set<String>> desiredPerInstance,
-      final String application,
-      final int maximumAppsPerInstance) {
+      final Map<String, Set<String>> desiredPerInstance, final String application) {
     return desiredPerInstance.entrySet().stream()
-        .filter(
-            e ->
-                !e.getValue().contains(application) && e.getValue().size() < maximumAppsPerInstance)
+        .filter(e -> !e.getValue().contains(application))
         .sorted(Work::smallestInstance);
   }
 
   private static void spreadAdditionalApplications(
-      final Map<String, Set<String>> desiredPerInstance,
-      final Map<String, Integer> additional,
-      final int maximumAppsPerInstance) {
+      final Map<String, Set<String>> desiredPerInstance, final Map<String, Integer> additional) {
     additional.forEach(
-        (key, value) ->
-            spreadAdditionalApplications(desiredPerInstance, key, value, maximumAppsPerInstance));
+        (key, value) -> spreadAdditionalApplications(desiredPerInstance, key, value));
   }
 
-  /** Some extra application instances may not be scheduled because there is no room left. */
   private static void spreadAdditionalApplications(
       final Map<String, Set<String>> desiredPerInstance,
       final String application,
-      final int count,
-      final int maximumAppsPerInstance) {
+      final int count) {
     final Set<String> toAdd = set(application);
 
     zip(
             rangeExclusive(0, count),
-            smallestInstancesWithoutApplication(
-                desiredPerInstance, application, maximumAppsPerInstance))
+            smallestInstancesWithoutApplication(desiredPerInstance, application))
         .forEach(
             pair ->
                 desiredPerInstance.put(pair.second.getKey(), union(pair.second.getValue(), toAdd)));
@@ -427,6 +436,23 @@ class Work<T, U, V, W> {
               above.remove(application);
               below.add(application);
             });
+  }
+
+  private static void warnForExtraApplications(
+      final Map<String, Set<String>> desiredApplicationsPerInstance,
+      final int maximumAppsPerInstance) {
+    desiredApplicationsPerInstance.forEach(
+        (k, v) -> {
+          if (v.size() > maximumAppsPerInstance) {
+            WORK_LOGGER.warning(
+                () ->
+                    "Instance "
+                        + k
+                        + " has "
+                        + (v.size() - maximumAppsPerInstance)
+                        + " more applications running than its theoretical capacity.");
+          }
+        });
   }
 
   private Set<String> allApplications() {
@@ -625,11 +651,11 @@ class Work<T, U, V, W> {
 
     private static Map<String, Long> messageLagPerTopic(final Map<Partition, Long> messageLag) {
       return messageLag.entrySet().stream()
-          .collect(groupingBy(e -> e.getKey().topic, summingLong(Entry::getValue)));
+          .collect(groupingBy(e -> e.getKey().topic(), summingLong(Entry::getValue)));
     }
 
     private static Map<String, Integer> partitionsPerTopic(final Stream<Partition> partitions) {
-      return partitions.collect(groupingBy(p -> p.topic, summingInt(p -> 1)));
+      return partitions.collect(groupingBy(Partition::topic, summingInt(p -> 1)));
     }
 
     private int maximumAllowedApplicationInstances(final String application) {
@@ -693,20 +719,44 @@ class Work<T, U, V, W> {
 
   static class WorkContext {
     private final Duration averageMessageTimeEstimate;
+    private final Duration coolDownPeriod;
     private final int maximumAppsPerInstance;
+    private final Map<String, Instant> started = new HashMap<>();
 
     private WorkContext() {
-      this(null, -1);
+      this(null, -1, null);
     }
 
     private WorkContext(
-        final Duration averageMessageTimeEstimate, final int maximumAppsPerInstance) {
+        final Duration averageMessageTimeEstimate,
+        final int maximumAppsPerInstance,
+        final Duration coolDownPeriod) {
       this.averageMessageTimeEstimate = averageMessageTimeEstimate;
       this.maximumAppsPerInstance = maximumAppsPerInstance;
+      this.coolDownPeriod = coolDownPeriod;
     }
 
     private WorkContext(final Context context) {
-      this(averageMessageTimeEstimate(context), maximumAppsPerInstance(context));
+      this(
+          averageMessageTimeEstimate(context),
+          maximumAppsPerInstance(context),
+          coolDownPeriod(context));
+    }
+
+    private static Stream<String> applicationsForNewInstances(
+        final Map<String, Set<String>> running, final Map<String, Set<String>> desired) {
+      return desired.entrySet().stream()
+          .filter(e -> !running.containsKey(e.getKey()))
+          .flatMap(e -> e.getValue().stream());
+    }
+
+    private static Stream<String> applicationsForExistingInstances(
+        final Map<String, Set<String>> running, final Map<String, Set<String>> desired) {
+      return desired.entrySet().stream()
+          .flatMap(
+              e ->
+                  ofNullable(running.get(e.getKey())).stream()
+                      .flatMap(apps -> difference(e.getValue(), apps).stream()));
     }
 
     private static Duration averageMessageTimeEstimate(final Context context) {
@@ -716,6 +766,11 @@ class Work<T, U, V, W> {
           DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE);
     }
 
+    private static Duration coolDownPeriod(final Context context) {
+      return configValue(context.config::getDuration, COOL_DOWN_PERIOD)
+          .orElse(DEFAULT_COOL_DOWN_PERIOD);
+    }
+
     static int maximumAppsPerInstance(final Context context) {
       return config(
           context,
@@ -723,12 +778,44 @@ class Work<T, U, V, W> {
           DEFAULT_MAXIMUM_APPS_PER_INSTANCE);
     }
 
+    private void addCoolingDown(
+        final Map<String, Set<String>> running, final Map<String, Set<String>> desired) {
+      final var now = now();
+
+      concat(
+              applicationsForNewInstances(running, desired),
+              applicationsForExistingInstances(running, desired))
+          .forEach(app -> started.put(app, now));
+    }
+
+    private boolean isCoolingDown(final String application) {
+      return ofNullable(started.get(application)).map(this::isCoolingDown).orElse(false);
+    }
+
+    private boolean isCoolingDown(final Instant moment) {
+      return moment.plus(coolDownPeriod).isAfter(now());
+    }
+
+    private void removeCold() {
+      var keys =
+          started.entrySet().stream()
+              .filter(e -> !isCoolingDown(e.getValue()))
+              .map(Entry::getKey)
+              .collect(toSet());
+
+      keys.forEach(started::remove);
+    }
+
     private WorkContext withAverageMessageTimeEstimate(final Duration averageMessageTimeEstimate) {
-      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance);
+      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance, coolDownPeriod);
+    }
+
+    private WorkContext withCoolDownPeriod(final Duration coolDownPeriod) {
+      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance, coolDownPeriod);
     }
 
     private WorkContext withMaximumAppsPerInstance(final int maximumAppsPerInstance) {
-      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance);
+      return new WorkContext(averageMessageTimeEstimate, maximumAppsPerInstance, coolDownPeriod);
     }
   }
 }

@@ -41,7 +41,6 @@ parts:
                               timeUnixNano:
                                 $toEpochNanos: $time
       - $replaceWith: $otel
-      - $trace: null
       - $http:
           url:
             $concat:

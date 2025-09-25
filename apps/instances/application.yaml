@@ -1,0 +1,66 @@
+application: instances
+title: Emit Metric For Number of Application Instances
+version: 1.0.0
+description: |
+  JSON Streams can emit messages on an "instances" topic that say which applications should be 
+  running in which runtime instance. This application emits the total number of application
+  instances for each application as an OTEL metric.
+parameters:
+  NAMESPACE: config:namespace
+  OTLP_HTTP: config:otlp.http
+  TOPIC: config:work.instancesTopic
+parts:
+  - name: otel
+    type: stream
+    fromTopic: ${TOPIC}
+    pipeline:
+      - $jq: '[.. | select(type=="array") | .[]] | reduce .[] as $app ({}; .[$app] += 1)'
+      - $set:
+          array:
+            $objectToArray: $$ROOT
+          _now: $$NOW
+      - $set:
+          otel:
+            resourceMetrics:
+              $map:
+                input: $array
+                as: el
+                in:
+                  resource:
+                    attributes:
+                      - key: service.namespace
+                        value:
+                          stringValue: ${NAMESPACE}
+                      - key: service.name
+                        value:
+                          stringValue: json-streams-instances
+                      - key: application
+                        value:
+                          stringValue: $$el.k
+                  scopeMetrics:
+                    - scope:
+                        name: json-streams
+                      metrics:
+                        - name: json_streams.application_instances
+                          unit: "1"
+                          description: The number of running application instances
+                          gauge:
+                            dataPoints:
+                              - asInt: $$el.v
+                                timeUnixNano:
+                                  $toEpochNanos: $_now
+      - $replaceWith: $otel
+      - $http:
+          url:
+            $concat:
+              - ${OTLP_HTTP}
+              - /v1/metrics
+          method: POST
+          body: $$ROOT
+          as: result
+      - $match:
+          httpError:
+            $exists: true
+      - $log:
+          level: SEVERE
+          message: $$ROOT
