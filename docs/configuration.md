@@ -14,11 +14,13 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |contextPath|No|The context path used in generated URLs.|
 |environment|No|The name of the environment, e.g. "tst", "prd". When it is present it will be used for the applications as a replacement for occurrences of `${ENV}`.|
 |groupIdSuffix|No|When set `-<suffix>` will be added to the consumer group ID of the applications. Without it the IDs are just the application names. With this configuration field you can run multiple environments on the same Kafka cluster.|
+|inactivityPeriod|No|The period after which an application is said to no longer consume messages from a topic. The default is 10 seconds. An application can override this by adding the application name as a prefix.|
 |kafka|Yes|All Kafka settings come below this entry. So for example, the setting `bootstrap.servers` would go to the entry `kafka.bootstrap.servers`.|
 |kafka.num.stream.threads|No|The number of worker threads per instance.|
 |kafka.replication.factor|No|Check your Kafka cluster settings for this.|
 |log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Telemetry](telemetry.md).|
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
+|maximumMessageLag|No|The maximum allowed message lag during inactivity before an application is restarted. The default is 50. An application can override this by adding the application name as a prefix.|
 |mongodb.uri|Yes|The MongoDB connection URL.|
 |mongodb.database|Yes|The MongoDB database.|
 |mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line. Make sure to create a [TTL](https://www.mongodb.com/docs/manual/core/index-ttl/) index on the field `aliveAt`. Set the expiration period higher than the `keepAliveInterval` and `leaderInterval` configuration settings. This index is needed for cases where instances suddenly stop.|

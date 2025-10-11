@@ -1,6 +1,7 @@
 package net.pincette.json.streams;
 
 import static java.time.Duration.ofMillis;
+import static java.time.Duration.ofSeconds;
 import static java.util.Collections.emptySet;
 import static java.util.concurrent.CompletableFuture.completedStage;
 import static java.util.stream.Collectors.toMap;
@@ -60,7 +61,10 @@ class KafkaProvider
   private static final String BATCH_TIMEOUT = "batchTimeout";
   private static final int DEFAULT_BATCH_SIZE = 100;
   private static final Duration DEFAULT_BATCH_TIMEOUT = ofMillis(50);
+  private static final Duration DEFAULT_INACTIVITY_PERIOD = ofSeconds(10);
+  private static final int DEFAULT_MAXIMUM_MESSAGE_LAG = 50;
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
+  private static final String INACTIVITY_PERIOD = "inactivityPeriod";
   private static final String KAFKA = "kafka";
   private static final Set<String> KAFKA_ADMIN_CONFIG_NAMES =
       union(
@@ -71,6 +75,7 @@ class KafkaProvider
           pair(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class),
           pair(VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class),
           pair(ENABLE_AUTO_COMMIT_CONFIG, false));
+  private static final String MAXIMUM_MESSAGE_LAG = "maximumMessageLag";
   private static final String THROTTLE_TIME = "throttleTime";
 
   private final Admin admin;
@@ -169,6 +174,8 @@ class KafkaProvider
         fromPublisher(
             publisher(() -> consumer(application, batchSize))
                 .withEventHandler(consumerEventHandler)
+                .withMaximumMessageLag(maximumMessageLag(application))
+                .withInactivityPeriod(inactivityPeriod(application))
                 .withThrottleTime(
                     configValueApp(config::getDuration, THROTTLE_TIME, application).orElse(null))),
         fromSubscriber(
@@ -226,6 +233,16 @@ class KafkaProvider
 
   public Producer getProducer() {
     return producer;
+  }
+
+  private Duration inactivityPeriod(final String application) {
+    return configValueApp(config::getDuration, INACTIVITY_PERIOD, application)
+        .orElse(DEFAULT_INACTIVITY_PERIOD);
+  }
+
+  private int maximumMessageLag(final String application) {
+    return configValueApp(config::getInt, MAXIMUM_MESSAGE_LAG, application)
+        .orElse(DEFAULT_MAXIMUM_MESSAGE_LAG);
   }
 
   public CompletionStage<Map<String, Map<Partition, Long>>> messageLag(

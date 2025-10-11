@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.7.1
+
+* Add `maximumMessageLag` and `inactivityPeriod` configuration entries.
+
 ## 2.7.0
 
 * Add distributed trace sampling.
