@@ -5,20 +5,27 @@ import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Level.parse;
 import static java.util.logging.LogManager.getLogManager;
 import static net.pincette.config.Util.configValue;
+import static net.pincette.jes.tel.OtelUtil.logRecordProcessor;
+import static net.pincette.jes.tel.OtelUtil.otelLogHandler;
 import static net.pincette.json.JsonUtil.string;
+import static net.pincette.json.streams.Application.APP_VERSION;
+import static net.pincette.json.streams.Common.namespace;
 import static net.pincette.util.Collections.flatten;
 import static net.pincette.util.Pair.pair;
+import static net.pincette.util.StreamUtil.stream;
 import static net.pincette.util.Util.initLogging;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetSilent;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigObject;
+import io.opentelemetry.sdk.logs.LogRecordProcessor;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 import javax.json.JsonValue;
 
 class Logging {
@@ -45,6 +52,22 @@ class Logging {
                                 .map(level -> pair(pair.first, level))
                                 .stream())
                     .forEach(pair -> getLogger(pair.first).setLevel(pair.second)));
+  }
+
+  private static void addOtelHandlers(final Stream<String> loggers, final Config config) {
+    logRecordProcessor(config).ifPresent(p -> addOtelHandlers(p, loggers, namespace(config)));
+  }
+
+  private static void addOtelHandlers(
+      final LogRecordProcessor processor, final Stream<String> loggers, final String namespace) {
+    loggers
+        .filter(name -> !name.isEmpty())
+        .flatMap(
+            name ->
+                otelLogHandler(namespace, name, APP_VERSION, processor)
+                    .map(h -> pair(name, h))
+                    .stream())
+        .forEach(pair -> getLogger(pair.first).addHandler(pair.second));
   }
 
   static void exception(final Throwable e) {
@@ -89,6 +112,7 @@ class Logging {
     initLogging();
     setGlobalLogLevel(config);
     addLevels(config);
+    addOtelHandlers(stream(getLogManager().getLoggerNames()), config);
   }
 
   static void logStageObject(final String name, final JsonValue expression) {
@@ -126,7 +150,7 @@ class Logging {
   }
 
   static <T> T trace(final Supplier<String> message, final T value, final Logger logger) {
-    return trace(message, value, T::toString, logger);
+    return trace(message, value, v -> v != null ? v.toString() : "", logger);
   }
 
   static <T> T trace(

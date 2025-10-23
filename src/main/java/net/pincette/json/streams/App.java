@@ -205,8 +205,10 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class App<T, U, V, W> {
+  private static final String AGGREGATE_SHARDS = "aggregateShards";
   private static final String BACKPRESSURE_TIMEOUT = "backpressureTimeout";
   private static final String COLLECTION_PREFIX = "collection-";
+  private static final int DEFAULT_AGGREGATE_SHARDS = 10;
   private static final int DEFAULT_TRACE_SAMPLE_PERCENTAGE = 10;
   private static final String IN = "in";
   private static final String INVALID_COMMAND = "invalid-command";
@@ -226,6 +228,7 @@ class App<T, U, V, W> {
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
   private static final String WINDOW = "window";
 
+  private final int aggregateShards;
   private final Attributes attributes;
   private final Duration backpressureTimeout;
   private final Context context;
@@ -277,6 +280,11 @@ class App<T, U, V, W> {
         context != null
             ? configValueApp(context.config::getDuration, BACKPRESSURE_TIMEOUT, name()).orElse(null)
             : null;
+    this.aggregateShards =
+        context != null
+            ? configValueApp(context.config::getInt, AGGREGATE_SHARDS, name())
+                .orElse(DEFAULT_AGGREGATE_SHARDS)
+            : DEFAULT_AGGREGATE_SHARDS;
   }
 
   private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
@@ -607,6 +615,7 @@ class App<T, U, V, W> {
         .withBuilder(builder)
         .withMongoDatabase(context.database)
         .withMongoClient(context.client)
+        .withShards(aggregateShards)
         .withLogger(logger());
   }
 
@@ -985,7 +994,8 @@ class App<T, U, V, W> {
             (a, p) ->
                 a.withCommandProcessor(
                     p.first,
-                    preprocessor(specification, () -> createPipeline(p.second, PREPROCESSOR))),
+                    () ->
+                        preprocessor(specification, () -> createPipeline(p.second, PREPROCESSOR))),
             (a1, a2) -> a1);
   }
 
@@ -998,11 +1008,12 @@ class App<T, U, V, W> {
             (a, p) ->
                 a.withReducer(
                     p.first,
-                    box(
-                        backpressureTimeout(
-                            backpressureTimeout,
-                            () -> name() + ":" + aggregate.fullType() + ":" + p.first),
-                        createReducerProcessor(p.second, p.second.getJsonObject(VALIDATOR)))),
+                    () ->
+                        box(
+                            backpressureTimeout(
+                                backpressureTimeout,
+                                () -> name() + ":" + aggregate.fullType() + ":" + p.first),
+                            createReducerProcessor(p.second, p.second.getJsonObject(VALIDATOR)))),
             (a1, a2) -> a1);
   }
 

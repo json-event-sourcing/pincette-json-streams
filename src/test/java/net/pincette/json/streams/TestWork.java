@@ -100,4 +100,16 @@ class TestWork {
   void work14() {
     runTest("work14");
   }
+
+  @Test
+  @DisplayName("work15")
+  void work15() {
+    runTest("work15");
+  }
+
+  @Test
+  @DisplayName("work16")
+  void work16() {
+    runTest("work16");
+  }
 }

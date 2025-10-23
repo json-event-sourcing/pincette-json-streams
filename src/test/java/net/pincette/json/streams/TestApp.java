@@ -218,7 +218,6 @@ class TestApp {
                                       future.complete(null);
                                       delete(tempFile);
                                     }))));
-
       } else {
         response.setStatus(METHOD_NOT_ALLOWED);
         future.complete(null);
@@ -503,6 +502,12 @@ class TestApp {
   @DisplayName("app39")
   void app39() {
     runTest("app39");
+  }
+
+  @Test
+  @DisplayName("app40")
+  void app40() {
+    runTest("app40");
   }
 
   @Test

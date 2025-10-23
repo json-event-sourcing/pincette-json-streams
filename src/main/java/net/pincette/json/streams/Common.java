@@ -70,6 +70,7 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.rangeExclusive;
 import static net.pincette.util.StreamUtil.zip;
 import static net.pincette.util.Util.getLastSegment;
+import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToGetRethrow;
@@ -365,6 +366,10 @@ class Common {
     return replaceParameters(parameters)
         .thenApply(validatorResolver(validatorImports, parameters))
         .thenApply(scriptResolver(jsltImports));
+  }
+
+  static boolean excludeTechnicalConsumerGroups(final String group) {
+    return !isUUID(group) && !group.startsWith("sse-");
   }
 
   private static JsonObject expandAggregate(

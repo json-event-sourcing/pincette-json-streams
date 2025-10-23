@@ -1,5 +1,16 @@
 # Release Notes
 
+## 2.8.0
+
+* Add aggregate sharding, which increases parallelism whilst preserving the partial ordering guarantees. The new configuration property for this is `aggregateShards`.
+* Replace merge component.
+* Increase the default for `inactivityPeriod` from 10 to 30 seconds.
+* Add an OTEL handler for the loggers that are in the `logging.properties` file.
+* Add collection preload feature to the `test` command.
+* Add the `--proxy` option to the `test` command, which can be used for mocking purposes.
+* Add scaling to zero for applications. The new configuration property for this is `work.scaleToZero`.
+* Change the default cool down period to five minutes.
+
 ## 2.7.1
 
 * Add `maximumMessageLag` and `inactivityPeriod` configuration entries.

@@ -1,7 +1,9 @@
 package net.pincette.json.streams;
 
 import static com.mongodb.client.model.changestream.FullDocument.UPDATE_LOOKUP;
+import static java.lang.Integer.parseInt;
 import static java.lang.String.valueOf;
+import static java.net.ProxySelector.setDefault;
 import static java.nio.file.Files.exists;
 import static java.nio.file.Files.list;
 import static java.time.Duration.ofSeconds;
@@ -9,11 +11,11 @@ import static java.util.Collections.emptySet;
 import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
+import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
-import static java.util.stream.Stream.concat;
 import static java.util.stream.Stream.empty;
 import static net.pincette.jes.JsonFields.AFTER;
 import static net.pincette.jes.JsonFields.BEFORE;
@@ -44,10 +46,13 @@ import static net.pincette.util.Collections.union;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.StreamUtil.composeAsyncStream;
+import static net.pincette.util.StreamUtil.concat;
+import static net.pincette.util.Util.isInteger;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.padWith;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToDoWithRethrow;
+import static net.pincette.util.Util.tryToGetRethrow;
 import static net.pincette.util.Util.tryToGetWithRethrow;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 import static org.reactivestreams.FlowAdapters.toSubscriber;
@@ -58,9 +63,14 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +79,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -78,6 +89,10 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 import net.pincette.mongo.BsonUtil;
 import net.pincette.mongo.Collection;
 import net.pincette.rs.QueuePublisher;
@@ -100,6 +115,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private static final Path COLLECTIONS_FROM = Paths.get("test", "collections", "from");
   private static final Path COLLECTIONS_TO = Paths.get("test", "collections", "to");
   private static final String MONGODB = "mongodb://localhost:27017";
+  private static final Path PRELOAD = Paths.get("test", "preload");
   private static final String TEST_DATABASE = "json-streams-test";
   private static final Path TOPICS_FROM = Paths.get("test", "topics", "from");
   private static final Path TOPICS_TO = Paths.get("test", "topics", "to");
@@ -114,6 +130,12 @@ class Test<T, U, V, W> implements Callable<Integer> {
       required = true,
       description = "A JSON or YAML file containing an application.")
   private File file;
+
+  @Option(
+      names = {"-p", "--proxy"},
+      required = false,
+      description = "The hostname:port of a proxy server for mocking purposes.")
+  private String proxy;
 
   Test(
       final Supplier<TestProvider<T, U, V, W>> testProviderSupplier,
@@ -211,6 +233,15 @@ class Test<T, U, V, W> implements Callable<Integer> {
     testContext.topicsFromMessages.forEach((k, v) -> topics.get(k).addAll(inputMessages(v)));
   }
 
+  private static void preloadCollections(final Context context, final TestContext testContext) {
+    allOf(
+            testContext.preloadCollectionMessages.entrySet().stream()
+                .map(e -> loadCollection(context.database.getCollection(e.getKey()), e.getValue()))
+                .map(CompletionStage::toCompletableFuture)
+                .toArray(CompletableFuture[]::new))
+        .join();
+  }
+
   private static Message<String, JsonObject> removeTimestamps(
       final Message<String, JsonObject> message) {
     return message.withValue(
@@ -231,6 +262,16 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
   private static String stringOf(final List<JsonObject> messages) {
     return messages.stream().map(json -> string(json, true)).collect(joining(","));
+  }
+
+  private static void trustAll() {
+    tryToGetRethrow(() -> SSLContext.getInstance("TLS"))
+        .ifPresent(
+            c -> {
+              tryToDoRethrow(
+                  () -> c.init(null, new TrustManager[] {new TrustAll()}, new SecureRandom()));
+              SSLContext.setDefault(c);
+            });
   }
 
   private static <V, W> Consumer<Publisher<Message<String, JsonObject>>> values(
@@ -270,8 +311,6 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
   public Integer call() {
     try {
-      init();
-
       if (!test(file.toPath())) {
         severe("Test failed.");
 
@@ -327,6 +366,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
       context = withTestDatabase(contextSupplier.get());
       keep = context.database != null;
     }
+
+    proxy();
   }
 
   private void initCollections(final Set<String> collections) {
@@ -350,6 +391,17 @@ class Test<T, U, V, W> implements Callable<Integer> {
                 }));
   }
 
+  private void proxy() {
+    ofNullable(proxy)
+        .map(p -> p.split(":"))
+        .filter(a -> a.length == 2 && isInteger(a[1]))
+        .ifPresent(
+            a -> {
+              setDefault(ProxySelector.of(new InetSocketAddress(a[0], parseInt(a[1]))));
+              trustAll();
+            });
+  }
+
   boolean test(final Path application) {
     final State<Set<String>> allTopics = new State<>(emptySet());
     final State<String> name = new State<>(null);
@@ -368,6 +420,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
               .createApp(application.toFile());
 
       initCollections(testContext.allCollections());
+      preloadCollections(context, testContext);
       info("Collections created");
 
       return app.map(
@@ -458,6 +511,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
     private final Map<String, List<JsonObject>> collectionsFromMessages;
     private final Set<String> collectionsTo;
     private final Map<String, List<JsonObject>> collectionsToMessages;
+    private final Set<String> preloadCollections;
+    private final Map<String, List<JsonObject>> preloadCollectionMessages;
     private final Set<String> topicsFrom;
     private final Map<String, List<JsonObject>> topicsFromMessages;
     private final Set<String> topicsTo;
@@ -469,6 +524,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
           loadMessagesPerDirectory(application, COLLECTIONS_FROM).orElse(null);
       collectionsTo = names(application, COLLECTIONS_TO).orElse(null);
       collectionsToMessages = loadMessagesPerDirectory(application, COLLECTIONS_TO).orElse(null);
+      preloadCollections = names(application, PRELOAD).orElse(null);
+      preloadCollectionMessages = loadMessagesPerDirectory(application, PRELOAD).orElse(null);
       topicsFrom = names(application, TOPICS_FROM).orElse(null);
       topicsFromMessages = loadMessagesPerDirectory(application, TOPICS_FROM).orElse(null);
       topicsTo = names(application, TOPICS_TO).orElse(null);
@@ -527,6 +584,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
           && collectionsFromMessages != null
           && collectionsTo != null
           && collectionsToMessages != null
+          && preloadCollections != null
+          && preloadCollectionMessages != null
           && topicsFrom != null
           && topicsFromMessages != null
           && topicsTo != null
@@ -534,7 +593,49 @@ class Test<T, U, V, W> implements Callable<Integer> {
     }
 
     private Set<String> allCollections() {
-      return concat(collectionsFrom.stream(), collectionsTo.stream()).collect(toSet());
+      return concat(collectionsFrom.stream(), collectionsTo.stream(), preloadCollections.stream())
+          .collect(toSet());
+    }
+  }
+
+  private static class TrustAll extends X509ExtendedTrustManager {
+    @Override
+    public void checkClientTrusted(
+        final X509Certificate[] x509Certificates, final String s, final Socket socket) {
+      // Just trust.
+    }
+
+    @Override
+    public void checkClientTrusted(
+        final X509Certificate[] x509Certificates, final String s, final SSLEngine sslEngine) {
+      // Just trust.
+    }
+
+    @Override
+    public void checkClientTrusted(final X509Certificate[] x509Certificates, final String s) {
+      // Just trust.
+    }
+
+    @Override
+    public void checkServerTrusted(
+        final X509Certificate[] x509Certificates, final String s, final Socket socket) {
+      // Just trust.
+    }
+
+    @Override
+    public void checkServerTrusted(
+        final X509Certificate[] x509Certificates, final String s, final SSLEngine sslEngine) {
+      // Just trust.
+    }
+
+    @Override
+    public void checkServerTrusted(final X509Certificate[] x509Certificates, final String s) {
+      // Just trust.
+    }
+
+    @Override
+    public X509Certificate[] getAcceptedIssuers() {
+      return new X509Certificate[0];
     }
   }
 }

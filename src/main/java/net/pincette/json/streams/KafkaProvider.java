@@ -61,7 +61,7 @@ class KafkaProvider
   private static final String BATCH_TIMEOUT = "batchTimeout";
   private static final int DEFAULT_BATCH_SIZE = 100;
   private static final Duration DEFAULT_BATCH_TIMEOUT = ofMillis(50);
-  private static final Duration DEFAULT_INACTIVITY_PERIOD = ofSeconds(10);
+  private static final Duration DEFAULT_INACTIVITY_PERIOD = ofSeconds(30);
   private static final int DEFAULT_MAXIMUM_MESSAGE_LAG = 50;
   private static final String GROUP_ID_SUFFIX = "groupIdSuffix";
   private static final String INACTIVITY_PERIOD = "inactivityPeriod";

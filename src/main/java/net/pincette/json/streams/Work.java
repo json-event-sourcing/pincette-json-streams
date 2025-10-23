@@ -37,10 +37,10 @@ import static net.pincette.json.streams.Common.ALIVE_AT;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.LEADER;
 import static net.pincette.json.streams.Common.config;
+import static net.pincette.json.streams.Common.configValueApp;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
-import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.rs.streams.Message.message;
@@ -59,9 +59,9 @@ import static net.pincette.util.StreamUtil.zip;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Field;
+import com.typesafe.config.Config;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -84,8 +84,9 @@ class Work<T, U, V, W> {
   private static final String AVERAGE_MESSAGE_TIME_ESTIMATE_SIM = "averageMessageTimeEstimate";
   private static final String COOL_DOWN_PERIOD = "work.coolDownPeriod";
   private static final Duration DEFAULT_AVERAGE_MESSAGE_TIME_ESTIMATE = ofMillis(20);
-  private static final Duration DEFAULT_COOL_DOWN_PERIOD = ofMinutes(1);
+  private static final Duration DEFAULT_COOL_DOWN_PERIOD = ofMinutes(5);
   private static final Duration DEFAULT_INTERVAL = ofMinutes(1);
+  private static final boolean DEFAULT_SCALE_TO_ZERO = true;
   private static final String DESIRED = "desired";
   private static final int DEFAULT_MAXIMUM_APPS_PER_INSTANCE = 50;
   private static final String EXCESS_MESSAGE_LAG_TOPIC = "work.excessMessageLagTopic";
@@ -99,6 +100,7 @@ class Work<T, U, V, W> {
   private static final String RUNNING = "running";
   private static final String RUNNING_INSTANCES_WITH_APPLICATIONS =
       "runningInstancesWithApplications";
+  private static final String SCALE_TO_ZERO = "work.scaleToZero";
   private static final String TIME = "time";
   private static final Logger WORK_LOGGER = getLogger(LOGGER_NAME + ".work");
 
@@ -149,7 +151,7 @@ class Work<T, U, V, W> {
   private static int desiredInstances(
       final Map<String, Integer> desiredApplicationInstances, final WorkContext context) {
     final int minimal =
-        desiredApplicationInstances.values().stream().max(comparing(v -> v)).orElse(1);
+        max(1, desiredApplicationInstances.values().stream().max(comparing(v -> v)).orElse(1));
     final int applicationInstances =
         desiredApplicationInstances.values().stream().mapToInt(v -> v).sum();
 
@@ -177,7 +179,10 @@ class Work<T, U, V, W> {
                                 max ->
                                     excessCapacityForTopic(e.getKey(), e.getValue(), max, context))
                             .orElse(0)
-                        + 1)
+                        + (scaleToZero(application, context.config)
+                                && status.totalMessageLag(application) == 0
+                            ? 0
+                            : 1))
             .max(comparing(c -> c))
             .orElse(1));
   }
@@ -272,20 +277,6 @@ class Work<T, U, V, W> {
         .sorted(Work::largestInstance);
   }
 
-  private static void logNotRunning(
-      final Set<String> allApplications, final Map<String, Set<String>> desiredPerInstance) {
-    difference(
-            allApplications,
-            desiredPerInstance.values().stream().flatMap(Collection::stream).collect(toSet()))
-        .forEach(
-            a ->
-                severe(
-                    () ->
-                        "Application "
-                            + a
-                            + " cannot be started because there is not enough capacity."));
-  }
-
   private static Map<String, Map<Partition, Long>> messageLagPerApplication(final JsonObject json) {
     return json.entrySet().stream()
         .collect(toMap(Entry::getKey, e -> messageLagPerTopic(e.getValue().asJsonObject())));
@@ -354,6 +345,12 @@ class Work<T, U, V, W> {
   private static Map<String, Set<String>> runningInstancesWithApplications(final JsonObject json) {
     return json.entrySet().stream()
         .collect(toMap(Entry::getKey, e -> strings(e.getValue().asJsonArray()).collect(toSet())));
+  }
+
+  private static boolean scaleToZero(final String application, final Config config) {
+    return ofNullable(config)
+        .flatMap(c -> configValueApp(c::getBoolean, SCALE_TO_ZERO, application))
+        .orElse(DEFAULT_SCALE_TO_ZERO);
   }
 
   private static Pair<Integer, Integer> scalingIndicator(
@@ -490,7 +487,6 @@ class Work<T, U, V, W> {
       final Map<String, Set<String>> desiredPerInstance = giveWork(status, desired, workContext);
 
       logWork(desiredPerInstance);
-      logNotRunning(status.allApplications, desiredPerInstance);
       scaling(desiredPerInstance, desired);
       sendInstances(desiredPerInstance);
       saveWork(desiredPerInstance);
@@ -590,21 +586,24 @@ class Work<T, U, V, W> {
                 status.withRunningInstancesWithApplications(runningInstancesWithApplications()))
         .update(status -> status.withMaximumMessageLag(maximumMessageLag()))
         .update(
-            status ->
-                provider
-                    .messageLag(
-                        group ->
-                            status.maximumMessageLagApplications.contains(
-                                removeSuffix(group, context)))
-                    .thenApply(lag -> status.withMessageLagPerApplication(removeSuffixes(lag)))
-                    .toCompletableFuture()
-                    .join())
+            status -> {
+              trace(() -> "Fetching message lag at " + now(), null, WORK_LOGGER);
+
+              return trace(
+                  () -> "Received message lag at " + now(),
+                  provider
+                      .messageLag(
+                          group -> status.allApplications.contains(removeSuffix(group, context)))
+                      .thenApply(lag -> status.withMessageLagPerApplication(removeSuffixes(lag)))
+                      .toCompletableFuture()
+                      .join(),
+                  WORK_LOGGER);
+            })
         .build();
   }
 
   private static class Status {
     private final Set<String> allApplications;
-    private final Set<String> maximumMessageLagApplications;
     private final Map<String, Map<String, Long>> maximumMessageLagPerApplication;
     private final Map<String, Map<Partition, Long>> messageLagPerApplication;
     private final Map<String, Set<String>> runningInstancesWithApplications;
@@ -622,10 +621,6 @@ class Work<T, U, V, W> {
       this.runningInstancesWithApplications = runningInstancesWithApplications;
       this.maximumMessageLagPerApplication = maximumMessageLagPerApplication;
       this.messageLagPerApplication = messageLagPerApplication;
-      maximumMessageLagApplications =
-          ofNullable(maximumMessageLagPerApplication)
-              .map(Map::keySet)
-              .orElseGet(Collections::emptySet);
     }
 
     private static int largestTopicSize(final Map<String, Integer> partitionsPerTopic) {
@@ -682,6 +677,13 @@ class Work<T, U, V, W> {
               (m1, m2) -> m1);
     }
 
+    private long totalMessageLag(final String application) {
+      return ofNullable(messageLagPerApplication.get(application)).stream()
+          .flatMap(m -> m.values().stream())
+          .mapToLong(l -> l)
+          .sum();
+    }
+
     private Status withAllApplications(final Set<String> allApplications) {
       return new Status(
           allApplications,
@@ -719,6 +721,7 @@ class Work<T, U, V, W> {
 
   static class WorkContext {
     private final Duration averageMessageTimeEstimate;
+    private final Config config;
     private final Duration coolDownPeriod;
     private final int maximumAppsPerInstance;
     private final Map<String, Instant> started = new HashMap<>();
@@ -731,16 +734,26 @@ class Work<T, U, V, W> {
         final Duration averageMessageTimeEstimate,
         final int maximumAppsPerInstance,
         final Duration coolDownPeriod) {
+      this(averageMessageTimeEstimate, maximumAppsPerInstance, coolDownPeriod, null);
+    }
+
+    private WorkContext(
+        final Duration averageMessageTimeEstimate,
+        final int maximumAppsPerInstance,
+        final Duration coolDownPeriod,
+        final Config config) {
       this.averageMessageTimeEstimate = averageMessageTimeEstimate;
       this.maximumAppsPerInstance = maximumAppsPerInstance;
       this.coolDownPeriod = coolDownPeriod;
+      this.config = config;
     }
 
     private WorkContext(final Context context) {
       this(
           averageMessageTimeEstimate(context),
           maximumAppsPerInstance(context),
-          coolDownPeriod(context));
+          coolDownPeriod(context),
+          context.config);
     }
 
     private static Stream<String> applicationsForNewInstances(

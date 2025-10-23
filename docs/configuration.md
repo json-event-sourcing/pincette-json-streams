@@ -7,6 +7,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 
 |Entry|Mandatory|Description|
 |---|---|---|
+|aggregateShards|No|The number of in-memory shards for aggregates, which preserves the ordering guarantees. The default value is 10. An application can override this by adding the application name as a prefix.|
 |backgroundInterval|No|The interval for background work such as becoming the cluster leader and keep alive signals. The default is 5s.|
 |backpressureTimeout|No|When set to a value larger than zero, it will set a timeout after which an error signal is sent if no backpressure signal was received from downstream. This causes the application where it happens to be restarted. The logs will detail where that was. An application can override this by adding the application name as a prefix.|
 |batchSize|No|The size of the batches that are written to Kafka. This determines the overall batch size throughout the system. The default value is 100. Reduce it if your messages are rather large, which saves memory. An application can override this by adding the application name as a prefix.|
@@ -20,7 +21,7 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |kafka.replication.factor|No|Check your Kafka cluster settings for this.|
 |log|No|The log level for the applications and JSON Streams runtime can be changed here. See also [Telemetry](telemetry.md).|
 |logLevel|No|The log level as defined in [java.util.logging.Level](https://docs.oracle.com/javase/8/docs/api/java/util/logging/Level.html). The default level is `SEVERE`.|
-|maximumMessageLag|No|The maximum allowed message lag during inactivity before an application is restarted. The default is 50. An application can override this by adding the application name as a prefix.|
+|maximumMessageLag|No|The maximum allowed message lag during inactivity before an application is restarted. The default is 50. The value -1 turns off this check. An application can override this by adding the application name as a prefix.|
 |mongodb.uri|Yes|The MongoDB connection URL.|
 |mongodb.database|Yes|The MongoDB database.|
 |mongodb.collection|No|The default MongoDB collection where builds are written and run from. If it is not provided then it should be present in the command-line. Make sure to create a [TTL](https://www.mongodb.com/docs/manual/core/index-ttl/) index on the field `aliveAt`. Set the expiration period higher than the `keepAliveInterval` and `leaderInterval` configuration settings. This index is needed for cases where instances suddenly stop.|
@@ -33,9 +34,10 @@ If you are on AWS you can load secrets by specifying AWS Secrets Manager ARNs as
 |tracesTopic|No|The Kafka topic to which the event traces are sent. If it is not set, then no tracing will happen.|
 |work|No|Configuration for the leader to divide the work amongst the instances.|
 |work.averageMessageTimeEstimate|No|The estimated average time it takes to process one message. This is used in message lag calculations. The default value is 20 milliseconds. With this parameter you can tune the capacity of one instance.|
-|work.coolDownPeriod|No|The time that is waited before applications that are scaled in are actually stopped. The default is one minute.|
+|work.coolDownPeriod|No|The time that is waited before applications that are scaled in are actually stopped. The default is five minutes.|
 |work.excessMessageLagTopic|No|If this Kafka topic is provided, then the calculated overall message lag will be published on it. This is a JSON message with the fields `_id`, `desired`, `running` and `time`.|
 |work.instancesTopic|No|If this Kafka topic is provided, then a message with all the running instances and their work is published on it by the leader.|
 |work.maximumAppsPerInstance|No|The maximum number of applications a running instance is willing to pick up. The default value is 50.|
 |work.interval|No|The time between two work sessions. The default is one minute. The precision is less than 10 seconds.|
+|work.scaleToZero|No|When set to `true`, applications are allowed to scale to zero. The default value is `true`.|
 

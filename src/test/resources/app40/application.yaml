@@ -1,0 +1,21 @@
+---
+application: app40
+version: "1.0"
+parts:
+  - type: stream
+    name: stream
+    fromTopic: in
+    toTopic: out
+    pipeline:
+      - $lookup:
+          from: values
+          as: value
+          pipeline:
+            - $match:
+                _id: 2F234321-4629-4655-8D33-68F338DA7FCA
+            - $project:
+                _id: 0
+                value: 1
+      - $unwind: $value
+      - $set:
+          value: $value.value

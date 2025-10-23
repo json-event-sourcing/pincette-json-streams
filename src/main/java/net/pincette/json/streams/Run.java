@@ -39,7 +39,6 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.runAsyncAfter;
 import static net.pincette.util.Util.doForever;
 import static net.pincette.util.Util.doUntil;
-import static net.pincette.util.Util.isUUID;
 import static net.pincette.util.Util.tryToDo;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToDoSilent;
@@ -107,10 +106,6 @@ class Run<T, U, V, W> implements Runnable {
       final Supplier<Context> contextSupplier) {
     this.providerSupplier = providerSupplier;
     this.contextSupplier = contextSupplier;
-  }
-
-  private static boolean excludeCLIGenerated(final String group) {
-    return !isUUID(group);
   }
 
   private static Context loadPlugins(final Context context) {
@@ -213,7 +208,7 @@ class Run<T, U, V, W> implements Runnable {
         .withContext(context)
         .withBuilder(provider::builder)
         .withStringBuilder(provider::stringBuilder)
-        .withMessageLag(() -> provider.messageLag(Run::excludeCLIGenerated))
+        .withMessageLag(() -> provider.messageLag(Common::excludeTechnicalConsumerGroups))
         .withOnError(restartOnError(specification, context));
   }
 

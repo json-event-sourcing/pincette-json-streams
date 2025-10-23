@@ -28,6 +28,8 @@ log.net.pincette {
 
 There is also a Java logger for each application. Its name is simply the name of the application. You can change the log level directly under the `log` configuration entry.
 
+You can also work with `logging.properties` file. All loggers for which you set the log level in there will get an OpenTelemetry log handler.
+
 ## Metrics
 
 JSON Streams will add OpenTelemetry counters in the applications for all their parts, incoming and outgoing. These are observable counters that are emitted every minute. The name of the counter is always `json_streams.messages`. If your backend is Prometheus, then it will appear as `json_streams_messages_total`. The following table shows the attributes that are used. Again, if Prometheus is used, the label names are derived from the attribute names by replacing the dots with underscores, unless you do other manipulations in your telemetry collector. 
