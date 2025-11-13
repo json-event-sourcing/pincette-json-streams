@@ -68,6 +68,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -124,7 +125,7 @@ class Work<T, U, V, W> {
     excessMessageLagTopic =
         config(context, config -> config.getString(EXCESS_MESSAGE_LAG_TOPIC), null);
     instancesTopic = config(context, config -> config.getString(INSTANCES_TOPIC), null);
-    intervalValue = config(context, config -> config.getDuration(INTERVAL), DEFAULT_INTERVAL);
+    intervalValue = ofNullable(context).map(c -> intervalValue(c.config)).orElse(null);
   }
 
   private static long capacityPerSecond(final WorkContext context) {
@@ -142,9 +143,10 @@ class Work<T, U, V, W> {
       final Status status, final WorkContext context) {
     return trace(
         () -> "Desired application instances: ",
-        map(
-            status.allApplications.stream()
-                .map(app -> pair(app, desiredApplicationInstances(status, app, context)))),
+        new TreeMap<>(
+            map(
+                status.allApplications.stream()
+                    .map(app -> pair(app, desiredApplicationInstances(status, app, context))))),
         WORK_LOGGER);
   }
 
@@ -181,6 +183,7 @@ class Work<T, U, V, W> {
                             .orElse(0)
                         + (scaleToZero(application, context.config)
                                 && status.totalMessageLag(application) == 0
+                                && noActivity(status, application, context)
                             ? 0
                             : 1))
             .max(comparing(c -> c))
@@ -253,6 +256,12 @@ class Work<T, U, V, W> {
     return desiredApplicationsPerInstance;
   }
 
+  private static boolean hadActivity(final Partition partition, final WorkContext context) {
+    return ofNullable(context.offsets.get(partition))
+        .map(o -> o.lastChanged().plus(context.coolDownPeriod).isAfter(now()))
+        .orElse(false);
+  }
+
   private static JsonObject instances(final String leader, final Map<String, Set<String>> work) {
     return work.entrySet().stream()
         .reduce(
@@ -263,6 +272,12 @@ class Work<T, U, V, W> {
             (b, e) -> b.add(e.getKey(), from(e.getValue().stream())),
             (b1, b2) -> b1)
         .build();
+  }
+
+  private static Duration intervalValue(final Config config) {
+    return ofNullable(config)
+        .flatMap(c -> configValue(c::getDuration, INTERVAL))
+        .orElse(DEFAULT_INTERVAL);
   }
 
   private static int largestInstance(
@@ -293,6 +308,12 @@ class Work<T, U, V, W> {
                                 pair(
                                     new Partition(e.getKey(), parseInt(t.getKey())),
                                     asLong(t.getValue())))));
+  }
+
+  private static boolean noActivity(
+      final Status status, final String application, final WorkContext context) {
+    return status.messageLagPerApplication.get(application).keySet().stream()
+        .noneMatch(partition -> hadActivity(partition, context));
   }
 
   private static void rebalance(final Map<String, Set<String>> desired) {
@@ -483,6 +504,9 @@ class Work<T, U, V, W> {
   void giveWork() {
     if (canWork()) {
       final Status status = status();
+
+      workContext.updateOffsets(status.offsets);
+
       final Map<String, Integer> desired = desiredApplicationInstances(status, workContext);
       final Map<String, Set<String>> desiredPerInstance = giveWork(status, desired, workContext);
 
@@ -599,28 +623,42 @@ class Work<T, U, V, W> {
                       .join(),
                   WORK_LOGGER);
             })
+        .update(
+            status -> {
+              trace(() -> "Fetching offsets at " + now(), null, WORK_LOGGER);
+
+              return trace(
+                  () -> "Received offsets at " + now(),
+                  provider.offsets().thenApply(status::withOffsets).toCompletableFuture().join(),
+                  WORK_LOGGER);
+            })
         .build();
   }
+
+  private record OffsetInfo(long offset, Instant lastChanged) {}
 
   private static class Status {
     private final Set<String> allApplications;
     private final Map<String, Map<String, Long>> maximumMessageLagPerApplication;
     private final Map<String, Map<Partition, Long>> messageLagPerApplication;
+    private final Map<Partition, Long> offsets;
     private final Map<String, Set<String>> runningInstancesWithApplications;
 
     private Status() {
-      this(null, null, null, null);
+      this(null, null, null, null, null);
     }
 
     private Status(
         final Set<String> allApplications,
         final Map<String, Set<String>> runningInstancesWithApplications,
         final Map<String, Map<String, Long>> maximumMessageLagPerApplication,
-        final Map<String, Map<Partition, Long>> messageLagPerApplication) {
+        final Map<String, Map<Partition, Long>> messageLagPerApplication,
+        final Map<Partition, Long> offsets) {
       this.allApplications = allApplications;
       this.runningInstancesWithApplications = runningInstancesWithApplications;
       this.maximumMessageLagPerApplication = maximumMessageLagPerApplication;
       this.messageLagPerApplication = messageLagPerApplication;
+      this.offsets = offsets;
     }
 
     private static int largestTopicSize(final Map<String, Integer> partitionsPerTopic) {
@@ -689,7 +727,8 @@ class Work<T, U, V, W> {
           allApplications,
           runningInstancesWithApplications,
           maximumMessageLagPerApplication,
-          messageLagPerApplication);
+          messageLagPerApplication,
+          offsets);
     }
 
     private Status withMaximumMessageLag(final JsonObject maximumMessageLag) {
@@ -697,7 +736,8 @@ class Work<T, U, V, W> {
           allApplications,
           runningInstancesWithApplications,
           maximumMessageLagPerApplication(maximumMessageLag),
-          messageLagPerApplication);
+          messageLagPerApplication,
+          offsets);
     }
 
     private Status withMessageLagPerApplication(
@@ -706,7 +746,17 @@ class Work<T, U, V, W> {
           allApplications,
           runningInstancesWithApplications,
           maximumMessageLagPerApplication,
-          messageLagPerApplication);
+          messageLagPerApplication,
+          offsets);
+    }
+
+    private Status withOffsets(final Map<Partition, Long> offsets) {
+      return new Status(
+          allApplications,
+          runningInstancesWithApplications,
+          maximumMessageLagPerApplication,
+          messageLagPerApplication,
+          offsets);
     }
 
     private Status withRunningInstancesWithApplications(
@@ -715,7 +765,8 @@ class Work<T, U, V, W> {
           allApplications,
           runningInstancesWithApplications,
           maximumMessageLagPerApplication,
-          messageLagPerApplication);
+          messageLagPerApplication,
+          offsets);
     }
   }
 
@@ -724,6 +775,7 @@ class Work<T, U, V, W> {
     private final Config config;
     private final Duration coolDownPeriod;
     private final int maximumAppsPerInstance;
+    private final Map<Partition, OffsetInfo> offsets = new HashMap<>();
     private final Map<String, Instant> started = new HashMap<>();
 
     private WorkContext() {
@@ -817,6 +869,16 @@ class Work<T, U, V, W> {
               .collect(toSet());
 
       keys.forEach(started::remove);
+    }
+
+    private void updateOffsets(final Map<Partition, Long> fetched) {
+      fetched.entrySet().stream()
+          .filter(
+              e ->
+                  ofNullable(offsets.get(e.getKey()))
+                      .map(o -> e.getValue() > o.offset)
+                      .orElse(true))
+          .forEach(e -> offsets.put(e.getKey(), new OffsetInfo(e.getValue(), now())));
     }
 
     private WorkContext withAverageMessageTimeEstimate(final Duration averageMessageTimeEstimate) {

@@ -1,5 +1,6 @@
 package net.pincette.json.streams;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
@@ -14,6 +15,8 @@ interface Provider<T, U, V, W> extends AutoCloseable {
    */
   CompletionStage<Map<String, Map<Partition, Long>>> messageLag(
       final Predicate<String> includeGroup);
+
+  CompletionStage<Map<Partition, Long>> offsets();
 
   Streams<String, String, V, W> stringBuilder(final String application);
 }

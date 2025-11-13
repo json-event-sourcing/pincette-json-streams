@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.changestream.FullDocument.UPDATE_LOOKUP;
 import static java.lang.Boolean.TRUE;
 import static java.lang.Integer.MAX_VALUE;
+import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofSeconds;
 import static java.time.Instant.now;
 import static java.util.Optional.ofNullable;
@@ -110,6 +111,7 @@ import static net.pincette.json.streams.TestExceptionStage.testExceptionStage;
 import static net.pincette.json.streams.ValidateStage.validateStage;
 import static net.pincette.mongo.BsonUtil.fromBson;
 import static net.pincette.mongo.BsonUtil.fromJson;
+import static net.pincette.mongo.BsonUtil.isoDateJson;
 import static net.pincette.mongo.Collection.findOne;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.mongo.JsonClient.update;
@@ -361,7 +363,7 @@ class App<T, U, V, W> {
   }
 
   private static JsonObject createJoinMessage(final JsonObject json) {
-    return createObjectBuilder(json).add(JOIN_TIMESTAMP, now().toEpochMilli()).build();
+    return createObjectBuilder(json).add(JOIN_TIMESTAMP, isoDateJson(now())).build();
   }
 
   private static Map<String, List<Subscriber<Message<String, JsonObject>>>> createSubscribers(
@@ -422,7 +424,7 @@ class App<T, U, V, W> {
             f(
                 "$and",
                 a(
-                    o(f(JOIN_TIMESTAMP, o(f("$gte", v(now().toEpochMilli() - window))))),
+                    o(f(JOIN_TIMESTAMP, o(f("$gte", isoDateJson(now().minus(ofMillis(window))))))),
                     o(f("$expr", o(f("$eq", a(otherCriterion, key)))))))));
   }
 

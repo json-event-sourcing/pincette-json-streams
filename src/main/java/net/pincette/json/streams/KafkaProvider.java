@@ -8,6 +8,7 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.util.Kafka.fromConfig;
+import static net.pincette.jes.util.Kafka.topicPartitionOffsets;
 import static net.pincette.json.streams.Common.configValueApp;
 import static net.pincette.rs.kafka.ConsumerEvent.STARTED;
 import static net.pincette.rs.kafka.KafkaPublisher.publisher;
@@ -141,10 +142,12 @@ class KafkaProvider
         .collect(toMap(Entry::getKey, Entry::getValue));
   }
 
+  private static Partition toPartition(final TopicPartition partition) {
+    return new Partition(partition.topic(), partition.partition());
+  }
+
   private static Map<Partition, Long> toPartition(final Map<TopicPartition, Long> lags) {
-    return lags.entrySet().stream()
-        .collect(
-            toMap(e -> new Partition(e.getKey().topic(), e.getKey().partition()), Entry::getValue));
+    return lags.entrySet().stream().collect(toMap(e -> toPartition(e.getKey()), Entry::getValue));
   }
 
   public CompletionStage<Boolean> allAssigned(final String application, final Set<String> topics) {
@@ -252,6 +255,14 @@ class KafkaProvider
             map ->
                 map.entrySet().stream()
                     .collect(toMap(Entry::getKey, e -> toPartition(e.getValue()))));
+  }
+
+  public CompletionStage<Map<Partition, Long>> offsets() {
+    return topicPartitionOffsets(admin)
+        .thenApply(
+            map ->
+                map.entrySet().stream()
+                    .collect(toMap(e -> toPartition(e.getKey()), Entry::getValue)));
   }
 
   public Streams<String, String, ConsumerRecord<String, String>, ProducerRecord<String, String>>

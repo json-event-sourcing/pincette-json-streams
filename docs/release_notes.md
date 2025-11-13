@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.8.1
+
+* Fix the scale to zero for applications.
+* Fix the type of the `_timestamp` field in the MongoDB collection that is used by the `$deduplicate` stage.
+* Add the `_timestamp` field in the MongoDB collections that are used by the `$bucket` and `$group` stages. The field can be used for TTL indexes.
+
 ## 2.8.0
 
 * Add aggregate sharding, which increases parallelism whilst preserving the partial ordering guarantees. The new configuration property for this is `aggregateShards`.

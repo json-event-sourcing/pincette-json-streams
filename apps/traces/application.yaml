@@ -1,5 +1,5 @@
 application: traces
-version: 1.0.0
+version: 1.0.1
 title: Create OTEL traces from JSON Streams traces
 description: |
   JSON Streams and its auxiliary tools produce traces that represent the moment an event occurred
@@ -14,6 +14,7 @@ parts:
     fromTopic: ${TOPIC}
     pipeline:
       - $group:
+          _collection: traces
           _id: $traceId
           count:
             $count: { }
