@@ -142,8 +142,10 @@ import static net.pincette.util.Do.withValue;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
+import static net.pincette.util.Util.getStackTrace;
 import static net.pincette.util.Util.must;
 import static net.pincette.util.Util.rethrow;
+import static net.pincette.util.Util.tryToDo;
 import static net.pincette.util.Util.tryToDoRethrow;
 import static net.pincette.util.Util.tryToDoSilent;
 import static net.pincette.util.Util.tryToGet;
@@ -312,7 +314,7 @@ class App<T, U, V, W> {
   }
 
   private static String command(final Message<String, JsonObject> message) {
-    return message.value.getString(JsonFields.COMMAND);
+    return message.value.getString(JsonFields.COMMAND, "unknown");
   }
 
   private static String commandTelemetryName(final Message<String, JsonObject> message) {
@@ -499,6 +501,11 @@ class App<T, U, V, W> {
   private static Message<String, JsonObject> validationResult(
       final Message<String, JsonObject> message, final JsonObject result) {
     return hasError(result) ? message.withValue(result) : message;
+  }
+
+  private static <T> Consumer<T> wrapException(final Consumer<T> c) {
+    return v ->
+        tryToDo(() -> c.accept(v), e -> severe(() -> e.getMessage() + "\n" + getStackTrace(e)));
   }
 
   private static Optional<ChangeStreamDocument<Document>> youngest(
@@ -958,13 +965,14 @@ class App<T, U, V, W> {
         .map(
             m ->
                 probeValue(
-                    counter(
-                        m,
-                        METRIC,
-                        (Message<String, JsonObject> message) ->
-                            metricLabels(name.apply(message), labels),
-                        message -> 1L,
-                        counters)))
+                    wrapException(
+                        counter(
+                            m,
+                            METRIC,
+                            (Message<String, JsonObject> message) ->
+                                metricLabels(name.apply(message), labels),
+                            message -> 1L,
+                            counters))))
         .orElse(null);
   }
 

@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.8.2
+
+* Don't allow a failure in the telemetry probe to restart an application.
+
 ## 2.8.1
 
 * Fix the scale to zero for applications.

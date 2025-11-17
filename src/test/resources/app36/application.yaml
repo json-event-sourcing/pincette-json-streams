@@ -6,6 +6,8 @@ parts:
     aggregateType: "app36-resolve"
     name: resolve
     commands:
+      # The add command sometimes fails because the result of the last put is not yet visible in
+      # MongoDB. We will have to add some synchronisation in the aggregate for this in test-mode.
       add:
         reducer: "reducers/add.jslt"
         validator: "validators/validate_add.yaml"
