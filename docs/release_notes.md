@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.8.3
+
+* Fix the recovery from a Kafka outage in some cases.
+
 ## 2.8.2
 
 * Don't allow a failure in the telemetry probe to restart an application.

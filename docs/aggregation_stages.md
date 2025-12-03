@@ -592,16 +592,16 @@ parts:
 
 A `$http` stage sometime needs a signed JSON Web Token for its request. With this extension stage you can generate and sign one and put it in a temporary field, which you remove after the `$http` stage. The following fields are ssupported:
 
-|Field|Mandatory|Description|
-|---|---|---|
-|as|Yes|The name of the field that will receive the JWT as a string.|
-|aud|No|The string expression that becomes the standard `aud` JWT claim.|
-|claims|No|The object expression that contains any non-standard JWT claims.|
-|iss|No|The string expression that becomes the standard `iss` JWT claim.|
-|kid|No|The string expression that becomes the standard `kid` JWT claim.|
-|privateKey|Yes|The string that represents the private key. You would pull that from the configuration. Don't put it the application directly.|
-|sub|No|The string expression that becomes the standard `sub` JWT claim.|
-|ttl|No|The time to live in seconds for the token. The default is five seconds. Making this longer reduces CPU usage.|
+|Field|Mandatory| Description                                                                                                                             |
+|---|---|-----------------------------------------------------------------------------------------------------------------------------------------|
+|as|Yes| The name of the field that will receive the JWT as a string.                                                                            |
+|aud|No| The string expression that becomes the standard `aud` JWT claim.                                                                        |
+|claims|No| The object expression that contains any non-standard JWT claims.                                                                        |
+|iss|No| The string expression that becomes the standard `iss` JWT claim.                                                                        |
+|kid|No| The string expression that becomes the standard `kid` JWT claim.                                                                        |
+|privateKey|Yes| The PEM string that represents the private key. You would pull that from the <br/>configuration. Don't put it the application directly. |
+|sub|No| The string expression that becomes the standard `sub` JWT claim.                                                                        |
+|ttl|No| The time to live in seconds for the token. The default is five seconds. Making this longer reduces CPU usage.                           |
 
 An example:
 
