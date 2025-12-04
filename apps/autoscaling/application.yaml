@@ -1,6 +1,6 @@
 application: autoscaling
 title: Emit Autoscaling Metric
-version: 1.0.0
+version: 1.0.1
 description: |
   JSON Streams can emit messages on an "instances" topic that say how many runtime instances 
   there are and how many are desired. This application emits the difference as an OTEL metric, 
@@ -38,6 +38,14 @@ parts:
                                 $subtract:
                                   - $desired
                                   - $running
+                              timeUnixNano:
+                                $toEpochNanos: $time
+                      - name: json_streams.desired_instances
+                        unit: "1"
+                        description: The number of desired instances
+                        gauge:
+                          dataPoints:
+                            - asInt: $desired
                               timeUnixNano:
                                 $toEpochNanos: $time
       - $replaceWith: $otel

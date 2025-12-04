@@ -52,13 +52,11 @@ spec:
   maxReplicaCount: 32
   triggers:
     - type: prometheus
-      metricType: Value
+      metricType: AverageValue
       metadata:
         serverAddress: http://main-kube-prometheus-stack-prometheus.prometheus:9090
-        query: (last_over_time(json_streams_instance_skew_ratio{service_namespace="a_namespace"}[1m]) + 31)
-        threshold: "31"
+        query: scalar(last_over_time(json_streams_desired_instances_ratio{}[2m]))   
+        threshold: "1"
 ```
-
-This says that scaling can occur between 1 and 32 instances. The metric that is used hovers 0, because there can be more or less running instances than the number of desired ones. Therefore, we must shift the value up by 31 to obtain a positive value. However, this reduces the percentage of the deviation, which may have an impact on the behaviour of the generated HPA resource. The latter takes a margin of 10 percent before it starts scaling in or out. In Kubernetes 1.33 there are the fields `behavior.scaleDown.tolerance` and `behavior.scaleUp.tolerance`, with which you can change that percentage. However, these fields are still in alpha and are not active by default.
 
 By default JSON Streams instances are identified by a generated UUID. This can be overridden with the environment variable `INSTANCE`. If you run it in a Kubernetes pod, you can use the downward API with the pod name. This way it is possible to find which applications are running in which pod.
