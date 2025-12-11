@@ -84,7 +84,7 @@ class Run<T, U, V, W> implements Runnable {
   private static final Duration DEFAULT_BACKGROUND_INTERVAL = ofSeconds(5);
   private static final String METRIC_STARTS = "json_streams.starts";
   private static final String METRIC_STOPS = "json_streams.stops";
-  private static final int MAX_POOL_SIZE = 20;
+  private static final int MAX_POOL_SIZE = 50;
   private static final int MIN_POOL_SIZE = 5;
   private static final String PLUGINS = "plugins";
 
@@ -136,7 +136,7 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   private static void reactivePoolSize(final Context context) {
-    startPool(clamp(maximumAppsPerInstance(context), MIN_POOL_SIZE, MAX_POOL_SIZE));
+    startPool(clamp(maximumAppsPerInstance(context) * 5L, MIN_POOL_SIZE, MAX_POOL_SIZE));
   }
 
   private static Context withPlugins(final Plugins plugins, final Context context) {

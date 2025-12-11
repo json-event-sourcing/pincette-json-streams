@@ -548,6 +548,15 @@ class TestApp {
   }
 
   @Test
+  @DisplayName("s3csv-resumable")
+  void s3CsvResumable() {
+    putResourceS3(
+        "/files/jsonstreams-s3csv-test.csv", "lars-tst-docs", "jsonstreams-s3csv-test.csv");
+    runTest("s3csv-resumable");
+    deleteS3("lars-tst-docs", "jsonstreams-s3csv-test.csv");
+  }
+
+  @Test
   @DisplayName("s3out")
   void s3Out() {
     runTest("s3out");

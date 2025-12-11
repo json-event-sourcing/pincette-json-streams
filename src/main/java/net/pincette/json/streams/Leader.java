@@ -67,7 +67,16 @@ class Leader {
         LEADER_LOGGER);
   }
 
+  @SuppressWarnings("java:S106") // The log system is already down.
   void stop() {
-    collection.deleteOne(criterion());
+    if (collection.deleteOne(criterion()).getDeletedCount() == 0) {
+      System.err.println(
+          "ERROR: "
+              + instanceMessage(
+                  "The leader entry could not be deleted. The instance may not be the leader.",
+                  context));
+    } else {
+      System.err.println("INFO: " + instanceMessage("The leader has stopped.", context));
+    }
   }
 }

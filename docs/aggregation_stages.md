@@ -697,6 +697,8 @@ parts:
 
 With this extension stage you can consume a CSV-file that resides in an S3-bucket. The lines are emitted as individual JSON messages. The first line will be used for the field names of the messages. The mandatory fields are `bucket` and `key`, which are the name of the bucket and the object key respectively. The optional field `separator` has the default value "\t". You must ensure the proper credentials are available, either as an IAM-role or environment variables.
 
+It is possible to have the stage resume from a prior interruption. The `eTag` must be set in that case. It can be retrieved from the `s3.object.eTag` field. The field `resumeCollection` should refer to a MongoDB collection. It tracks the processing state. It also writes the `_timestamp` field, with which a TTL-index can be made.
+
 The following example consumes a topic that receives all kinds of S3-events. It selects a bucket and the CSV-objects in it.
 
 

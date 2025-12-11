@@ -20,6 +20,7 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
+import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.util.Collections.difference;
@@ -113,8 +114,14 @@ class KeepAlive {
     running.add(application);
   }
 
+  @SuppressWarnings("java:S106") // The log system is already down.
   void stop() {
-    collection.deleteOne(criterion());
+    if (collection.deleteOne(criterion()).getDeletedCount() == 0) {
+      System.err.println(
+          "ERROR: " + instanceMessage("The keep alive entry could not be " + "deleted.", context));
+    } else {
+      System.err.println("INFO: " + instanceMessage("The keep alive has stopped.", context));
+    }
   }
 
   void stop(final String application) {

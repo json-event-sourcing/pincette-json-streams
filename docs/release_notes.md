@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.8.4
+
+* Make the `$s3Csv` stage resumable to cope better with large files.
+* Fix performance issue with merge.
+
 ## 2.8.3
 
 * Fix the recovery from a Kafka outage in some cases.
