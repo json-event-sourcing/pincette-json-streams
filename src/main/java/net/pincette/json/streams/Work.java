@@ -248,7 +248,6 @@ class Work<T, U, V, W> {
         diffApplicationInstances(
             status.runningApplicationInstances(), desiredApplicationInstances));
 
-    rebalance(desiredApplicationsPerInstance);
     warnForExtraApplications(desiredApplicationsPerInstance, context.maximumAppsPerInstance);
     context.removeCold();
     context.addCoolingDown(status.runningInstancesWithApplications, desiredApplicationsPerInstance);
@@ -316,24 +315,6 @@ class Work<T, U, V, W> {
         .noneMatch(partition -> hadActivity(partition, context));
   }
 
-  private static void rebalance(final Map<String, Set<String>> desired) {
-    if (!desired.isEmpty()) {
-      final int average = runningApplicationInstances(desired) / desired.size();
-
-      if (average > 0) {
-        desired.entrySet().stream()
-            .filter(e -> e.getValue().size() > average)
-            .sorted(Work::largestInstance)
-            .forEach(
-                above ->
-                    desired.entrySet().stream()
-                        .filter(e -> e.getValue().size() < average)
-                        .sorted(Work::smallestInstance)
-                        .forEach(below -> transfer(above.getValue(), below.getValue(), average)));
-      }
-    }
-  }
-
   private static void removeRunningInExcess(
       final Map<String, Set<String>> desiredApplicationsPerInstance,
       final Map<String, Integer> runningInExcess,
@@ -357,10 +338,6 @@ class Work<T, U, V, W> {
             pair ->
                 desiredApplicationsPerInstance.put(
                     pair.second.getKey(), difference(pair.second.getValue(), toRemove)));
-  }
-
-  private static int runningApplicationInstances(final Map<String, Set<String>> work) {
-    return work.values().stream().mapToInt(Set::size).sum();
   }
 
   private static Map<String, Set<String>> runningInstancesWithApplications(final JsonObject json) {
@@ -441,19 +418,6 @@ class Work<T, U, V, W> {
         .forEach(
             pair ->
                 desiredPerInstance.put(pair.second.getKey(), union(pair.second.getValue(), toAdd)));
-  }
-
-  private static void transfer(
-      final Set<String> above, final Set<String> below, final int average) {
-    zip(
-            rangeExclusive(0, min(above.size() - average, average - below.size())),
-            difference(above, below).stream())
-        .map(pair -> pair.second)
-        .forEach(
-            application -> {
-              above.remove(application);
-              below.add(application);
-            });
   }
 
   private static void warnForExtraApplications(

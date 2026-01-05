@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.8.5
+
+* No longer rebalance the applications across the runtime instances when auto-scaling, because this causes too much Kafka consumer group rebalances.
+
 ## 2.8.4
 
 * Make the `$s3Csv` stage resumable to cope better with large files.
