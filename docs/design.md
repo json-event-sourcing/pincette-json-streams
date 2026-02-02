@@ -12,7 +12,7 @@ Users normally work on different items. So, there would always be some kind of l
 
 When a list is a view over several underlying aggregates, it is tempting to do a query that mimics a join. With MongoDB that would be the `$lookup` aggregation pipeline stage. However, it is not made for that and even an "efficient" join would amount to a relative complex query that is repeated very often.
 
-It is better to pre-compose the elements of a view. Say there are three underlying aggregates that contribute to a view. The view itself should have no more that five or six fields. Wider views are not focussed enough. We can incrementally materialise the view through an aggregate. For each contributing aggregate there would be a consumer that turns the events into commands for the view aggregate.
+It is better to pre-compose the elements of a view. Say there are three underlying aggregates that contribute to a view. The view itself should have no more than five or six fields. Wider views are not focussed enough. We can incrementally materialise the view through an aggregate. For each contributing aggregate there would be a consumer that turns the events into commands for the view aggregate.
 
 The events of the latter can also be relayed to the user. The item in the list on the screen can simply be updated. There is no need to refresh the list with another query. It is good to give the user a clue about an upcoming update by changing some visual aspect of the item in the list. It could be greyed out and disabled, for example.
 

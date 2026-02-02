@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.8.6
+
+* Fix the issue where a wrong `_id` field could be recognised as a Mongo Bson ObjectId and then converted incorrectly. Such wrong values would come from manual message creation.
+
 ## 2.8.5
 
 * No longer rebalance the applications across the runtime instances when auto-scaling, because this causes too much Kafka consumer group rebalances.
