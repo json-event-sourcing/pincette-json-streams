@@ -226,6 +226,10 @@ The following command would be denied because the user who sent it doesn't have 
 }
 ```
 
+## Duplicates
+
+Restarts can cause duplicate commands because their consumer offsets could not be committed. If a reducer cannot cope with this, it should put a deduplicator in its preprocessor, but this requires an additional MongoDB collection. The example section below shows how you can do this.
+
 ## The HTTP API
 
 JSON Streams doesn't have an API. It only works with Kafka topics. It is, however, possible to interact with managed state in a generic way. The repository [pincette-jes-http](https://github.com/json-event-sourcing/pincette-jes-http) is an example of an HTTP-server that provides this. It's a light weight process you can spin up with a port.
@@ -246,9 +250,11 @@ parts:
       plus:
         reducer: plus.jslt
         validator: validate_plus.yml
+        preprocessor: deduplicate.yml        
       minus:
         reducer: minus.jslt
         validator: validate_minus.yml
+        preprocessor: deduplicate.yml        
       put:
         reducer: put.jslt
         validator: validate_put.yml
@@ -333,9 +339,24 @@ conditions:
     $code: OPERATOR
 ```
 
+deduplicate.yml:
+
+```yaml
+---
+- $deduplicate:
+    expression:
+      $concat:
+        - $_id
+        - $_type
+        - $_corr
+    collection: deduplicate_commands        
+```
+
 The first two reducers move the context into the `state` field. They change the `value` field and just copy all the others. The last reducer is for the `put` command. It moves the context into the `command` field, because the whole command will become the new state. Only the `_command` field is removed.
 
 You don't have to provide the `put` command, because it is built in. The reason to add it here is validation. You could also import a common `put` implementation in JSLT or JQ.
 
 The validators check the command names and if the commands are for the right aggregate type. The latter is not strictly necessary, because commands of the wrong type are ignored by the aggregate. For the commands `plus` and `minus` an extra check is done. The `value` field should not be present. In the case of the `put` command the `value` must be zero.
+
+The deduplicate preprocessor makes sure that for the `plus` and `minus` commands, which are not idempotent, duplicate commands are dropped. It uses the three fields that uniquely define a command. The MongoDB collection should have an index for this. Also create a TTL index on the generated `_timestamp` field.
 

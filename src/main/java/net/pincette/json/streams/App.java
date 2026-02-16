@@ -554,7 +554,7 @@ class App<T, U, V, W> {
     final String name = type + "-" + purpose;
 
     if (consumedStreams.contains(name)) {
-      streams.put(name, new SubscriptionMonitor<>(builder.from(aggregate.topic(purpose))));
+      streams.put(name, new SubscriptionMonitor<>(builder.from(aggregate.topic(purpose)), false));
       subscribers.put(name, new ArrayList<>());
     }
   }
@@ -773,13 +773,14 @@ class App<T, U, V, W> {
             part ->
                 streams.put(
                     part.getString(NAME),
-                    toStream(new SubscriptionMonitor<>(createPart(part)), part)));
+                    toStream(new SubscriptionMonitor<>(createPart(part), false), part)));
     parts(parts, STREAM_TYPES)
         .flatMap(App::collectionNames)
         .forEach(
             name ->
                 streams.put(
-                    collectionKey(name), new SubscriptionMonitor<>(createCollectionStream(name))));
+                    collectionKey(name),
+                    new SubscriptionMonitor<>(createCollectionStream(name), true)));
     connectStreams();
     terminateOpenStreams();
   }
@@ -1123,6 +1124,7 @@ class App<T, U, V, W> {
   void stop() {
     LOGGER.log(INFO, "Stopping {0} {1}", new Object[] {name(), version(specification)});
     counters.forEach(c -> tryToDoSilent(c::close));
+    streams.values().forEach(SubscriptionMonitor::stop);
 
     if (builder != null) {
       builder.stop();
@@ -1353,15 +1355,34 @@ class App<T, U, V, W> {
   private static class SubscriptionMonitor<T> implements Publisher<T> {
     private final Publisher<T> publisher;
     private Subscriber<? super T> subscriber;
+    private final Terminator<T> terminator;
 
-    private SubscriptionMonitor(final Publisher<T> publisher) {
+    private SubscriptionMonitor(final Publisher<T> publisher, final boolean forceTermination) {
       this.publisher = publisher;
+      this.terminator = forceTermination ? new Terminator<>() : null;
     }
 
     @Override
-    public void subscribe(Subscriber<? super T> subscriber) {
-      publisher.subscribe(subscriber);
+    public void subscribe(final Subscriber<? super T> subscriber) {
+      if (terminator != null) {
+        with(publisher).map(terminator).get().subscribe(subscriber);
+      } else {
+        publisher.subscribe(subscriber);
+      }
+
       this.subscriber = subscriber;
+    }
+
+    private void stop() {
+      if (terminator != null) {
+        terminator.stop();
+      }
+    }
+  }
+
+  private static class Terminator<T> extends PassThrough<T> {
+    public void stop() {
+      complete();
     }
   }
 

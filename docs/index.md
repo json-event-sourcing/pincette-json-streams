@@ -1,6 +1,6 @@
 # Introduction
 
-JSON Streams is a low-code event streaming platform, where messages are exchanged in JSON format. With the platform you can:
+JSON Streams is a low-code event streaming platform, where messages are exchanged in JSON format. It uses at least once semantics, which means duplicate messages are possible, after a restart for example. With the platform you can:
 
 * Manage state in an event-driven way.
 * Transform event streams.

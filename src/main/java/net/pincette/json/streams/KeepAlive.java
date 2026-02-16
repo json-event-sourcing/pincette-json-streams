@@ -20,7 +20,6 @@ import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.instanceMessage;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.getLogger;
-import static net.pincette.json.streams.Logging.severe;
 import static net.pincette.json.streams.Logging.trace;
 import static net.pincette.mongo.BsonUtil.fromJson;
 import static net.pincette.util.Collections.difference;

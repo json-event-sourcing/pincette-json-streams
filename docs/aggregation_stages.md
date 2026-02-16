@@ -113,7 +113,7 @@ parts:
           cacheWindow: 60000          
 ```
 
-The commit to the collection happens when the next stage asks for more messages, which means it has successfully the previous ones. When the next stage is buffered and the previous stage hasn't yet sent as many messages as the buffer size when it completes, then those last messages won't be committed. They will be offered again when the application restarts.
+The commit to the collection happens when the next stage asks for more messages, which means it has successfully processed the previous ones. When the next stage is buffered and the previous stage hasn't yet sent as many messages as the buffer size when it completes, then those last messages won't be committed. They will be offered again when the application restarts.
 
 ### $delay
 

@@ -76,7 +76,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -229,8 +228,15 @@ class Test<T, U, V, W> implements Callable<Integer> {
   }
 
   private static void loadTopics(
-      final Map<String, Queue<Message<String, JsonObject>>> topics, final TestContext testContext) {
-    testContext.topicsFromMessages.forEach((k, v) -> topics.get(k).addAll(inputMessages(v)));
+      final Map<String, QueuePublisher<Message<String, JsonObject>>> topics,
+      final TestContext testContext) {
+    testContext.topicsFromMessages.forEach(
+        (k, v) -> {
+          final var publisher = topics.get(k);
+
+          publisher.getQueue().addAll(inputMessages(v));
+          publisher.close();
+        });
   }
 
   private static void preloadCollections(final Context context, final TestContext testContext) {
@@ -377,7 +383,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
         .join();
   }
 
-  private Map<String, Queue<Message<String, JsonObject>>> inputQueues(
+  private Map<String, QueuePublisher<Message<String, JsonObject>>> inputQueues(
       final TestContext testContext, final Streams<String, JsonObject, T, U> builder) {
     return map(
         testContext.topicsFrom.stream()
@@ -387,7 +393,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
                   builder.to(topic, publisher);
 
-                  return pair(topic, publisher.getQueue());
+                  return pair(topic, publisher);
                 }));
   }
 
@@ -430,7 +436,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
                     expectedCollectionsWithResults = withResults(testContext.collectionsToMessages);
                 final Map<String, Pair<List<JsonObject>, List<JsonObject>>>
                     expectedTopicsWithResults = withResults(testContext.topicsToMessages);
-                final State<Map<String, Queue<Message<String, JsonObject>>>> inputQueues =
+                final State<Map<String, QueuePublisher<Message<String, JsonObject>>>> inputQueues =
                     new State<>(null);
                 final AtomicInteger running =
                     new AtomicInteger(
@@ -600,35 +606,41 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
   private static class TrustAll extends X509ExtendedTrustManager {
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkClientTrusted(
         final X509Certificate[] x509Certificates, final String s, final Socket socket) {
       // Just trust.
     }
 
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkClientTrusted(
         final X509Certificate[] x509Certificates, final String s, final SSLEngine sslEngine) {
       // Just trust.
     }
 
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkClientTrusted(final X509Certificate[] x509Certificates, final String s) {
       // Just trust.
     }
 
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkServerTrusted(
         final X509Certificate[] x509Certificates, final String s, final Socket socket) {
       // Just trust.
     }
 
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkServerTrusted(
         final X509Certificate[] x509Certificates, final String s, final SSLEngine sslEngine) {
       // Just trust.
     }
 
     @Override
+    @SuppressWarnings("java:S4830")
     public void checkServerTrusted(final X509Certificate[] x509Certificates, final String s) {
       // Just trust.
     }

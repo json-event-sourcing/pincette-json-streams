@@ -11,7 +11,7 @@ plugins = "plugins"
 
 Below the `test` folder there are three folder levels. The first level consists of only the optional subfolders `topics`, `collections` and `preload`. Within the former two you add the `from` and `to` subfolders. At the lowest level you create a subfolder for each topic or collection the application uses. The topic and collection folders contain the test-messages. The messages in a `from` subfolder are loaded in alphabetical order. The messages in a `to` subfolder are used to compare the actual output with. The `preload` folder can contain subfolders that correspond to collections. The messages in them are loaded before the test begins.
 
-If there are differences the command will report them and exit with code 1. If the test produces less messages than there are in some `to` subfolder, then the test will not complete. Set the log-level to `FINEST` follow what happens. Amongst other things, it will tell you how many messages are still expected for some topic or collection.
+If there are differences the command will report them and exit with code 1. If the test produces less messages than there are in some `to` subfolder, then the test will not complete. Set the log-level to `FINEST` to follow what happens. Amongst other things, it will tell you how many messages are still expected for some topic or collection.
 
 You can look at the unit tests in the source of JSON Streams to find some examples.
 

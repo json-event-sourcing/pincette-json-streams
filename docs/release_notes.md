@@ -1,5 +1,12 @@
 # Release Notes
 
+## 2.8.8
+
+* Fix a violation against the at least once semantics with the aggregate.
+* Improve the stop sequence.
+* Fix the premature consumer offset commit that could happen at restarts.
+* Fix the `onComplete` signal propagation issue in the unit test system.
+
 ## 2.8.7
 
 * Fix potentially lingering timers after application restarts.

@@ -1,6 +1,5 @@
 package net.pincette.json.streams;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;

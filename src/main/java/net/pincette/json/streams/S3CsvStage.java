@@ -13,7 +13,6 @@ import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.JsonFields.TIMESTAMP;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.createValue;
-import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.getValue;
 import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.stringValue;
