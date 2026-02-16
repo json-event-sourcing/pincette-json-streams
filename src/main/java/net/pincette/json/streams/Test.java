@@ -122,6 +122,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
   private Context context;
   private boolean keep;
+  private TestAsserter asserter;
   private final Supplier<Context> contextSupplier;
   private final Supplier<TestProvider<T, U, V, W>> testProviderSupplier;
 
@@ -136,6 +137,11 @@ class Test<T, U, V, W> implements Callable<Integer> {
       required = false,
       description = "The hostname:port of a proxy server for mocking purposes.")
   private String proxy;
+
+  @Option(
+      names = {"-s", "--strict"},
+      description = "Whether assertions must be strict or lenient")
+  private boolean strict;
 
   Test(
       final Supplier<TestProvider<T, U, V, W>> testProviderSupplier,
@@ -170,9 +176,10 @@ class Test<T, U, V, W> implements Callable<Integer> {
   }
 
   private static boolean assertResults(
-      final Map<String, Pair<List<JsonObject>, List<JsonObject>>> results) {
+      final Map<String, Pair<List<JsonObject>, List<JsonObject>>> results,
+      final TestAsserter asserter) {
     return results.entrySet().stream()
-        .map(e -> compareAndLog(e.getKey(), e.getValue().first, e.getValue().second))
+        .map(e -> compareAndLog(e.getKey(), e.getValue().first, e.getValue().second, asserter))
         .reduce((r1, r2) -> r1 && r2)
         .orElse(true);
   }
@@ -180,18 +187,19 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private static boolean compareAndLog(
       final String topicOrCollection,
       final List<JsonObject> expected,
-      final List<JsonObject> actual) {
-    final List<JsonObject> ex = sorted(expected);
-    final List<JsonObject> ac = sorted(actual);
-    final boolean result = ex.equals(ac);
+      final List<JsonObject> actual,
+      final TestAsserter asserter) {
+    final List<JsonObject> expectedSorted = sorted(expected);
+    final List<JsonObject> actualSorted = sorted(actual);
+    final boolean result = asserter.test(expectedSorted, actualSorted);
 
     info(() -> "Results for " + topicOrCollection);
 
     if (result) {
       info("OK");
     } else {
-      info(() -> "Expected: " + stringOf(ex));
-      info(() -> "Actual: " + stringOf(ac));
+      info(() -> "Expected: " + stringOf(expectedSorted));
+      info(() -> "Actual: " + stringOf(actualSorted));
     }
 
     return result;
@@ -368,6 +376,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
     }
 
     proxy();
+    asserter();
   }
 
   private void initCollections(final Set<String> collections) {
@@ -400,6 +409,10 @@ class Test<T, U, V, W> implements Callable<Integer> {
               setDefault(ProxySelector.of(new InetSocketAddress(a[0], parseInt(a[1]))));
               trustAll();
             });
+  }
+
+  private void asserter() {
+    asserter = strict ? TestAsserters.strict() : TestAsserters.lenient();
   }
 
   boolean test(final Path application) {
@@ -464,8 +477,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
                 waitFor(() -> completedFuture(running.intValue() == 0));
                 a.stop();
 
-                return assertResults(expectedCollectionsWithResults)
-                    && assertResults(expectedTopicsWithResults);
+                return assertResults(expectedCollectionsWithResults, asserter)
+                    && assertResults(expectedTopicsWithResults, asserter);
               })
           .orElse(false);
     } finally {
