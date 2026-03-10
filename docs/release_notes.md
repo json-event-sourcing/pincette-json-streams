@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.8.9
+
+* Add the `--strict` option to the test command of the CLI.
+* Add more detailed distributed tracing.
+* Fix the issue where asynchronous processors could still emit a backpressure signal after the stream was already cancelled.
+
 ## 2.8.8
 
 * Fix a violation against the at least once semantics with the aggregate.

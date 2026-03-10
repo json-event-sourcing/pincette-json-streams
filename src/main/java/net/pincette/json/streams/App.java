@@ -212,6 +212,7 @@ class App<T, U, V, W> {
   private static final String AGGREGATE_SHARDS = "aggregateShards";
   private static final String BACKPRESSURE_TIMEOUT = "backpressureTimeout";
   private static final String COLLECTION_PREFIX = "collection-";
+  private static final String CONSUME = "consume";
   private static final int DEFAULT_AGGREGATE_SHARDS = 10;
   private static final int DEFAULT_TRACE_SAMPLE_PERCENTAGE = 10;
   private static final String IN = "in";
@@ -221,9 +222,11 @@ class App<T, U, V, W> {
   private static final String METRIC = "json_streams.messages";
   private static final String OUT = "out";
   private static final String PART = "part";
+  private static final String PRODUCE = "produce";
   private static final String REDUCER_STATE = "state";
   private static final String TEST_EXCEPTION = "$testException";
   private static final String TOKEN = "token";
+  private static final String TOPIC = "topic";
   private static final String TO_STRING = "toString";
   private static final String TRACE = "trace";
   private static final String TRACE_ID = "traceId";
@@ -352,6 +355,10 @@ class App<T, U, V, W> {
     addOtelLogger(application, version(specification), result);
 
     return result;
+  }
+
+  private static String consumeName(final String topic) {
+    return TOPIC + "." + topic + "." + CONSUME;
   }
 
   private static Set<String> consumedStreams(final JsonArray parts) {
@@ -515,23 +522,6 @@ class App<T, U, V, W> {
         .max(Comparator.comparing(c -> c.getClusterTime().getTime() + c.getClusterTime().getInc()));
   }
 
-  private void addAggregateOutputTelemetry(
-      final Aggregate<T, U> aggregate, final JsonObject specification) {
-    final var partLabel = partLabel(specification);
-    final var scope = scope(specification);
-
-    telemetryProcessor(scope, App::eventTelemetryName, partLabel)
-        .ifPresent(p -> pullForever(with(builder.from(aggregate.topic(EVENT))).map(p).get()));
-    telemetryProcessor(scope, App::commandTelemetryName, partLabel)
-        .ifPresent(
-            p ->
-                pullForever(
-                    with(builder.from(aggregate.topic(REPLY)))
-                        .filter(m -> hasError(m.value))
-                        .map(p)
-                        .get()));
-  }
-
   private Aggregate<T, U> addPreprocessor(
       final Aggregate<T, U> aggregate, final JsonObject specification) {
     final Supplier<Processor<Message<String, JsonObject>, Message<String, JsonObject>>> pipeline =
@@ -607,13 +597,19 @@ class App<T, U, V, W> {
   }
 
   private void connectToTopic(final String topic, final JsonObject specification) {
+    final var name = TOPIC + "." + topic + "." + PRODUCE;
     final Publisher<Message<String, JsonObject>> source =
         addSubscriber(specification.getString(NAME));
 
     if (specification.getBoolean(TO_STRING, false)) {
-      stringBuilder.to(topic, with(source).map(m -> message(m.key, string(m.value))).get());
+      stringBuilder.to(
+          topic,
+          with(source)
+              .map(telemetryProcessor(m -> name, specification))
+              .map(m -> message(m.key, string(m.value)))
+              .get());
     } else {
-      builder.to(topic, source);
+      builder.to(topic, with(source).map(telemetryProcessor(m -> name, specification)).get());
     }
   }
 
@@ -637,14 +633,15 @@ class App<T, U, V, W> {
                       reducerProcessors(
                           preprocessors(
                               createAggregate(
-                                  specification, aggregateType.first, aggregateType.second),
+                                      specification, aggregateType.first, aggregateType.second)
+                                  .withTelemetryProcessor(
+                                      name -> telemetryProcessor(name, specification)),
                               specification),
                           specification),
                       specification);
 
               aggregate.build();
               addStreams(aggregate);
-              addAggregateOutputTelemetry(aggregate, specification);
             });
   }
 
@@ -726,7 +723,15 @@ class App<T, U, V, W> {
   private Publisher<Message<String, JsonObject>> createMerge(final JsonObject specification) {
     return with(Cases.<JsonObject, Stream<Publisher<Message<String, JsonObject>>>>withValue(
                 specification)
-            .or(s -> s.containsKey(FROM_TOPICS), s -> getStrings(s, FROM_TOPICS).map(builder::from))
+            .or(
+                s -> s.containsKey(FROM_TOPICS),
+                s ->
+                    getStrings(s, FROM_TOPICS)
+                        .map(
+                            topic ->
+                                with(builder.from(topic))
+                                    .map(telemetryProcessor(m -> consumeName(topic), specification))
+                                    .get()))
             .or(
                 s -> s.containsKey(FROM_STREAMS),
                 s -> getStrings(s, FROM_STREAMS).map(this::addSubscriber))
@@ -749,9 +754,7 @@ class App<T, U, V, W> {
                         .toList())
             .map(Merge::of)
             .orElseGet(Util::empty))
-        .map(
-            telemetryProcessor(scope(specification), m -> MERGED, partLabel(specification))
-                .orElseGet(PassThrough::passThrough))
+        .map(telemetryProcessor(m -> MERGED, specification))
         .get();
   }
 
@@ -844,8 +847,14 @@ class App<T, U, V, W> {
       final JsonObject specification) {
     withValue(specification)
         .orGet(
-            s -> ofNullable(s.getString(FROM_TOPIC, null)).map(topic -> builder.from(topic)),
-            publisher -> publisher.subscribe(stream))
+            s ->
+                ofNullable(s.getString(FROM_TOPIC, null))
+                    .map(topic -> pair(topic, builder.from(topic))),
+            pair ->
+                with(pair.second)
+                    .map(telemetryProcessor(m -> consumeName(pair.first), specification))
+                    .get()
+                    .subscribe(stream))
         .orGet(
             s -> ofNullable(s.getString(FROM_STREAM, null)),
             str -> subscribers.get(str).add(stream))
@@ -864,9 +873,15 @@ class App<T, U, V, W> {
     return function(expression, context.features);
   }
 
-  private Publisher<Message<String, JsonObject>> joinSource(final JsonObject specification) {
+  private Publisher<Message<String, JsonObject>> joinSource(
+      final JsonObject specification, final JsonObject partSpecification) {
     return Cases.<JsonObject, Publisher<Message<String, JsonObject>>>withValue(specification)
-        .orGet(s -> ofNullable(s.getString(FROM_TOPIC, null)), builder::from)
+        .orGet(
+            s -> ofNullable(s.getString(FROM_TOPIC, null)),
+            topic ->
+                with(builder.from(topic))
+                    .map(telemetryProcessor(m -> consumeName(topic), partSpecification))
+                    .get())
         .orGet(s -> ofNullable(s.getString(FROM_STREAM, null)), this::addSubscriber)
         .orGet(
             s -> ofNullable(s.getString(FROM_COLLECTION, null)).map(App::collectionKey),
@@ -880,19 +895,14 @@ class App<T, U, V, W> {
       final ThisSide thisSide,
       final OtherSide otherSide,
       final int window) {
-    final var partLabel = partLabel(specification);
-    final var scope = scope(specification);
-
-    return with(joinSource(specification.getJsonObject(thisSide.name)))
+    return with(joinSource(specification.getJsonObject(thisSide.name), specification))
         .backpressureTimeout(
             backpressureTimeout,
             () -> name() + ":" + specification.getString(NAME) + ":" + thisSide.name)
         .map(
             probeCancel(
                 () -> severe(() -> "Part " + string(specification, false) + " was cancelled")))
-        .map(
-            telemetryProcessor(scope, m -> thisSide.name + "." + IN, partLabel)
-                .orElseGet(PassThrough::passThrough))
+        .map(telemetryProcessor(m -> thisSide.name + "." + IN, specification))
         .map(message -> message.withValue(createJoinMessage(message.value)))
         .mapAsync(message -> saveMessage(thisSide.collection, message))
         .mapAsync(
@@ -908,9 +918,7 @@ class App<T, U, V, W> {
                 with(pair.second)
                     .map(found -> joinedMessage(pair.first.value, found, thisSide, otherSide))
                     .get())
-        .map(
-            telemetryProcessor(scope, m -> thisSide.name + "." + OUT, partLabel)
-                .orElseGet(PassThrough::passThrough))
+        .map(telemetryProcessor(m -> thisSide.name + "." + OUT, specification))
         .map(
             probeError(
                 e ->
@@ -1137,6 +1145,12 @@ class App<T, U, V, W> {
     LOGGER.log(INFO, "Stopped {0}", new Object[] {name()});
   }
 
+  private Processor<Message<String, JsonObject>, Message<String, JsonObject>> telemetryProcessor(
+      final Function<Message<String, JsonObject>, String> name, final JsonObject specification) {
+    return telemetryProcessor(scope(specification), name, partLabel(specification))
+        .orElseGet(PassThrough::passThrough);
+  }
+
   private Optional<Processor<Message<String, JsonObject>, Message<String, JsonObject>>>
       telemetryProcessor(
           final String scope,
@@ -1334,19 +1348,9 @@ class App<T, U, V, W> {
   private Processor<Message<String, JsonObject>, Message<String, JsonObject>> wrapTelemetry(
       final Processor<Message<String, JsonObject>, Message<String, JsonObject>> processor,
       final JsonObject specification) {
-    final var partLabel = partLabel(specification);
-    final var scope = scope(specification);
-
-    return telemetryProcessor(scope, m -> IN, partLabel)
-        .map(
-            in ->
-                (Processor<Message<String, JsonObject>, Message<String, JsonObject>>)
-                    pipe(in)
-                        .then(processor)
-                        .then(
-                            telemetryProcessor(scope, m -> OUT, partLabel)
-                                .orElseGet(PassThrough::passThrough)))
-        .orElse(processor);
+    return pipe(telemetryProcessor(m -> IN, specification))
+        .then(processor)
+        .then(telemetryProcessor(m -> OUT, specification));
   }
 
   private record OtherSide(
