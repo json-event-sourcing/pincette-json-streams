@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.8.10
+
+* Fix the reactive serialisation issue in the `$http` stage, where the `onComplete` signal could
+* come too early. This would result in an empty array response.
+
 ## 2.8.9
 
 * Add the `--strict` option to the test command of the CLI.
