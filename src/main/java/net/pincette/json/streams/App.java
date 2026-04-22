@@ -209,12 +209,11 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class App<T, U, V, W> {
-  private static final String AGGREGATE_SHARDS = "aggregateShards";
   private static final String BACKPRESSURE_TIMEOUT = "backpressureTimeout";
   private static final String COLLECTION_PREFIX = "collection-";
   private static final String CONSUME = "consume";
-  private static final int DEFAULT_AGGREGATE_SHARDS = 10;
   private static final int DEFAULT_TRACE_SAMPLE_PERCENTAGE = 10;
+  private static final Duration GRACE_PERIOD = ofSeconds(3);
   private static final String IN = "in";
   private static final String INVALID_COMMAND = "invalid-command";
   private static final String JOIN_TIMESTAMP = "_join_timestamp";
@@ -235,7 +234,6 @@ class App<T, U, V, W> {
   private static final String UNIQUE_EXPRESSION = "uniqueExpression";
   private static final String WINDOW = "window";
 
-  private final int aggregateShards;
   private final Attributes attributes;
   private final Duration backpressureTimeout;
   private final Context context;
@@ -287,11 +285,6 @@ class App<T, U, V, W> {
         context != null
             ? configValueApp(context.config::getDuration, BACKPRESSURE_TIMEOUT, name()).orElse(null)
             : null;
-    this.aggregateShards =
-        context != null
-            ? configValueApp(context.config::getInt, AGGREGATE_SHARDS, name())
-                .orElse(DEFAULT_AGGREGATE_SHARDS)
-            : DEFAULT_AGGREGATE_SHARDS;
   }
 
   private static Optional<Pair<String, String>> aggregateTypeParts(final JsonObject specification) {
@@ -386,10 +379,6 @@ class App<T, U, V, W> {
             .collect(toSet())
             .stream()
             .map(name -> pair(name, new ArrayList<>())));
-  }
-
-  private static String eventTelemetryName(final Message<String, JsonObject> message) {
-    return EVENT + "." + command(message);
   }
 
   private static CompletionStage<Pair<Message<String, JsonObject>, Publisher<JsonObject>>>
@@ -620,7 +609,6 @@ class App<T, U, V, W> {
         .withBuilder(builder)
         .withMongoDatabase(context.database)
         .withMongoClient(context.client)
-        .withShards(aggregateShards)
         .withLogger(logger());
   }
 
@@ -1135,7 +1123,7 @@ class App<T, U, V, W> {
     streams.values().forEach(SubscriptionMonitor::stop);
 
     if (builder != null) {
-      builder.stop();
+      builder.stop(GRACE_PERIOD);
     }
 
     if (thread != null) {

@@ -7,6 +7,7 @@ import static java.lang.Runtime.getRuntime;
 import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
+import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.logging.Level.SEVERE;
 import static net.pincette.config.Util.configValue;
 import static net.pincette.jes.tel.OtelUtil.counter;
@@ -46,15 +47,18 @@ import static net.pincette.util.Util.tryToGetSilent;
 
 import com.mongodb.reactivestreams.client.MongoCollection;
 import java.io.File;
+import java.io.PrintStream;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -184,14 +188,7 @@ class Run<T, U, V, W> implements Runnable {
       leader.stop();
     }
 
-    new ArrayList<>(running.values())
-        .forEach(
-            app -> {
-              System.out.println("Stopping " + app.name());
-              app.stop();
-              System.out.println("Stopped " + app.name());
-            });
-
+    stopAllApps(new ArrayList<>(running.values()), System.out);
     appCounters.forEach(c -> tryToDoSilent(c::close));
   }
 
@@ -396,6 +393,27 @@ class Run<T, U, V, W> implements Runnable {
                       keepAlive.stop(removeSuffix(application, context));
                       appCounter(application, METRIC_STOPS).accept(application);
                     }));
+  }
+
+  private void stopAllApps(final List<App<T, U, V, W>> apps, final PrintStream log) {
+    final List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+
+    apps.forEach(
+        app -> {
+          final var future = new CompletableFuture<Boolean>();
+
+          futures.add(future);
+          new Thread(
+                  () -> {
+                    log.println("Stopping " + app.name());
+                    app.stop();
+                    log.println("Stopped " + app.name());
+                    future.complete(true);
+                  })
+              .start();
+        });
+
+    allOf(futures.toArray(CompletableFuture[]::new)).join();
   }
 
   private static class FileOrCollection {

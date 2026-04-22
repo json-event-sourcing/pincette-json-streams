@@ -1,9 +1,15 @@
 # Release Notes
 
+## 2.8.11
+
+* Fix the issue with the `$http` stage where it sometimes didn't complete with short responses.
+* Flush to Kafka topics when certain reactive branches didn't complete naturally.
+* Speed up application shutdown.
+* Fix the `$addFields` stage, where a scalar or `null` value is not overwritten when it is used as an object in the new fields. 
+
 ## 2.8.10
 
-* Fix the reactive serialisation issue in the `$http` stage, where the `onComplete` signal could
-* come too early. This would result in an empty array response.
+* Fix the reactive serialisation issue in the `$http` stage, where the `onComplete` signal could come too early. This would result in an empty array response.
 
 ## 2.8.9
 
