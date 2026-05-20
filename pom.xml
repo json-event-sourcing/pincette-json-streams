@@ -287,7 +287,7 @@
               <entry>-XX:MinHeapFreeRatio=5</entry>
               <entry>--module-path</entry>
               <entry>app:app/libs</entry>
-              <entry>-module</entry>
+              <entry>--module</entry>
               <entry>application/net.pincette.json.streams.Application</entry>
               <entry>run</entry>
             </entrypoint>
