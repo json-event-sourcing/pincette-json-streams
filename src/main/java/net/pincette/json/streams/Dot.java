@@ -32,18 +32,21 @@ import static net.pincette.json.streams.Common.TO_COLLECTION;
 import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.createContext;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 
+import com.typesafe.config.Config;
+import java.io.File;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
@@ -59,13 +62,20 @@ import picocli.CommandLine.Option;
         "Generate a dot file from an application. It can be converted to an image with "
             + "the dot command-line tool.")
 class Dot extends ApplicationCommand implements Runnable {
+  private final Config config;
+
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
   @Option(
       names = {"-g", "--global"},
       description = "Create a graph with the applications.")
   private boolean global;
 
-  Dot(final Supplier<Context> contextSupplier) {
-    super(contextSupplier);
+  Dot(final Config config) {
+    this.config = config;
   }
 
   private static Stream<Link> aggregateLinks(final JsonObject json, final String environment) {
@@ -330,7 +340,7 @@ class Dot extends ApplicationCommand implements Runnable {
   }
 
   public void run() {
-    final var context = contextSupplier.get();
+    final var context = createContext(overrideConfig(config, configFile));
 
     if (global) {
       manyApplications(getValidatedApplications(context), context);

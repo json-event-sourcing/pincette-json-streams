@@ -9,12 +9,15 @@ import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
 import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.Common.getApplicationCollection;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.mongo.JsonClient.aggregate;
 import static net.pincette.util.Collections.list;
 
+import com.typesafe.config.Config;
+import java.io.File;
 import java.util.List;
-import java.util.function.Supplier;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
@@ -27,15 +30,20 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Lists the running applications.")
 class ListApps implements Runnable {
-  private final Supplier<Context> contextSupplier;
+  private final Config config;
 
   @Option(
       names = {"-c", "--collection"},
       description = "The MongoDB collection that contains the applications.")
   private String collection;
 
-  ListApps(final Supplier<Context> contextSupplier) {
-    this.contextSupplier = contextSupplier;
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
+  ListApps(final Config config) {
+    this.config = config;
   }
 
   @SuppressWarnings("java:S106") // Not logging.
@@ -49,7 +57,7 @@ class ListApps implements Runnable {
   }
 
   public void run() {
-    final var context = contextSupplier.get();
+    final var context = createContext(overrideConfig(config, configFile));
 
     aggregate(
             context.database.getCollection(getApplicationCollection(collection, context)),

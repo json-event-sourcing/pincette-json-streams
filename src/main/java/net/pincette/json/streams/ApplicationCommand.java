@@ -22,7 +22,6 @@ import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import net.pincette.io.DontCloseOutputStream;
@@ -32,8 +31,6 @@ import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Option;
 
 class ApplicationCommand {
-  protected final Supplier<Context> contextSupplier;
-
   @Option(
       names = {"-e", "--exclude"},
       arity = "1..*",
@@ -41,10 +38,6 @@ class ApplicationCommand {
   private String[] excluded;
 
   @ArgGroup() private FileOrApplication fileOrApplication;
-
-  ApplicationCommand(final Supplier<Context> contextSupplier) {
-    this.contextSupplier = contextSupplier;
-  }
 
   private Bson applicationFilter() {
     return ofNullable(fileOrApplication)
@@ -82,11 +75,7 @@ class ApplicationCommand {
 
   protected Stream<JsonObject> getValidatedApplications(final Context context) {
     return getApplications(context)
-        .map(
-            loaded ->
-                pair(
-                    loaded.specification,
-                    createApplicationContext(loaded, context)))
+        .map(loaded -> pair(loaded.specification, createApplicationContext(loaded, context)))
         .map(pair -> pair(build(pair.first, false, pair.second), pair.second))
         .filter(pair -> validateApplication(pair.first))
         .map(pair -> pair.first);

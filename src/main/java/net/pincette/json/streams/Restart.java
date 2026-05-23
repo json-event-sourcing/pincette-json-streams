@@ -7,13 +7,16 @@ import static java.util.logging.Logger.getGlobal;
 import static net.pincette.jes.JsonFields.TIMESTAMP;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
+import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.Common.getApplicationCollection;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.mongo.Collection.updateOne;
 import static net.pincette.util.Util.must;
 
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
-import java.util.function.Supplier;
+import com.typesafe.config.Config;
+import java.io.File;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
 import picocli.CommandLine.Option;
@@ -25,7 +28,7 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Restarts the application.")
 class Restart implements Runnable {
-  private final Supplier<Context> contextSupplier;
+  private final Config config;
 
   @Option(
       names = {"-a", "--application"},
@@ -38,8 +41,13 @@ class Restart implements Runnable {
       description = "The MongoDB collection the application is restarted in.")
   private String collection;
 
-  Restart(final Supplier<Context> contextSupplier) {
-    this.contextSupplier = contextSupplier;
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
+  Restart(final Config config) {
+    this.config = config;
   }
 
   private UpdateResult logExists(final UpdateResult result) {
@@ -51,7 +59,7 @@ class Restart implements Runnable {
   }
 
   public void run() {
-    final var context = contextSupplier.get();
+    final var context = createContext(overrideConfig(config, configFile));
 
     updateOne(
             context.database.getCollection(getApplicationCollection(collection, context)),

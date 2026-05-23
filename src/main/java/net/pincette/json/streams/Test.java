@@ -28,6 +28,8 @@ import static net.pincette.json.JsonUtil.createReader;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.COLLECTION_CHANGES;
+import static net.pincette.json.streams.Common.createContext;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.json.streams.Common.waitFor;
 import static net.pincette.json.streams.Logging.info;
 import static net.pincette.json.streams.Logging.severe;
@@ -60,6 +62,7 @@ import static org.reactivestreams.FlowAdapters.toSubscriber;
 import com.mongodb.client.result.InsertManyResult;
 import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
+import com.typesafe.config.Config;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -84,7 +87,6 @@ import java.util.concurrent.Flow.Publisher;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
@@ -122,8 +124,13 @@ class Test<T, U, V, W> implements Callable<Integer> {
   private Context context;
   private boolean keep;
   private TestAsserter asserter;
-  private final Supplier<Context> contextSupplier;
-  private final Supplier<TestProvider<T, U, V, W>> testProviderSupplier;
+  private final Config config;
+  private final Function<Config, TestProvider<T, U, V, W>> testProvider;
+
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
 
   @Option(
       names = {"-f", "--file"},
@@ -142,11 +149,9 @@ class Test<T, U, V, W> implements Callable<Integer> {
       description = "Whether assertions must be strict or lenient")
   private boolean strict;
 
-  Test(
-      final Supplier<TestProvider<T, U, V, W>> testProviderSupplier,
-      final Supplier<Context> contextSupplier) {
-    this.testProviderSupplier = testProviderSupplier;
-    this.contextSupplier = contextSupplier;
+  Test(final Config config, Function<Config, TestProvider<T, U, V, W>> testProvider) {
+    this.config = config;
+    this.testProvider = testProvider;
   }
 
   private static Context addLoadCollection(final Context context, final TestContext testContext) {
@@ -377,7 +382,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
     dropDatabase();
 
     if (context == null) {
-      context = withTestDatabase(contextSupplier.get());
+      context = withTestDatabase(createContext(overrideConfig(config, configFile)));
       keep = context.database != null;
     }
 
@@ -424,7 +429,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
   boolean test(final Path application) {
     final State<Set<String>> allTopics = new State<>(emptySet());
     final State<String> name = new State<>(null);
-    final TestProvider<T, U, V, W> testProvider = testProviderSupplier.get();
+    final TestProvider<T, U, V, W> provider =
+        testProvider.apply(overrideConfig(config, configFile));
 
     try {
       final TestContext testContext = new TestContext(application);
@@ -434,8 +440,9 @@ class Test<T, U, V, W> implements Callable<Integer> {
 
       final Optional<App<T, U, V, W>> app =
           new Run<>(
-                  () -> testProvider,
-                  () -> completeContext(context, testContext, testProvider.getProducer()))
+                  config,
+                  c -> provider,
+                  c -> completeContext(context, testContext, provider.getProducer()))
               .createApp(application.toFile());
 
       initCollections(testContext.allCollections());
@@ -456,7 +463,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
                         testContext.topicsTo.size() + testContext.collectionsTo.size());
 
                 name.set(a.name());
-                testProvider.deleteConsumerGroups(set(a.name()));
+                provider.deleteConsumerGroups(set(a.name()));
 
                 a.onCreated(
                     (builder, stringBuilder) -> {
@@ -468,8 +475,8 @@ class Test<T, U, V, W> implements Callable<Integer> {
                               stringBuilder.sinkTopics()));
                       consumedTopics.set(
                           union(builder.sourceTopics(), stringBuilder.sourceTopics()));
-                      testProvider.deleteTopics(allTopics.get());
-                      testProvider.createTopics(allTopics.get());
+                      provider.deleteTopics(allTopics.get());
+                      provider.createTopics(allTopics.get());
                       info("Topics created");
                       inputQueues.set(inputQueues(testContext, builder));
                       addExpectedTopics(builder, expectedTopicsWithResults, running);
@@ -477,7 +484,7 @@ class Test<T, U, V, W> implements Callable<Integer> {
                     });
 
                 a.start();
-                waitFor(() -> testProvider.allAssigned(a.name(), consumedTopics.get()));
+                waitFor(() -> provider.allAssigned(a.name(), consumedTopics.get()));
                 info("Topics assigned");
                 loadTopics(inputQueues.get(), testContext);
                 waitFor(() -> completedFuture(running.intValue() == 0));
@@ -488,17 +495,17 @@ class Test<T, U, V, W> implements Callable<Integer> {
               })
           .orElse(false);
     } finally {
-      testProvider.deleteTopics(allTopics.get());
+      provider.deleteTopics(allTopics.get());
       info("Topics deleted");
 
       ofNullable(name.get())
           .ifPresent(
               n -> {
-                testProvider.deleteConsumerGroups(set(n));
+                provider.deleteConsumerGroups(set(n));
                 info("Consumer group deleted");
               });
 
-      tryToDoRethrow(testProvider::close);
+      tryToDoRethrow(provider::close);
       dropDatabase();
       info("Database dropped");
     }

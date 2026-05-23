@@ -20,8 +20,6 @@ import static net.pincette.io.PathUtil.copy;
 import static net.pincette.io.PathUtil.delete;
 import static net.pincette.json.JsonUtil.createDiff;
 import static net.pincette.json.JsonUtil.createReader;
-import static net.pincette.json.streams.Common.createContext;
-import static net.pincette.json.streams.KafkaProvider.tester;
 import static net.pincette.json.streams.Logging.init;
 import static net.pincette.rs.Chain.with;
 import static net.pincette.rs.Util.onComplete;
@@ -104,7 +102,7 @@ class TestApp {
     final Config config = createConfig();
 
     init(config);
-    test = new net.pincette.json.streams.Test<>(() -> tester(config), () -> createContext(config));
+    test = new net.pincette.json.streams.Test<>(config, KafkaProvider::tester);
   }
 
   private static Stream<BodyPart> bodyParts(final MimeMultipart mmp) {

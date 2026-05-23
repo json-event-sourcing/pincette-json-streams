@@ -29,6 +29,7 @@ nav:
 - 'plugins.md'
 - 'autoscaling.md'
 - 'configuration.md'
+- 'local_development.md'
 - 'build.md'
 - 'docker.md'
 - 'cli.md'

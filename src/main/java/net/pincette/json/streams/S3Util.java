@@ -30,9 +30,17 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetUrlRequest;
 
 class S3Util {
-  private static final S3AsyncClient client = create();
+  private static S3AsyncClient client;
 
   private S3Util() {}
+
+  static S3AsyncClient getClient() {
+    if (client == null) {
+      client = create();
+    }
+
+    return client;
+  }
 
   static Function<
           JsonObject, CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>>
@@ -63,16 +71,16 @@ class S3Util {
   }
 
   static Function<JsonObject, Optional<URL>> getObjectUrl(
-          final Function<JsonObject, JsonValue> bucket, final Function<JsonObject, JsonValue> key) {
+      final Function<JsonObject, JsonValue> bucket, final Function<JsonObject, JsonValue> key) {
     return json ->
-            Optional.of(pair(bucket.apply(json), key.apply(json)))
-                    .map(
-                            pair ->
-                                    pair(
-                                            stringValue(pair.first).orElse(null),
-                                            stringValue(pair.second).orElse(null)))
-                    .filter(pair -> pair.first != null && pair.second != null)
-                    .map(pair -> getObjectUrl(pair.first, pair.second));
+        Optional.of(pair(bucket.apply(json), key.apply(json)))
+            .map(
+                pair ->
+                    pair(
+                        stringValue(pair.first).orElse(null),
+                        stringValue(pair.second).orElse(null)))
+            .filter(pair -> pair.first != null && pair.second != null)
+            .map(pair -> getObjectUrl(pair.first, pair.second));
   }
 
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
@@ -89,7 +97,7 @@ class S3Util {
   }
 
   static URL getObjectUrl(final String bucket, final String key) {
-    return client.utilities().getUrl(GetUrlRequest.builder().bucket(bucket).key(key).build());
+    return getClient().utilities().getUrl(GetUrlRequest.builder().bucket(bucket).key(key).build());
   }
 
   private static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>
@@ -98,7 +106,7 @@ class S3Util {
           final Supplier<Logger> logger,
           final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
     return tryToGetForever(
-            () -> client.getObject(request, new Response()),
+            () -> getClient().getObject(request, new Response()),
             () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
             logger)
         .thenApply(

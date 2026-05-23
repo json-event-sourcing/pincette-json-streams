@@ -5,5 +5,6 @@
 /*.iml
 /site/
 /conf/
+/out/
 !/conf/application.conf
 !/conf/test.conf

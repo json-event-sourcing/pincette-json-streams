@@ -9,6 +9,7 @@ import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.streams.Common.S3OUT;
 import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.logStageObject;
+import static net.pincette.json.streams.S3Util.getClient;
 import static net.pincette.mongo.Expression.function;
 import static net.pincette.rs.Async.mapAsync;
 import static net.pincette.rs.Chain.with;
@@ -18,7 +19,6 @@ import static net.pincette.util.Pair.pair;
 import static net.pincette.util.Util.must;
 import static org.reactivestreams.FlowAdapters.toPublisher;
 import static software.amazon.awssdk.core.async.AsyncRequestBody.fromPublisher;
-import static software.amazon.awssdk.services.s3.S3AsyncClient.create;
 import static software.amazon.awssdk.services.s3.model.PutObjectRequest.builder;
 
 import java.util.Optional;
@@ -30,14 +30,11 @@ import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.mongo.streams.Stage;
 import net.pincette.rs.Source;
-import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 class S3OutStage {
   private static final String BUCKET = "bucket";
   private static final String KEY = "key";
-
-  private static final S3AsyncClient client = create();
 
   private S3OutStage() {}
 
@@ -89,12 +86,14 @@ class S3OutStage {
       final JsonObject json, final PutObjectRequest request, final Supplier<Logger> logger) {
     return tryToGetForever(
             () ->
-                client.putObject(
-                    request.toBuilder()
-                        .contentLength((long) string(json).getBytes(UTF_8).length)
-                        .build(),
-                    fromPublisher(
-                        toPublisher(with(Source.of((JsonValue) json)).map(writeObject()).get()))),
+                getClient()
+                    .putObject(
+                        request.toBuilder()
+                            .contentLength((long) string(json).getBytes(UTF_8).length)
+                            .build(),
+                        fromPublisher(
+                            toPublisher(
+                                with(Source.of((JsonValue) json)).map(writeObject()).get()))),
             () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
             logger)
         .thenApply(result -> json);

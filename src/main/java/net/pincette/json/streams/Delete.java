@@ -5,12 +5,15 @@ import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Logger.getGlobal;
 import static net.pincette.json.streams.Application.APP_VERSION;
 import static net.pincette.json.streams.Common.APPLICATION_FIELD;
+import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.Common.getApplicationCollection;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.mongo.Collection.deleteOne;
 import static net.pincette.util.Util.must;
 
 import com.mongodb.client.result.DeleteResult;
-import java.util.function.Supplier;
+import com.typesafe.config.Config;
+import java.io.File;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
 import picocli.CommandLine.Option;
@@ -22,7 +25,7 @@ import picocli.CommandLine.Option;
     subcommands = {HelpCommand.class},
     description = "Removes the application from the MongoDB collection, which causes it to stop.")
 class Delete implements Runnable {
-  private final Supplier<Context> contextSupplier;
+  private final Config config;
 
   @Option(
       names = {"-a", "--application"},
@@ -35,8 +38,13 @@ class Delete implements Runnable {
       description = "The MongoDB collection the application is deleted from.")
   private String collection;
 
-  Delete(final Supplier<Context> contextSupplier) {
-    this.contextSupplier = contextSupplier;
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
+  Delete(final Config config) {
+    this.config = config;
   }
 
   private DeleteResult logExists(final DeleteResult result) {
@@ -48,7 +56,7 @@ class Delete implements Runnable {
   }
 
   public void run() {
-    final var context = contextSupplier.get();
+    final var context = createContext(overrideConfig(config, configFile));
 
     deleteOne(
             context.database.getCollection(getApplicationCollection(collection, context)),

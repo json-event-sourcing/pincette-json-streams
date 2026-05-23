@@ -31,20 +31,24 @@ import static net.pincette.json.streams.Common.TO_TOPIC;
 import static net.pincette.json.streams.Common.TYPE;
 import static net.pincette.json.streams.Common.VERSION_FIELD;
 import static net.pincette.json.streams.Common.application;
+import static net.pincette.json.streams.Common.createContext;
 import static net.pincette.json.streams.Common.getCommands;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.util.Or.tryWith;
 import static net.pincette.util.StreamUtil.concat;
 import static net.pincette.util.Util.repeat;
 import static net.pincette.util.Util.tryToDoWithRethrow;
 
+import com.typesafe.config.Config;
+import java.io.File;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.HelpCommand;
+import picocli.CommandLine.Option;
 
 @Command(
     name = "doc",
@@ -56,8 +60,15 @@ class Doc extends ApplicationCommand implements Runnable {
   private static final String DESCRIPTION = "description";
   private static final String TITLE = "title";
 
-  Doc(final Supplier<Context> contextSupplier) {
-    super(contextSupplier);
+  private final Config config;
+
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
+  Doc(final Config config) {
+    this.config = config;
   }
 
   private static Function<JsonObject, Stream<String>> aggregateAnchors() {
@@ -237,7 +248,7 @@ class Doc extends ApplicationCommand implements Runnable {
   }
 
   public void run() {
-    getValidatedApplications(contextSupplier.get())
+    getValidatedApplications(createContext(overrideConfig(config, configFile)))
         .forEach(
             specification ->
                 tryToDoWithRethrow(

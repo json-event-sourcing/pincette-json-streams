@@ -148,7 +148,7 @@ class Validate {
       report(
           specification,
           () ->
-              "a topology should have an \"application\" and a \"version\" field, both "
+              "an app should have an \"application\" and a \"version\" field, both "
                   + "strings, and an array called \"parts\".");
     } else {
       result =

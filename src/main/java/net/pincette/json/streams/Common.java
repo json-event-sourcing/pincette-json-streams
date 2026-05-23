@@ -2,6 +2,7 @@ package net.pincette.json.streams;
 
 import static com.mongodb.client.model.Aggregates.match;
 import static com.mongodb.client.model.Filters.in;
+import static com.typesafe.config.ConfigFactory.parseFile;
 import static java.lang.Integer.MAX_VALUE;
 import static java.lang.Integer.max;
 import static java.lang.String.valueOf;
@@ -748,6 +749,10 @@ class Common {
     return zip(stream(s.split("\\n")).sequential(), rangeExclusive(1, MAX_VALUE))
         .map(pair -> rightAlign(valueOf(pair.second)) + " " + pair.first)
         .collect(joining("\n"));
+  }
+
+  static Config overrideConfig(final Config config, final File configFile) {
+    return configFile != null ? parseFile(configFile).withFallback(config) : config;
   }
 
   private static JsonObject parameters(

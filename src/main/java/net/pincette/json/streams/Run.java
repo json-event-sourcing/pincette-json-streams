@@ -25,6 +25,7 @@ import static net.pincette.json.streams.Common.applicationAttributes;
 import static net.pincette.json.streams.Common.build;
 import static net.pincette.json.streams.Common.createApplicationContext;
 import static net.pincette.json.streams.Common.meterProvider;
+import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.LOGGER;
@@ -46,6 +47,7 @@ import static net.pincette.util.Util.tryToDoSilent;
 import static net.pincette.util.Util.tryToGetSilent;
 
 import com.mongodb.reactivestreams.client.MongoCollection;
+import com.typesafe.config.Config;
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.file.Paths;
@@ -61,7 +63,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
@@ -92,10 +94,11 @@ class Run<T, U, V, W> implements Runnable {
   private static final int MIN_POOL_SIZE = 5;
   private static final String PLUGINS = "plugins";
 
-  private final Supplier<Context> contextSupplier;
   private final Map<String, Consumer<String>> appCounterConsumers = new HashMap<>();
   private final Set<AutoCloseable> appCounters = new HashSet<>();
-  private final Supplier<Provider<T, U, V, W>> providerSupplier;
+  private final Config config;
+  private final Function<Config, Context> contextSupplier;
+  private final Function<Config, Provider<T, U, V, W>> providerSupplier;
   private final BlockingQueue<Runnable> runQueue = new LinkedBlockingQueue<>();
   private final Map<String, App<T, U, V, W>> running = new HashMap<>();
   private Context context;
@@ -105,9 +108,16 @@ class Run<T, U, V, W> implements Runnable {
   private Provider<T, U, V, W> provider;
   private boolean stop;
 
+  @Option(
+      names = {"-C", "--config"},
+      description = "The configuration with overrides to the default one.")
+  private File configFile;
+
   Run(
-      final Supplier<Provider<T, U, V, W>> providerSupplier,
-      final Supplier<Context> contextSupplier) {
+      final Config config,
+      final Function<Config, Provider<T, U, V, W>> providerSupplier,
+      final Function<Config, Context> contextSupplier) {
+    this.config = config;
     this.providerSupplier = providerSupplier;
     this.contextSupplier = contextSupplier;
   }
@@ -193,8 +203,9 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   Optional<App<T, U, V, W>> createApp(final File file) {
-    provider = providerSupplier.get();
-    context = prepareContext(contextSupplier.get());
+    final var c = overrideConfig(config, configFile);
+    provider = providerSupplier.apply(c);
+    context = prepareContext(contextSupplier.apply(c));
 
     return createApplications(readTopologies(file), context).findFirst();
   }
@@ -299,9 +310,11 @@ class Run<T, U, V, W> implements Runnable {
   }
 
   public void run() {
+    final var c = overrideConfig(config, configFile);
+
     info(() -> "Version " + APP_VERSION);
-    provider = providerSupplier.get();
-    context = prepareContext(contextSupplier.get());
+    provider = providerSupplier.apply(c);
+    context = prepareContext(contextSupplier.apply(c));
 
     if (fileOrCollection == null) {
       new Thread(this::startWork).start();

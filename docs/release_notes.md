@@ -1,5 +1,11 @@
 # Release Notes
 
+## 2.9.0
+
+* Add a local development environment.
+* Add the `--config` CLI-option to override the default configuration.
+* Lazy load S3 client in S3-related pipeline stages.
+ 
 ## 2.8.11
 
 * Fix the issue with the `$http` stage where it sometimes didn't complete with short responses.
