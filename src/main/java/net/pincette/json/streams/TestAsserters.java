@@ -84,12 +84,11 @@ public final class TestAsserters {
         return false;
       }
 
-      for (int index = 0; index < expected.size(); index++) {
-        if (!matches(expected.get(index), actual.get(index))) {
-          return false;
-        }
-      }
-      return true;
+      return expected
+          .valueStream()
+          .allMatch(
+              expectedNode ->
+                  actual.valueStream().anyMatch(actualNode -> matches(expectedNode, actualNode)));
     }
 
     private static Optional<JsonNode> toJsonNode(JsonObject jsonObject) {
