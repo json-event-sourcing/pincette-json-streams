@@ -12,7 +12,7 @@ conditions:
   - myfield:
       $exists: true
       $code: "REQUIRED"
-    myfield:
+  - myfield:
       $type: "int"
       $code: "INT"    
 ```
