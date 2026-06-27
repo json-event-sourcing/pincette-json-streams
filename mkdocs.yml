@@ -30,6 +30,7 @@ nav:
 - 'autoscaling.md'
 - 'configuration.md'
 - 'local_development.md'
+- 'qlerify.md'
 - 'build.md'
 - 'docker.md'
 - 'cli.md'

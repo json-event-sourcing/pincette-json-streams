@@ -4,7 +4,8 @@ State is managed in an aggregate. An aggregate can define commands, which may ha
 
 You manage the state by writing reducers for commands. A reducer receives a command and the current state of an aggregate instance. Its task is to calculate the new state. Reducers are supposed to not have side effects. As such, reducers are merely JSON transformations.
 
-Reducers are written in [JQ](https://github.com/eiiches/jackson-jq), [JSLT](https://github.com/schibsted/jslt) or as an aggregation pipeline. A JSLT script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
+Reducers are written in [JQ](https://github.com/eiiches/jackson-jq) (preferred),
+[JSLT](https://github.com/schibsted/jslt) or as an aggregation pipeline. A script receives an object with the fields `command` and `state`. It should return the new state. Scripts are allowed to import other scripts. You should always use relative filenames.
 
 A pipeline receives the same object. Its output becomes the new state. Since you can add your own pipeline stages through a plugin, a reducer could also be written in Java. This is an example of reducers as pipelines.
 
@@ -252,43 +253,34 @@ parts:
     aggregateType: plusminus-counter
     commands:
       plus:
-        reducer: plus.jslt
+        reducer: plus.jq
         validator: validate_plus.yml
         preprocessor: deduplicate.yml        
       minus:
-        reducer: minus.jslt
+        reducer: minus.jq
         validator: validate_minus.yml
         preprocessor: deduplicate.yml        
       put:
-        reducer: put.jslt
+        reducer: put.jq
         validator: validate_put.yml
 ```      
 
-plus.jslt:
+plus.jq:
 
 ```
-.state | {
-  "value": .value + 1,
-  *: .
-}
+.state | . + { value: .value - 1 }
 ```
 
-minus.jslt:
+minus.jq:
 
 ```
-.state | {
-  "value": .value - 1,
-  *: .
-}
+.state | . + { value: .value - 1 }
 ```
 
-put.jslt:
+put.jq:
 
 ```
-.command | {
-  "_command": null,
-  *: .
-}
+.command | del(._command)
 ```
 
 validate_plus.yml:

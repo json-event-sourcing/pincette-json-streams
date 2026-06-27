@@ -108,7 +108,7 @@ parts:
           expression:
             $concat:
               - "$_id"
-              _ "$_corr"              
+              - "$_corr"              
           collection: "deduplicate-state"
           cacheWindow: 60000          
 ```
