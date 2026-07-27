@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.9.2
+
+* Update dependencies.
+ 
 ## 2.9.1
 
 * Fix the timing issue in the reactive JSON parser, where the completion signal could come too 
