@@ -244,8 +244,7 @@ class S3CsvStage {
   }
 
   private static JsonValue value(final String s) {
-    final Supplier<JsonValue> tryDouble =
-        () -> isDouble(s) ? createValue(parseDouble(s)) : createValue(s);
+    final Supplier<JsonValue> tryDouble = () -> createValue(isDouble(s) ? parseDouble(s) : s);
 
     return isLong(s) ? createValue(parseLong(s)) : tryDouble.get();
   }
