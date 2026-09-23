@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.9.3</version>
+  <version>2.9.4</version>
   <name>pincette-json-streams</name>
   <description>JSON Streams</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -54,21 +54,21 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.54.13</version>
+        <version>2.55.3</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>io.netty</groupId>
         <artifactId>netty-bom</artifactId>
-        <version>4.1.137.Final</version>
+        <version>4.1.138.Final</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>io.opentelemetry</groupId>
         <artifactId>opentelemetry-bom</artifactId>
-        <version>1.65.0</version>
+        <version>1.66.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -139,7 +139,7 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes-tel</artifactId>
-      <version>1.0.12</version>
+      <version>1.0.13</version>
     </dependency>
     <dependency>
       <groupId>com.auth0</groupId>
