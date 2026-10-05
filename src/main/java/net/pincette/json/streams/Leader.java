@@ -27,7 +27,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 class Leader {
-  private static final Logger LEADER_LOGGER = getLogger(LOGGER_NAME + ".leader");
+  static final Logger LEADER_LOGGER = getLogger(LOGGER_NAME + ".leader");
 
   private final MongoCollection<Document> collection;
   private final Context context;

@@ -73,7 +73,7 @@ An aggregate is a JSON document, which can have any structure plus the following
 |\_corr|Yes|The correlation identifier that was used by the last command. It is usually a UUID. It is propagated the event if one is produced.|
 |\_deleted|No|This boolean marks the aggregate instance as deleted. This is a logical deletion.|
 |\_id|Yes|The identifier of the aggregate instance. It is usually a UUID.|
-|\_jwt|No|The decoded JSON Web Token that was used by the last command. It is propagated the event if one is produced.|
+|\_jwt|Yes|The decoded JSON Web Token that was used by the last command. It is propagated the event if one is produced.|
 |\_seq|Yes|A sequence number. This is the sequence number of the last event.|
 |\_type|Yes|The aggregate type, which is composed as `<application>-<name>`.|
 

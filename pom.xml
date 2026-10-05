@@ -7,7 +7,7 @@
   <groupId>net.pincette</groupId>
   <artifactId>pincette-json-streams</artifactId>
   <packaging>jar</packaging>
-  <version>2.9.4</version>
+  <version>2.9.5</version>
   <name>pincette-json-streams</name>
   <description>JSON Streams</description>
   <url>https://github.com/json-event-sourcing/pincette-json-streams</url>
@@ -54,7 +54,7 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.55.3</version>
+        <version>2.55.11</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -84,32 +84,32 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-json</artifactId>
-      <version>2.3.7</version>
+      <version>2.3.8</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-mongo-streams</artifactId>
-      <version>3.3.14</version>
+      <version>3.3.15</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-json-streams-plugin</artifactId>
-      <version>3.0.19</version>
+      <version>3.0.20</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-mongo</artifactId>
-      <version>4.3.13</version>
+      <version>4.3.14</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes</artifactId>
-      <version>4.1.5</version>
+      <version>4.1.6</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes-util</artifactId>
-      <version>3.3.10</version>
+      <version>3.3.11</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
@@ -129,7 +129,7 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-kafka-json</artifactId>
-      <version>1.0.21</version>
+      <version>1.0.22</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
@@ -139,7 +139,7 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-jes-tel</artifactId>
-      <version>1.0.13</version>
+      <version>1.0.14</version>
     </dependency>
     <dependency>
       <groupId>com.auth0</groupId>
@@ -149,7 +149,7 @@
     <dependency>
       <groupId>org.mongodb</groupId>
       <artifactId>mongodb-driver-sync</artifactId>
-      <version>5.11.0</version>
+      <version>5.13.0</version>
     </dependency>
     <dependency>
       <groupId>org.glassfish</groupId>

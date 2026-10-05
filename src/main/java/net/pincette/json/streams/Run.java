@@ -28,6 +28,7 @@ import static net.pincette.json.streams.Common.meterProvider;
 import static net.pincette.json.streams.Common.overrideConfig;
 import static net.pincette.json.streams.Common.removeSuffix;
 import static net.pincette.json.streams.Common.tryToGetForever;
+import static net.pincette.json.streams.Leader.LEADER_LOGGER;
 import static net.pincette.json.streams.Logging.LOGGER;
 import static net.pincette.json.streams.Logging.LOGGER_NAME;
 import static net.pincette.json.streams.Logging.exception;
@@ -385,7 +386,7 @@ class Run<T, U, V, W> implements Runnable {
                 keepAlive.setAlive();
 
                 if (leader.isLeader()) {
-                  info(() -> context.instance + " is the leader.");
+                  LEADER_LOGGER.info(() -> context.instance + " is the leader.");
                   work.giveWork();
                 }
               },

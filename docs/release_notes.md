@@ -1,5 +1,9 @@
 # Release Notes
 
+## 2.9.5
+
+* Update dependencies.
+ 
 ## 2.9.4
 
 * Update dependencies.
