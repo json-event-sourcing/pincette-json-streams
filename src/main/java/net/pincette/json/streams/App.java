@@ -45,7 +45,6 @@ import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.toNative;
 import static net.pincette.json.streams.Common.AGGREGATE;
 import static net.pincette.json.streams.Common.AGGREGATE_TYPE;
-import static net.pincette.json.streams.Common.BACKOFF;
 import static net.pincette.json.streams.Common.COLLECTION_CHANGES;
 import static net.pincette.json.streams.Common.COMMAND;
 import static net.pincette.json.streams.Common.EVENT;
@@ -94,7 +93,6 @@ import static net.pincette.json.streams.Common.meterProvider;
 import static net.pincette.json.streams.Common.namespace;
 import static net.pincette.json.streams.Common.numberLines;
 import static net.pincette.json.streams.Common.saveMessage;
-import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Common.version;
 import static net.pincette.json.streams.LagStage.lagStage;
 import static net.pincette.json.streams.LogStage.logStage;
@@ -130,7 +128,6 @@ import static net.pincette.rs.Probe.probeValue;
 import static net.pincette.rs.Util.duplicateFilter;
 import static net.pincette.rs.Util.onErrorProcessor;
 import static net.pincette.rs.Util.pullForever;
-import static net.pincette.rs.Util.retryPublisher;
 import static net.pincette.rs.Util.tap;
 import static net.pincette.rs.streams.Message.message;
 import static net.pincette.util.Builder.create;
@@ -151,7 +148,6 @@ import static net.pincette.util.Util.tryToDoSilent;
 import static net.pincette.util.Util.tryToGet;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 
-import com.mongodb.MongoCommandException;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.reactivestreams.client.ChangeStreamPublisher;
 import com.mongodb.reactivestreams.client.MongoCollection;
@@ -477,7 +473,7 @@ class App<T, U, V, W> {
             pair(S3ATTACHMENTS, s3AttachmentsStage(context)),
             pair(S3CSV, s3CsvStage(context)),
             pair(S3OUT, s3OutStage(context)),
-            pair(S3TRANSFER, s3TransferStage(context)),
+            pair(S3TRANSFER, s3TransferStage()),
             pair(TEST_EXCEPTION, testExceptionStage()),
             pair(VALIDATE, validateStage(context))));
   }
@@ -653,33 +649,22 @@ class App<T, U, V, W> {
     final Supplier<ChangeStreamPublisher<Document>> watch =
         () -> context.database.getCollection(collection).watch(COLLECTION_CHANGES);
 
-    return retryPublisher(
-        () ->
-            with(toFlowPublisher(
-                    TRUE.equals(failed.get())
-                        ? watch.get()
-                        : startAfter(watch.get(), collection).fullDocument(UPDATE_LOOKUP)))
-                .commit(changes -> saveResumeTokens(changes, collection))
-                .map(Common::changedDocument)
-                .map(Common::toMessage)
-                .map(
-                    probe(
-                        n -> {
-                          if (context.testLoadCollection != null && !testCollectionLoaded.get()) {
-                            testCollectionLoaded.set(true);
-                            context.testLoadCollection.accept(collection);
-                          }
-                        }))
-                .get(),
-        BACKOFF,
-        e -> {
-          exception(e);
-
-          if (e instanceof MongoCommandException) {
-            // The command history was no longer in the oplog.
-            failed.set(true);
-          }
-        });
+    return with(toFlowPublisher(
+            TRUE.equals(failed.get())
+                ? watch.get()
+                : startAfter(watch.get(), collection).fullDocument(UPDATE_LOOKUP)))
+        .commit(changes -> saveResumeTokens(changes, collection))
+        .map(Common::changedDocument)
+        .map(Common::toMessage)
+        .map(
+            probe(
+                n -> {
+                  if (context.testLoadCollection != null && !testCollectionLoaded.get()) {
+                    testCollectionLoaded.set(true);
+                    context.testLoadCollection.accept(collection);
+                  }
+                }))
+        .get();
   }
 
   private Publisher<Message<String, JsonObject>> createJoin(final JsonObject specification) {
@@ -1065,12 +1050,10 @@ class App<T, U, V, W> {
       final BsonDocument resumeToken, final String collection) {
     final String key = resumeTokenKey(collection);
 
-    return tryToGetForever(
-        () ->
-            update(
-                    context.database.getCollection(resumeTokenCollection()),
-                    o(f(ID, v(key)), f(TOKEN, fromBson(resumeToken))))
-                .thenApply(result -> must(result, r -> r)));
+    return update(
+            context.database.getCollection(resumeTokenCollection()),
+            o(f(ID, v(key)), f(TOKEN, fromBson(resumeToken))))
+        .thenApply(result -> must(result, r -> r));
   }
 
   private CompletionStage<Boolean> saveResumeTokens(

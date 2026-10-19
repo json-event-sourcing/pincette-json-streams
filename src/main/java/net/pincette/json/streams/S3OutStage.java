@@ -7,7 +7,6 @@ import static net.pincette.json.JsonUtil.isObject;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.json.JsonUtil.stringValue;
 import static net.pincette.json.streams.Common.S3OUT;
-import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.logStageObject;
 import static net.pincette.json.streams.S3Util.getClient;
 import static net.pincette.mongo.Expression.function;
@@ -24,8 +23,6 @@ import static software.amazon.awssdk.services.s3.model.PutObjectRequest.builder;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.mongo.streams.Stage;
@@ -39,9 +36,7 @@ class S3OutStage {
   private S3OutStage() {}
 
   private static Function<JsonObject, CompletionStage<Optional<JsonObject>>> putObject(
-      final Function<JsonObject, JsonValue> bucket,
-      final Function<JsonObject, JsonValue> key,
-      final Supplier<Logger> logger) {
+      final Function<JsonObject, JsonValue> bucket, final Function<JsonObject, JsonValue> key) {
     return json ->
         Optional.of(pair(bucket.apply(json), key.apply(json)))
             .map(
@@ -50,9 +45,7 @@ class S3OutStage {
                         stringValue(pair.first).orElse(null),
                         stringValue(pair.second).orElse(null)))
             .filter(pair -> pair.first != null && pair.second != null)
-            .map(
-                pair ->
-                    toS3(json, s3Request(pair.first, pair.second), logger).thenApply(Optional::of))
+            .map(pair -> toS3(json, s3Request(pair.first, pair.second)).thenApply(Optional::of))
             .orElseGet(() -> completedFuture(empty()));
   }
 
@@ -75,27 +68,18 @@ class S3OutStage {
       final Function<JsonObject, CompletionStage<Optional<JsonObject>>> put =
           putObject(
               function(expr.getValue("/" + BUCKET), context.features),
-              function(expr.getValue("/" + KEY), context.features),
-              context.logger);
+              function(expr.getValue("/" + KEY), context.features));
 
       return mapAsync(m -> put.apply(m.value).thenApply(json -> json.map(m::withValue).orElse(m)));
     };
   }
 
   private static CompletionStage<JsonObject> toS3(
-      final JsonObject json, final PutObjectRequest request, final Supplier<Logger> logger) {
-    return tryToGetForever(
-            () ->
-                getClient()
-                    .putObject(
-                        request.toBuilder()
-                            .contentLength((long) string(json).getBytes(UTF_8).length)
-                            .build(),
-                        fromPublisher(
-                            toPublisher(
-                                with(Source.of((JsonValue) json)).map(writeObject()).get()))),
-            () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
-            logger)
+      final JsonObject json, final PutObjectRequest request) {
+    return getClient()
+        .putObject(
+            request.toBuilder().contentLength((long) string(json).getBytes(UTF_8).length).build(),
+            fromPublisher(toPublisher(with(Source.of((JsonValue) json)).map(writeObject()).get())))
         .thenApply(result -> json);
   }
 }

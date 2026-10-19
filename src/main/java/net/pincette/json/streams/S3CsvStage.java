@@ -220,7 +220,7 @@ class S3CsvStage {
           function(expr.getValue("/" + KEY), context.features);
       final Function<
               JsonObject, CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>>
-          get = getObject(bucket, key, context.logger, S3CsvStage::isCsv);
+          get = getObject(bucket, key, S3CsvStage::isCsv);
       final MongoCollection<Document> resumeCollection = resumeCollection(expr, context);
       final Function<JsonObject, JsonValue> separator = separator(expr, context);
 

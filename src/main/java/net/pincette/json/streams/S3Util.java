@@ -3,7 +3,6 @@ package net.pincette.json.streams;
 import static java.util.Optional.empty;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static net.pincette.json.JsonUtil.stringValue;
-import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.util.Pair.pair;
 import static org.reactivestreams.FlowAdapters.toFlowPublisher;
 import static software.amazon.awssdk.services.s3.S3AsyncClient.create;
@@ -17,8 +16,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.util.Pair;
@@ -45,10 +42,8 @@ class S3Util {
   static Function<
           JsonObject, CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>>
       getObject(
-          final Function<JsonObject, JsonValue> bucket,
-          final Function<JsonObject, JsonValue> key,
-          final Supplier<Logger> logger) {
-    return getObject(bucket, key, logger, (req, res) -> true);
+          final Function<JsonObject, JsonValue> bucket, final Function<JsonObject, JsonValue> key) {
+    return getObject(bucket, key, (req, res) -> true);
   }
 
   static Function<
@@ -56,7 +51,6 @@ class S3Util {
       getObject(
           final Function<JsonObject, JsonValue> bucket,
           final Function<JsonObject, JsonValue> key,
-          final Supplier<Logger> logger,
           final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
     return json ->
         Optional.of(pair(bucket.apply(json), key.apply(json)))
@@ -66,7 +60,7 @@ class S3Util {
                         stringValue(pair.first).orElse(null),
                         stringValue(pair.second).orElse(null)))
             .filter(pair -> pair.first != null && pair.second != null)
-            .map(pair -> getObject(pair.first, pair.second, logger, condition))
+            .map(pair -> getObject(pair.first, pair.second, condition))
             .orElseGet(() -> completedFuture(empty()));
   }
 
@@ -84,16 +78,15 @@ class S3Util {
   }
 
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
-      final String bucket, final String key, final Supplier<Logger> logger) {
-    return getObject(bucket, key, logger, (req, res) -> true);
+      final String bucket, final String key) {
+    return getObject(bucket, key, (req, res) -> true);
   }
 
   static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>> getObject(
       final String bucket,
       final String key,
-      final Supplier<Logger> logger,
       final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
-    return getStream(s3Request(bucket, key), logger, condition);
+    return getStream(s3Request(bucket, key), condition);
   }
 
   static URL getObjectUrl(final String bucket, final String key) {
@@ -103,12 +96,9 @@ class S3Util {
   private static CompletionStage<Optional<Pair<GetObjectResponse, Publisher<ByteBuffer>>>>
       getStream(
           final GetObjectRequest request,
-          final Supplier<Logger> logger,
           final BiPredicate<GetObjectRequest, GetObjectResponse> condition) {
-    return tryToGetForever(
-            () -> getClient().getObject(request, new Response()),
-            () -> "Bucket: " + request.bucket() + ", key: " + request.key(),
-            logger)
+    return getClient()
+        .getObject(request, new Response())
         .thenApply(
             pair ->
                 Optional.of(pair.first)

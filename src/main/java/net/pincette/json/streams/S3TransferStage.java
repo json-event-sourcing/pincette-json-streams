@@ -7,7 +7,6 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static net.pincette.json.JsonUtil.*;
 import static net.pincette.json.streams.Common.S3TRANSFER;
 import static net.pincette.json.streams.Common.getRequestBuilder;
-import static net.pincette.json.streams.Common.tryToGetForever;
 import static net.pincette.json.streams.Logging.logStageObject;
 import static net.pincette.json.streams.S3Util.getObjectUrl;
 import static net.pincette.mongo.Expression.function;
@@ -23,8 +22,6 @@ import java.net.http.HttpRequest;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.logging.Logger;
 import javax.json.JsonObject;
 import javax.json.JsonValue;
 import net.pincette.json.JsonUtil;
@@ -79,39 +76,32 @@ class S3TransferStage {
   }
 
   private static Function<JsonObject, CompletionStage<JsonObject>> execute(
-      final HttpClient client, final MapperConfiguration mappers, final Supplier<Logger> logger) {
+      final HttpClient client, final MapperConfiguration mappers) {
     return message ->
-        tryToGetForever(
-            () ->
-                mappers
-                    .url(message)
-                    .flatMap(url -> createRequest(url, mappers.headers(message)))
-                    .map(
-                        request ->
-                            client
-                                .sendAsync(request, ofPublisher())
-                                .thenApply(
-                                    response ->
-                                        Chain.with(response.body())
-                                            .map(FlattenList.flattenList())
-                                            .get())
-                                .thenComposeAsync(
-                                    publisher ->
-                                        putObject(
-                                            mappers.bucket(message),
-                                            mappers.key(message),
-                                            mappers.contentType(message),
-                                            mappers.contentLength(message),
-                                            publisher))
-                                .thenApply(
-                                    putResponse ->
-                                        getObjectUrl(mappers.bucket(message), mappers.key(message)))
-                                .thenApply(
-                                    url -> annotateMessage(message, url, mappers.as(message)))
-                                .exceptionallyAsync(ignored -> serverError(message)))
-                    .orElseGet(() -> completedFuture(badRequest(message))),
-            () -> S3TRANSFER,
-            logger);
+        mappers
+            .url(message)
+            .flatMap(url -> createRequest(url, mappers.headers(message)))
+            .map(
+                request ->
+                    client
+                        .sendAsync(request, ofPublisher())
+                        .thenApply(
+                            response ->
+                                Chain.with(response.body()).map(FlattenList.flattenList()).get())
+                        .thenComposeAsync(
+                            publisher ->
+                                putObject(
+                                    mappers.bucket(message),
+                                    mappers.key(message),
+                                    mappers.contentType(message),
+                                    mappers.contentLength(message),
+                                    publisher))
+                        .thenApply(
+                            putResponse ->
+                                getObjectUrl(mappers.bucket(message), mappers.key(message)))
+                        .thenApply(url -> annotateMessage(message, url, mappers.as(message)))
+                        .exceptionallyAsync(ignored -> serverError(message)))
+            .orElseGet(() -> completedFuture(badRequest(message)));
   }
 
   private static HttpClient getClient(final JsonObject expression) {
@@ -136,7 +126,7 @@ class S3TransferStage {
     return getRequestBuilder(builder, headers);
   }
 
-  static Stage s3TransferStage(final Context outerContext) {
+  static Stage s3TransferStage() {
     return (expression, context) -> {
       if (!isObject(expression)) {
         logStageObject(S3TRANSFER, expression);
@@ -153,8 +143,7 @@ class S3TransferStage {
               && jsonExpression.containsKey(AS));
 
       final var mapperConfiguration = new MapperConfiguration(jsonExpression, context.features);
-      final var execute =
-          execute(getClient(jsonExpression), mapperConfiguration, outerContext.logger);
+      final var execute = execute(getClient(jsonExpression), mapperConfiguration);
 
       return mapAsync(message -> execute.apply(message.value).thenApply(message::withValue));
     };

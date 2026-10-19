@@ -1,5 +1,10 @@
 # Release Notes
 
+## 2.9.6
+
+* Remove internal retry logic and rely solely on the `onError` signal, which causes an 
+  application to restart.
+ 
 ## 2.9.5
 
 * Update dependencies.
