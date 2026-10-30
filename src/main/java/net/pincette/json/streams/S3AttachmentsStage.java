@@ -154,7 +154,7 @@ class S3AttachmentsStage {
     final String boundary = randomUUID().toString();
 
     return objectValue(headers)
-        .map(h -> !atts.isEmpty() ? addMimeHeaders(h, boundary) : h)
+        .map(h -> atts.isEmpty() ? h : addMimeHeaders(h, boundary))
         .map(h -> setHeaders(HttpRequest.newBuilder().uri(URI.create(url)).expectContinue(true), h))
         .map(
             request ->

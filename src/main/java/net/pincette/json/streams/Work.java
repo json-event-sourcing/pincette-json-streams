@@ -160,7 +160,7 @@ class Work<T, U, V, W> {
     return max(
         minimal,
         applicationInstances / context.maximumAppsPerInstance
-            + (applicationInstances % context.maximumAppsPerInstance != 0 ? 1 : 0));
+            + (applicationInstances % context.maximumAppsPerInstance == 0 ? 0 : 1));
   }
 
   private static int desiredApplicationInstances(

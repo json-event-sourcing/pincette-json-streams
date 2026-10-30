@@ -63,6 +63,6 @@ class Read {
   private static Loaded readTopology(final String path, final File file) {
     return new Loaded(
         readObject(path, baseDirectory(file, null)),
-        !path.startsWith(RESOURCE) ? baseDirectory(file, path) : null);
+        path.startsWith(RESOURCE) ? null : baseDirectory(file, path));
   }
 }
