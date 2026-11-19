@@ -124,7 +124,7 @@ macros:
     $exists: true
     $code: "REQUIRED"
 conditions:
-  - myfield: "_exists"
+  - myfield: "_exists_"
   - _jwt:
       conditions:
         - sub: "_exists_"
